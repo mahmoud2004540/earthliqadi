@@ -1,0 +1,21 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Only these packages may run install scripts (native builds / engine downloads).
+onlyBuiltDependencies:
+  - '@prisma/client'
+  - '@prisma/engines'
+  - argon2
+  - prisma
+  - '@nestjs/core'
+  - sharp
+  - unrs-resolver
+
+# Security overrides for vulnerable transitive dependencies (see docs/security/dependency-policy.md).
+# Remove each entry once the direct dependency ships the patched version.
+overrides:
+  next>postcss: 8.5.32 # GHSA-fxqj-rqcc-2cmp and related (next 15.5.28 pins 8.4.31)
+  multer: 2.5.0 # DoS advisory; @nestjs/platform-express 11.2.8 pins 2.4.0
+  js-yaml@5: 5.5.0 # GHSA-r3ph-w7gj-g6xm; @nestjs/swagger 11.4.7 pins 5.3.0
+  deepmerge-ts: 8.0.2 # stack exhaustion; @prisma/config 6.19.3 pins 7.1.5

@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NEXT_TELEMETRY_DISABLED: '1'
+
+jobs:
+  quality:
+    name: Format · lint · typecheck · unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm build:packages
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  integration:
+    name: API integration tests (PostgreSQL + Redis)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16.15-alpine
+        env:
+          POSTGRES_USER: exchange
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: exchange_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U exchange -d exchange_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7.4.12-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgresql://exchange:ci-only-password@localhost:5432/exchange_test
+      TEST_REDIS_URL: redis://localhost:6379/1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:integration
+
+  build:
+    name: Production build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+  docker:
+    name: Container images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API image
+        run: docker build -f infrastructure/docker/api.Dockerfile -t exchange-platform/api:ci .
+      - name: Build web image
+        run: docker build -f infrastructure/docker/web.Dockerfile -t exchange-platform/web:ci .
+      - name: Validate compose file
+        run: cp .env.example .env && docker compose config --quiet
+
+  security:
+    name: Dependency audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Fails on any high/critical advisory (runtime or tooling).
+      - run: pnpm audit --audit-level high

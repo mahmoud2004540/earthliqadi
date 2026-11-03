@@ -1,0 +1,46 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/noto-sans-arabic';
+
+/* Design tokens. Brand palette is provisional and centralised here. */
+@theme {
+  --color-background: #10151d;
+  --color-surface: #1b2532;
+  --color-surface-raised: #223042;
+  --color-border: #2a3646;
+  --color-foreground: #e7ecf3;
+  --color-muted: #8d9bb0;
+  --color-primary: #3978f6;
+  --color-primary-hover: #2f68db;
+  --color-positive: #25c997;
+  --color-negative: #f05b67;
+  --color-warning: #f2b544;
+
+  --font-sans: 'Inter Variable', 'Noto Sans Arabic Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-arabic:
+    'Noto Sans Arabic Variable', 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --radius-lg: 0.75rem;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings:
+      'tnum' 1,
+      'cv11' 1;
+  }
+  html[lang='ar'] body {
+    font-family: var(--font-arabic);
+  }
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-primary;
+  }
+  ::selection {
+    @apply bg-primary/40;
+  }
+}

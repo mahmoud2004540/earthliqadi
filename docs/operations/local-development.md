@@ -1,0 +1,80 @@
+# Local development
+
+## Prerequisites
+
+- Node.js 22 LTS (`.nvmrc`) and pnpm 10.28 (`corepack enable`)
+- Docker with Compose v2
+- Optional: a local PostgreSQL 16 and Redis 7 instead of Docker
+
+## Option A: full stack in Docker (production-like topology)
+
+```bash
+cp .env.example .env
+docker compose up --build -d
+docker compose ps                              # all services healthy
+open http://localhost:3000                     # edge proxy → web + /api
+docker compose logs -f api | grep "DEV MAIL"   # verification / reset links
+```
+
+The `migrate` service applies Prisma migrations and exits before `api` starts.
+The API is **not** published on a host port; use `http://localhost:3000/api/...`.
+
+## Option B: hot reload with pnpm
+
+```bash
+cp .env.example .env
+docker compose up -d postgres redis   # or run them natively
+pnpm install
+pnpm db:migrate                       # applies migrations using .env
+pnpm dev                              # API :4000 (watch) + web :3000 (Next dev)
+```
+
+In this mode Next.js proxies `/api` to the API (development only; see ADR-0004).
+Swagger UI: http://localhost:4000/docs when `SWAGGER_ENABLED=true`.
+
+## Creating the first staff account
+
+There are no default administrator accounts. Register and verify a normal
+account, then grant a role with the audited CLI:
+
+```bash
+pnpm --filter @platform/api build
+pnpm --filter @platform/api cli:grant-role -- --email you@example.test --role administrator --reason "local setup"
+# Docker: docker compose exec api node dist/cli/grant-role.js --email … --role … --reason …
+```
+
+## Quality checks
+
+```bash
+pnpm format:check && pnpm lint && pnpm typecheck && pnpm test   # = pnpm check
+pnpm test:integration    # needs PostgreSQL + Redis, see below
+pnpm build
+```
+
+Integration tests run against a **dedicated** database whose name must contain
+`test`. The default is
+`postgresql://exchange:exchange_dev_password@localhost:5432/exchange_test`;
+override it with `TEST_DATABASE_URL` and `TEST_REDIS_URL`. Migrations are
+applied automatically. Tests never truncate data (the audit log is append-only);
+they use unique emails instead.
+
+```bash
+# With the compose postgres (credentials from .env.example):
+docker compose exec postgres createdb -U exchange exchange_test
+TEST_DATABASE_URL=postgresql://exchange:dev-only-postgres-password@localhost:5432/exchange_test \
+  pnpm test:integration
+```
+
+## Troubleshooting
+
+| Symptom                                                             | Fix                                                                                                                                                                 |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API exits with `Invalid environment configuration` (exit 78)        | The message lists the variable names at fault. Compare with `.env.example`.                                                                                         |
+| `CSRF_INVALID` on every POST                                        | Call `GET /v1/auth/csrf` first and send `X-CSRF-Token`; keep cookies (`-c/-b` with curl).                                                                           |
+| `429 RATE_LIMITED` while testing locally                            | All local requests share one IP. Wait a minute, or clear dev keys: `docker compose exec redis sh -c "redis-cli --scan --pattern 'rl:*' \| xargs -r redis-cli del"`. |
+| Login says email not verified                                       | Find the link in the API log (`DEV MAIL`) and open it.                                                                                                              |
+| `ACCOUNT_LOCKED`                                                    | Wait `LOGIN_LOCKOUT_MINUTES`, or reset the password (reset clears the lock).                                                                                        |
+| Prisma: `Can't reach database server`                               | Is `postgres` healthy? Is `DATABASE_URL` pointing at `localhost` (pnpm mode) or `postgres` (inside Docker)?                                                         |
+| Port 5432 / 6379 / 3000 already in use                              | Stop the local service, or change the published port in `docker-compose.yml`.                                                                                       |
+| Image build fails fetching packages behind a TLS-intercepting proxy | Add the proxy CA to the build (e.g. a BuildKit secret appended to `/etc/ssl/certs/ca-certificates.crt` plus `NODE_EXTRA_CA_CERTS`).                                 |
+| `audit_logs is append-only` error                                   | Intended. Never delete audit rows; append a correcting entry instead.                                                                                               |

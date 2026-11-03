@@ -1,0 +1,114 @@
+# Local development stack. NOT a production deployment.
+# Usage: cp .env.example .env && docker compose up --build
+name: exchange-platform
+
+x-api-env: &api-env
+  NODE_ENV: production
+  DEPLOY_ENV: local
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  BRAND_NAME: ${BRAND_NAME:-Exchange}
+  DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+  REDIS_URL: redis://redis:6379/0
+  WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+  TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+  SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+  CSRF_SECRET: ${CSRF_SECRET:?set CSRF_SECRET in .env}
+  MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:?set MFA_ENCRYPTION_KEY in .env}
+  MAIL_TRANSPORT: ${MAIL_TRANSPORT:-log}
+  SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
+
+services:
+  postgres:
+    image: postgres:16.15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - '127.0.0.1:5432:5432' # loopback only
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4.12-alpine
+    command: ['redis-server', '--appendonly', 'yes', '--save', '']
+    volumes:
+      - redis-data:/data
+    ports:
+      - '127.0.0.1:6379:6379' # loopback only
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # One-shot: applies database migrations, then exits.
+  migrate:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    image: exchange-platform/api:dev
+    command: ['./node_modules/.bin/prisma', 'migrate', 'deploy']
+    environment: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  # Not published: reachable only through the edge proxy, which sets a
+  # trustworthy X-Forwarded-For (TRUST_PROXY_HOPS=1).
+  api:
+    image: exchange-platform/api:dev
+    environment: *api-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.Dockerfile
+      args:
+        NEXT_PUBLIC_BRAND_NAME: ${NEXT_PUBLIC_BRAND_NAME:-Exchange}
+    image: exchange-platform/web:dev
+    read_only: true
+    tmpfs: [/tmp, /app/apps/web/.next/cache]
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
+    restart: unless-stopped
+
+  # Single public entry point: http://localhost:3000
+  edge:
+    image: nginxinc/nginx-unprivileged:1.28-alpine
+    volumes:
+      - ./infrastructure/docker/edge/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:3000:8080' # loopback only
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:

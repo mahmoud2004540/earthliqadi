@@ -1,0 +1,184 @@
+// Phase 1 schema: identity, sessions, RBAC and audit.
+// Financial tables (ledger, balances, orders) are intentionally absent until Phase 2+.
+// Naming: models are PascalCase, tables/columns are snake_case via @@map/@map.
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+enum AccountType {
+  INDIVIDUAL
+  INSTITUTIONAL
+}
+
+enum TokenPurpose {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+enum ActorType {
+  USER
+  STAFF
+  SYSTEM
+  ANONYMOUS
+}
+
+enum AuditOutcome {
+  SUCCESS
+  FAILURE
+  DENIED
+}
+
+model User {
+  id                 String      @id @default(uuid()) @db.Uuid
+  /// Normalised (trimmed, lower-cased) email.
+  email              String      @unique @db.VarChar(254)
+  passwordHash       String      @map("password_hash")
+  status             UserStatus  @default(PENDING_VERIFICATION)
+  accountType        AccountType @default(INDIVIDUAL) @map("account_type")
+  locale             String      @default("en") @db.VarChar(8)
+  emailVerifiedAt    DateTime?   @map("email_verified_at") @db.Timestamptz(3)
+
+  /// AES-256-GCM encrypted TOTP secret (iv|tag|ciphertext). Never returned by the API.
+  mfaTotpSecretEnc   Bytes?      @map("mfa_totp_secret_enc")
+  /// Secret generated during enrolment, promoted to mfaTotpSecretEnc once confirmed.
+  mfaTotpPendingEnc  Bytes?      @map("mfa_totp_pending_enc")
+  mfaEnabledAt       DateTime?   @map("mfa_enabled_at") @db.Timestamptz(3)
+  /// Last accepted TOTP time-step; prevents code replay.
+  mfaLastUsedStep    BigInt?     @map("mfa_last_used_step")
+
+  failedLoginCount   Int         @default(0) @map("failed_login_count")
+  lockedUntil        DateTime?   @map("locked_until") @db.Timestamptz(3)
+  passwordChangedAt  DateTime    @default(now()) @map("password_changed_at") @db.Timestamptz(3)
+  createdAt          DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sessions           Session[]
+  tokens             VerificationToken[]
+  roles              UserRole[]  @relation("UserRoles")
+  grantedRoles       UserRole[]  @relation("RoleGrants")
+
+  @@map("users")
+}
+
+model Session {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  /// SHA-256 of the opaque session token. The raw token only exists in the client cookie.
+  tokenHash     String    @unique @map("token_hash") @db.Char(64)
+  ipAddress     String?   @map("ip_address") @db.VarChar(64)
+  userAgent     String?   @map("user_agent") @db.VarChar(512)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastSeenAt    DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  /// Absolute expiry; idle expiry is derived from lastSeenAt.
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt     DateTime? @map("revoked_at") @db.Timestamptz(3)
+  revokedReason String?   @map("revoked_reason") @db.VarChar(64)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, revokedAt])
+  @@map("sessions")
+}
+
+model VerificationToken {
+  id         String       @id @default(uuid()) @db.Uuid
+  userId     String       @map("user_id") @db.Uuid
+  purpose    TokenPurpose
+  /// SHA-256 of the opaque token sent by email.
+  tokenHash  String       @unique @map("token_hash") @db.Char(64)
+  expiresAt  DateTime     @map("expires_at") @db.Timestamptz(3)
+  consumedAt DateTime?    @map("consumed_at") @db.Timestamptz(3)
+  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, purpose])
+  @@map("verification_tokens")
+}
+
+model Role {
+  id          String           @id @default(uuid()) @db.Uuid
+  key         String           @unique @db.VarChar(64)
+  name        String           @db.VarChar(128)
+  description String
+  isStaff     Boolean          @default(false) @map("is_staff")
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  permissions RolePermission[]
+  users       UserRole[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(uuid()) @db.Uuid
+  key         String           @unique @db.VarChar(64)
+  description String
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @map("role_id") @db.Uuid
+  permissionId String @map("permission_id") @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  userId      String   @map("user_id") @db.Uuid
+  roleId      String   @map("role_id") @db.Uuid
+  grantedAt   DateTime @default(now()) @map("granted_at") @db.Timestamptz(3)
+  /// Null when granted by the system (registration default) or the audited CLI.
+  grantedById String?  @map("granted_by_id") @db.Uuid
+
+  user      User  @relation("UserRoles", fields: [userId], references: [id], onDelete: Restrict)
+  role      Role  @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  grantedBy User? @relation("RoleGrants", fields: [grantedById], references: [id], onDelete: Restrict)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+/// Append-only. UPDATE/DELETE/TRUNCATE are blocked by a database trigger (see migration).
+model AuditLog {
+  id          BigInt       @id @default(autoincrement())
+  occurredAt  DateTime     @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  actorType   ActorType    @map("actor_type")
+  actorUserId String?      @map("actor_user_id") @db.Uuid
+  action      String       @db.VarChar(96)
+  outcome     AuditOutcome
+  targetType  String?      @map("target_type") @db.VarChar(64)
+  targetId    String?      @map("target_id") @db.VarChar(128)
+  ipAddress   String?      @map("ip_address") @db.VarChar(64)
+  userAgent   String?      @map("user_agent") @db.VarChar(512)
+  requestId   String?      @map("request_id") @db.VarChar(64)
+  /// Non-sensitive structured context. Never store secrets, tokens or passwords here.
+  metadata    Json         @default("{}")
+
+  @@index([actorUserId, occurredAt])
+  @@index([action, occurredAt])
+  @@index([targetType, targetId])
+  @@map("audit_logs")
+}

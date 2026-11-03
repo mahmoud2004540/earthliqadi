@@ -1,0 +1,338 @@
+/**
+ * English dictionary — the reference shape for all locales.
+ * Content rule: never state that the platform is licensed, audited, insured,
+ * solvent or partnered with anyone unless independently verified.
+ */
+export const en = {
+  meta: {
+    description:
+      'A security-first digital asset exchange in development. Pre-launch: no live trading and no customer funds.',
+  },
+  banner:
+    'Pre-launch development build. No real funds, no live trading and no regulated services are offered.',
+  nav: {
+    markets: 'Markets',
+    trade: 'Trade',
+    fees: 'Fees',
+    security: 'Security',
+    trust: 'Trust Center',
+    api: 'API',
+    login: 'Sign in',
+    register: 'Create account',
+    dashboard: 'Dashboard',
+    logout: 'Sign out',
+    language: 'العربية',
+    menu: 'Menu',
+  },
+  footer: {
+    tagline: 'Security-first digital asset trading infrastructure.',
+    company: 'Company',
+    resources: 'Resources',
+    legalHeading: 'Legal',
+    about: 'About',
+    contact: 'Contact & support',
+    legal: 'Legal information',
+    risk: 'Risk disclosures',
+    disclaimer:
+      'Digital assets are highly volatile and you can lose all of your investment. This software is under development and is not an offer of any financial service.',
+  },
+  status: {
+    notPublished: 'Not yet published',
+    inDevelopment: 'In development',
+    planned: 'Planned',
+    available: 'Available',
+    phase: 'Phase',
+  },
+  home: {
+    eyebrow: 'Pre-launch · Engineering preview',
+    title: 'Professional trading, built on verifiable trust.',
+    subtitle:
+      'An independent exchange platform engineered around strict security, double-entry accounting and transparent operations — with a fast, professional trading experience on top.',
+    ctaPrimary: 'Create an account',
+    ctaSecondary: 'Visit the Trust Center',
+    pillars: [
+      {
+        title: 'Security in every layer',
+        body: 'Argon2id passwords, server-side sessions you can revoke, TOTP two-factor authentication, role-based access control and an append-only audit trail.',
+      },
+      {
+        title: 'Transparency by design',
+        body: 'Proof of reserves and liabilities, audit reports and incident history will be published in the Trust Center — only once they are real and verified.',
+      },
+      {
+        title: 'Built for professionals',
+        body: 'Deterministic price-time-priority matching, real-time market data and institutional APIs are on the roadmap, each gated by testing and review.',
+      },
+    ],
+    roadmapTitle: 'Where we are',
+    roadmapIntro:
+      'We build in controlled phases. Each phase ships with tests, security review and documentation before the next begins.',
+    phases: [
+      { name: 'Architecture & foundation', status: 'available' },
+      { name: 'Accounts, authentication & access control', status: 'available' },
+      { name: 'Double-entry financial ledger', status: 'planned' },
+      { name: 'Spot matching engine', status: 'planned' },
+      { name: 'Market data & trading terminal', status: 'planned' },
+      { name: 'Paper trading & simulation', status: 'planned' },
+      { name: 'Perpetual futures & risk simulation', status: 'planned' },
+      { name: 'Admin, compliance & monitoring', status: 'planned' },
+      { name: 'Custody & liquidity integrations', status: 'planned' },
+      { name: 'Security audits & regulatory readiness', status: 'planned' },
+      { name: 'Controlled launch (after required approvals)', status: 'planned' },
+    ],
+  },
+  pages: {
+    about: {
+      title: 'About',
+      intro:
+        'We are building an independent, security-first centralized exchange. The final brand and legal entity have not been announced yet.',
+      sections: [
+        {
+          heading: 'Our approach',
+          body: 'Trust is earned with evidence, not claims. We will publish verifiable information — legal identity, regulatory status, audits and reserves — as it becomes real, and nothing before.',
+        },
+        {
+          heading: 'Current status',
+          body: 'The platform is in pre-launch development. It does not accept customer funds and does not offer trading or any regulated service.',
+        },
+      ],
+    },
+    security: {
+      title: 'Security Center',
+      intro: 'How we protect accounts today, and what is still being built.',
+      sections: [
+        {
+          heading: 'Account protection (implemented)',
+          body: 'Passwords are hashed with Argon2id. Sessions are server-side, expire on inactivity, and can be reviewed and revoked from your dashboard. Time-based one-time passwords (TOTP) provide two-factor authentication.',
+        },
+        {
+          heading: 'Abuse protection (implemented)',
+          body: 'Sign-in attempts are rate-limited and accounts lock temporarily after repeated failures. Requests are protected against cross-site request forgery.',
+        },
+        {
+          heading: 'Accountability (implemented)',
+          body: 'Security-relevant actions are written to an append-only audit log that cannot be edited or deleted, including by administrators.',
+        },
+        {
+          heading: 'In development',
+          body: 'Withdrawal address allow-lists, hardware security keys (WebAuthn), recovery codes, anti-phishing codes and device approval are planned before any launch.',
+        },
+        {
+          heading: 'Report a vulnerability',
+          body: 'A coordinated disclosure policy and contact will be published here before launch.',
+        },
+      ],
+    },
+    trust: {
+      title: 'Trust Center',
+      intro:
+        'This page will hold verifiable information about who operates the exchange and how customer assets are protected. Items are published only when they are real and independently verifiable.',
+      items: [
+        'Legal company identity',
+        'Regulatory status & licences',
+        'Security architecture',
+        'Independent audit reports',
+        'Custody arrangements',
+        'Proof of Reserves',
+        'Proof of Liabilities',
+        'Asset coverage methodology',
+        'Risk disclosures',
+        'Fee schedule',
+        'Market data methodology',
+        'Incident history',
+        'Service status',
+        'Complaints process',
+        'Contact information',
+      ],
+      itemNote: 'Will be published here once verified.',
+    },
+    fees: {
+      title: 'Fees',
+      intro:
+        'No fee schedule has been published. No fees are charged because no services are offered.',
+      sections: [
+        {
+          heading: 'Our commitment',
+          body: 'Before launch, the complete fee schedule — trading, deposit, withdrawal and any network fees — will be published here in plain language.',
+        },
+      ],
+    },
+    markets: {
+      title: 'Markets',
+      intro: 'No markets are listed yet.',
+      sections: [
+        {
+          heading: 'Why this page is empty',
+          body: 'Market data will appear once the market data service is live. We never display simulated prices, volume or liquidity as if they were real.',
+        },
+      ],
+    },
+    trade: {
+      title: 'Trading terminal',
+      intro: 'The professional trading terminal is not available yet.',
+      sections: [
+        {
+          heading: 'What is coming',
+          body: 'Candlestick charts, order book, recent trades, depth, limit/market/stop orders, positions and risk indicators — delivered after the ledger and matching engine pass testing and review.',
+        },
+      ],
+    },
+    api: {
+      title: 'API',
+      intro:
+        'Public REST and WebSocket APIs are planned for professional and institutional clients.',
+      sections: [
+        {
+          heading: 'Status',
+          body: 'Scoped API keys, IP allow-listing, rate limits and WebSocket market data are on the roadmap. Developer documentation will be published here when the APIs are available.',
+        },
+      ],
+    },
+    risk: {
+      title: 'Risk disclosures',
+      intro: 'Please read carefully.',
+      sections: [
+        {
+          heading: 'Volatility',
+          body: 'Digital asset prices can change rapidly and unpredictably. You may lose some or all of the value of your assets.',
+        },
+        {
+          heading: 'Leverage',
+          body: 'Leveraged products such as perpetual futures magnify both gains and losses and can result in rapid liquidation.',
+        },
+        {
+          heading: 'No investment advice',
+          body: 'Nothing on this website is investment, legal or tax advice.',
+        },
+        {
+          heading: 'Development status',
+          body: 'This platform is pre-launch software. It is not authorised to provide services and must not be used with real funds.',
+        },
+      ],
+    },
+    legal: {
+      title: 'Legal information',
+      intro:
+        'Legal entity, registered address, terms of service and privacy policy have not been published.',
+      sections: [
+        {
+          heading: 'Before launch',
+          body: 'Terms of service, privacy policy, cookie policy and regulatory disclosures will be published after specialist legal review and before any service is offered.',
+        },
+        {
+          heading: 'Cookies',
+          body: 'This site uses only strictly necessary cookies: a session cookie when you are signed in and a security token that protects forms.',
+        },
+      ],
+    },
+    contact: {
+      title: 'Contact & support',
+      intro: 'Support channels will open before launch.',
+      sections: [
+        {
+          heading: 'Support',
+          body: 'A ticketing system and help center are planned. Official contact addresses will be listed here — be cautious of anyone claiming to represent us before then.',
+        },
+      ],
+    },
+  },
+  auth: {
+    email: 'Email',
+    password: 'Password',
+    newPassword: 'New password',
+    currentPassword: 'Current password',
+    passwordHint: 'At least 12 characters. A passphrase is easiest to remember.',
+    acceptTerms: 'I understand this is pre-launch software and accept the risk disclosures.',
+    loginTitle: 'Sign in',
+    loginSubmit: 'Sign in',
+    registerTitle: 'Create your account',
+    registerSubmit: 'Create account',
+    registerDone:
+      'Check your inbox. If the address can be registered, we have sent a verification link.',
+    haveAccount: 'Already have an account?',
+    noAccount: 'New here?',
+    forgot: 'Forgot password?',
+    forgotTitle: 'Reset your password',
+    forgotSubmit: 'Send reset link',
+    forgotDone: 'If an account exists for that address, a reset link is on its way.',
+    resetTitle: 'Choose a new password',
+    resetSubmit: 'Update password',
+    resetDone: 'Your password was updated and all sessions were signed out. You can now sign in.',
+    verifyTitle: 'Verify your email',
+    verifying: 'Verifying…',
+    verifyDone: 'Your email is verified. You can now sign in.',
+    resend: 'Resend verification email',
+    mfaTitle: 'Two-factor authentication',
+    mfaPrompt: 'Enter the 6-digit code from your authenticator app.',
+    mfaCode: 'Authentication code',
+    mfaSubmit: 'Verify',
+    missingToken: 'This link is incomplete. Please use the full link from your email.',
+    errors: {
+      INVALID_CREDENTIALS: 'Incorrect email or password.',
+      ACCOUNT_LOCKED: 'Too many failed attempts. Try again later or reset your password.',
+      EMAIL_NOT_VERIFIED: 'Please verify your email address first.',
+      ACCOUNT_NOT_ACTIVE: 'This account is not active. Please contact support.',
+      INVALID_TOKEN: 'This link is invalid or has expired.',
+      MFA_INVALID: 'That code is not valid. Wait for a new code and try again.',
+      RATE_LIMITED: 'Too many requests. Please wait a minute and try again.',
+      VALIDATION_FAILED: 'Please check the highlighted fields.',
+      generic: 'Something went wrong. Please try again.',
+    },
+  },
+  dashboard: {
+    title: 'Dashboard',
+    overview: 'Overview',
+    securityTab: 'Security',
+    welcome: 'Signed in as',
+    accountStatus: 'Account status',
+    accountType: 'Account type',
+    twoFactor: 'Two-factor authentication',
+    enabled: 'Enabled',
+    disabled: 'Not enabled',
+    memberSince: 'Member since',
+    modulesTitle: 'Account modules',
+    modules: [
+      { name: 'Wallet & balances', phase: 2 },
+      { name: 'Portfolio', phase: 4 },
+      { name: 'Deposits & withdrawals', phase: 8 },
+      { name: 'Transaction history', phase: 2 },
+      { name: 'Orders & trade history', phase: 5 },
+      { name: 'Identity verification (KYC)', phase: 7 },
+      { name: 'Notifications', phase: 7 },
+      { name: 'Support tickets', phase: 7 },
+    ],
+    sessionsTitle: 'Active sessions',
+    sessionsIntro:
+      'Devices currently signed in to your account. Revoke anything you do not recognise.',
+    thisDevice: 'This device',
+    lastActive: 'Last active',
+    revoke: 'Revoke',
+    revokeOthers: 'Sign out all other sessions',
+    mfaTitle: 'Authenticator app (TOTP)',
+    mfaIntro: 'Protect sign-in with a code from an authenticator app.',
+    mfaStart: 'Set up',
+    mfaConfirmPassword: 'Confirm your password to continue',
+    mfaScan: 'Add this key to your authenticator app, then enter the 6-digit code it shows.',
+    mfaSecret: 'Setup key',
+    mfaEnable: 'Enable',
+    mfaDisable: 'Disable two-factor authentication',
+    mfaEnabledNotice: 'Two-factor authentication is enabled.',
+    passwordTitle: 'Change password',
+    passwordIntro: 'Changing your password signs out all other sessions.',
+    passwordSubmit: 'Change password',
+    passwordDone: 'Password changed.',
+    loading: 'Loading…',
+    cancel: 'Cancel',
+  },
+} as const;
+
+type Widen<T> = T extends string
+  ? string
+  : T extends number
+    ? number
+    : T extends readonly (infer U)[]
+      ? readonly Widen<U>[]
+      : { readonly [K in keyof T]: Widen<T[K]> };
+
+/** Every locale must provide exactly this shape (checked at compile time). */
+export type Dictionary = Widen<typeof en>;
