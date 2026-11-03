@@ -5,7 +5,15 @@ import {
   type OnApplicationBootstrap,
   type OnApplicationShutdown,
 } from '@nestjs/common';
-import type { EngineEvent, Order, OrderStatus, Prisma } from '@prisma/client';
+import type {
+  EngineEvent,
+  LedgerAccountType,
+  Order,
+  OrderStatus,
+  Position,
+  PositionStatus,
+  Prisma,
+} from '@prisma/client';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { PrismaService } from '../infrastructure/prisma/prisma.service';
 import { toMinorUnits, type EntryRequest } from '../ledger/ledger-domain';
@@ -17,6 +25,9 @@ import {
 import { unitsOf, type MarketWithAssets } from './markets.service';
 import { baseAmount, feeFor, quoteAmount } from './order-math';
 import { isTerminal, nextStatus } from './order-state';
+import { parsePerpConfig, type PerpConfig } from '../perps/perp-config';
+import { applyFill, initialMargin, type PositionState } from '../perps/perp-math';
+import { perpHold, positionState } from '../perps/perp-orders';
 
 const SETTLEMENT_ACTOR: LedgerActor = { actorType: 'SYSTEM', requestId: 'settlement' };
 
@@ -71,12 +82,48 @@ interface TradeDraft {
   data: Omit<Prisma.TradeCreateManyInput, 'journalEntryId'>;
 }
 
+/** In-memory working copy of a perpetual position during one batch. */
+interface WorkingPosition {
+  row: Position;
+  state: PositionState;
+  realizedPnl: bigint;
+  status: PositionStatus;
+  dirty: boolean;
+}
+
+interface PerpBatch {
+  config: PerpConfig;
+  /** By user id (one position per user and market). */
+  positions: Map<string, WorkingPosition>;
+}
+
 interface BatchContext {
   acc: TransactionalAccounts;
   market: MarketWithAssets;
   orders: Map<string, WorkingOrder>;
   entries: EntryRequest[];
   trades: TradeDraft[];
+  perp: PerpBatch | null;
+}
+
+/** Accumulates transfers and nets them per account (an entry lists each account once). */
+class NetTransfers {
+  private readonly net = new Map<string, bigint>();
+  /** Moves value out of `from` into `to` (debit source, credit destination). */
+  move(from: string, to: string, amount: bigint): void {
+    if (amount < 0n) throw new SettlementInvariantError('Negative transfer');
+    if (amount === 0n || from === to) return;
+    this.net.set(from, (this.net.get(from) ?? 0n) + amount);
+    this.net.set(to, (this.net.get(to) ?? 0n) - amount);
+  }
+  postings(): EntryRequest['postings'] {
+    const out: EntryRequest['postings'] = [];
+    for (const [accountId, v] of this.net) {
+      if (v > 0n) out.push({ accountId, direction: 'DEBIT', amount: v });
+      else if (v < 0n) out.push({ accountId, direction: 'CREDIT', amount: -v });
+    }
+    return out;
+  }
 }
 
 function referencedOrderIds(e: EnginePayload): string[] {
@@ -167,7 +214,11 @@ export class SettlementService {
           ),
           entries: [],
           trades: [],
+          perp: null,
         };
+        if (market.kind === 'PERPETUAL') {
+          ctx.perp = await this.loadPositions(tx, market, rows);
+        }
 
         for (const event of events) {
           if (event.seq !== last + 1n) {
@@ -186,6 +237,7 @@ export class SettlementService {
           });
         }
         await this.writeOrders(tx, ctx);
+        if (ctx.perp) await this.writePositions(tx, ctx.perp);
         await tx.settlementState.update({
           where: { marketId: market.id },
           data: { lastEventSeq: last },
@@ -196,6 +248,58 @@ export class SettlementService {
     );
     (accounts as TransactionalAccounts | null)?.commit(); // only after a successful commit
     return processed;
+  }
+
+  /**
+   * Locks the positions of every user in the batch, in id order, BEFORE any
+   * ledger account (global lock order: positions → ledger → market sequence).
+   */
+  private async loadPositions(
+    tx: Prisma.TransactionClient,
+    market: MarketWithAssets,
+    orders: Order[],
+  ): Promise<PerpBatch> {
+    const userIds = [...new Set(orders.map((o) => o.userId))];
+    const positions = new Map<string, WorkingPosition>();
+    if (userIds.length > 0) {
+      await tx.$queryRaw`
+        SELECT "id" FROM "positions"
+         WHERE "market_id" = ${market.id}::uuid AND "user_id" = ANY(${userIds}::uuid[])
+         ORDER BY "id" FOR UPDATE`;
+      const rows = await tx.position.findMany({
+        where: { marketId: market.id, userId: { in: userIds } },
+      });
+      for (const row of rows) {
+        positions.set(row.userId, {
+          row,
+          state: positionState(row),
+          realizedPnl: toMinorUnits(row.realizedPnl),
+          status: row.status,
+          dirty: false,
+        });
+      }
+    }
+    return { config: parsePerpConfig(market.perpConfig), positions };
+  }
+
+  private async writePositions(tx: Prisma.TransactionClient, perp: PerpBatch): Promise<void> {
+    const dirty = [...perp.positions.values()].filter((p) => p.dirty);
+    if (dirty.length === 0) return;
+    await tx.$executeRaw`
+      UPDATE "positions" AS p
+         SET "size_lots" = v."size",
+             "entry_notional" = v."entry",
+             "margin" = v."margin",
+             "realized_pnl" = v."pnl",
+             "status" = v."status"::"PositionStatus",
+             "updated_at" = now()
+        FROM (SELECT unnest(${dirty.map((p) => p.row.id)}::uuid[]) AS "id",
+                     unnest(${dirty.map((p) => p.state.size.toString())}::bigint[]) AS "size",
+                     unnest(${dirty.map((p) => p.state.entry.toString())}::numeric[]) AS "entry",
+                     unnest(${dirty.map((p) => p.state.margin.toString())}::numeric[]) AS "margin",
+                     unnest(${dirty.map((p) => p.realizedPnl.toString())}::numeric[]) AS "pnl",
+                     unnest(${dirty.map((p) => p.status)}::text[]) AS "status") AS v
+       WHERE p."id" = v."id"`;
   }
 
   /** One bulk UPDATE for every order changed in the batch. */
@@ -258,7 +362,8 @@ export class SettlementService {
         return;
       }
       case 'trade':
-        await this.settleTrade(ctx, event, e);
+        if (ctx.perp) await this.settlePerpTrade(ctx, ctx.perp, event, e);
+        else await this.settleTrade(ctx, event, e);
         return;
       case 'filled': {
         const order = this.order(ctx, e.order_id);
@@ -424,7 +529,14 @@ export class SettlementService {
     if (reducedBy <= 0n)
       throw new SettlementInvariantError(`Invalid reduction for order ${order.row.id}`);
     let release: bigint;
-    if (order.row.side === 'SELL') {
+    if (ctx.perp) {
+      const r = order.row;
+      release =
+        r.isLiquidation || r.priceTicks === null
+          ? 0n
+          : perpHold(ctx.market, r.priceTicks, reducedBy, r.leverage ?? 1, r.reduceOnly);
+      if (release > order.locked) release = order.locked; // per-part rounding
+    } else if (order.row.side === 'SELL') {
       release = baseAmount(reducedBy, u);
     } else {
       if (order.row.priceTicks === null)
@@ -439,6 +551,167 @@ export class SettlementService {
     order.quantityLots -= reducedBy;
     order.locked -= release;
     this.transition(order, nextStatus(order.status, 'reduced'));
+  }
+
+  /**
+   * Settles a perpetual fill (ADR-0011): no base asset moves. Each side's fill
+   * is split into closing and opening parts; realised PnL is paid by (or to)
+   * PERP_CLEARING, opening margin moves from the order hold to USER_MARGIN, and
+   * fees go to FEE_REVENUE (liquidations: INSURANCE_FUND). One balanced entry.
+   */
+  private async settlePerpTrade(
+    ctx: BatchContext,
+    perp: PerpBatch,
+    event: EngineEvent,
+    e: Extract<EnginePayload, { type: 'trade' }>,
+  ): Promise<void> {
+    const { market, acc } = ctx;
+    const u = unitsOf(market);
+    const quoteId = market.quoteAssetId;
+    const maker = this.order(ctx, e.maker_order_id);
+    const taker = this.order(ctx, e.taker_order_id);
+    const [buyer, seller] = e.taker_side === 'buy' ? [taker, maker] : [maker, taker];
+    if (buyer.row.side !== 'BUY' || seller.row.side !== 'SELL')
+      throw new SettlementInvariantError('Trade sides do not match orders');
+    if (buyer.row.userId === seller.row.userId)
+      throw new SettlementInvariantError('Self-trade reached settlement');
+    const priceTicks = BigInt(e.price);
+    const lots = BigInt(e.quantity);
+    if (buyer.row.priceTicks !== null && priceTicks > buyer.row.priceTicks)
+      throw new SettlementInvariantError(`Trade price above buyer limit for order ${buyer.row.id}`);
+    if (seller.row.priceTicks !== null && priceTicks < seller.row.priceTicks)
+      throw new SettlementInvariantError(
+        `Trade price below seller limit for order ${seller.row.id}`,
+      );
+    const notional = quoteAmount(priceTicks, lots, u);
+
+    const t = new NetTransfers();
+    const id = (type: LedgerAccountType, owner: string | null): Promise<string> =>
+      acc.id(quoteId, type, owner);
+    const clearing = await id('PERP_CLEARING', null);
+    const fees: bigint[] = [];
+
+    for (const [order, dq] of [
+      [buyer, lots],
+      [seller, -lots],
+    ] as const) {
+      const userId = order.row.userId;
+      const wp = perp.positions.get(userId);
+      if (!wp)
+        throw new SettlementInvariantError(`No position row for ${userId} on ${market.symbol}`);
+      const filled = order.filledLots + lots;
+      if (filled > order.quantityLots)
+        throw new SettlementInvariantError(`Overfill on order ${order.row.id}`);
+      const remainingInEvent = BigInt(order === maker ? e.maker_remaining : e.taker_remaining);
+      if (order.quantityLots - filled !== remainingInEvent)
+        throw new SettlementInvariantError(`Remaining quantity mismatch on order ${order.row.id}`);
+
+      const available = await id('USER_AVAILABLE', userId);
+      const locked = await id('USER_LOCKED', userId);
+      const margin = await id('USER_MARGIN', userId);
+      const isLiq = order.row.isLiquidation;
+      const feeAccount = await id(isLiq ? 'INSURANCE_FUND' : 'FEE_REVENUE', null);
+      const leverage = order.row.leverage ?? wp.row.leverage;
+
+      const r = applyFill(wp.state, dq, notional);
+
+      // 1. Spend this fill's share of the order hold: fee, then opening margin, rest back.
+      let budget = 0n;
+      if (!isLiq && order.row.priceTicks !== null) {
+        const share = perpHold(market, order.row.priceTicks, lots, leverage, order.row.reduceOnly);
+        budget = share < order.locked ? share : order.locked;
+      }
+      order.locked -= budget;
+      const feeBps = isLiq
+        ? perp.config.liquidationFeeBps
+        : order === maker
+          ? market.makerFeeBps
+          : market.takerFeeBps;
+      const feeDue = feeFor(notional, feeBps);
+      const feeFromHold = feeDue < budget ? feeDue : budget;
+      t.move(locked, feeAccount, feeFromHold);
+      budget -= feeFromHold;
+      const marginWanted = r.openedLots > 0n ? initialMargin(r.openNotional, leverage) : 0n;
+      const openMargin = marginWanted < budget ? marginWanted : budget;
+      t.move(locked, margin, openMargin);
+      budget -= openMargin;
+      t.move(locked, available, budget);
+      let toAvailable = budget;
+
+      // 2. Closing part: released margin plus realised PnL.
+      let positionMargin = r.next.margin;
+      if (r.realizedPnl >= 0n) {
+        t.move(clearing, available, r.realizedPnl);
+        t.move(margin, available, r.releasedMargin);
+        toAvailable += r.realizedPnl + r.releasedMargin;
+      } else {
+        const loss = -r.realizedPnl;
+        const fromReleased = loss < r.releasedMargin ? loss : r.releasedMargin;
+        t.move(margin, clearing, fromReleased);
+        t.move(margin, available, r.releasedMargin - fromReleased);
+        toAvailable += r.releasedMargin - fromReleased;
+        let rest = loss - fromReleased;
+        // Possible only through rounding or a reduce-only race (ADR-0011):
+        // the remaining position margin, then the insurance fund, absorb it.
+        const fromPosition = rest < positionMargin ? rest : positionMargin;
+        t.move(margin, clearing, fromPosition);
+        positionMargin -= fromPosition;
+        rest -= fromPosition;
+        if (rest > 0n) {
+          this.logger.warn(
+            { market: market.symbol, userId, shortfall: rest.toString() },
+            'Bankrupt fill: insurance fund covers the shortfall',
+          );
+          t.move(await id('INSURANCE_FUND', null), clearing, rest);
+        }
+      }
+
+      // 3. Any fee the hold could not cover comes out of what the fill paid out.
+      const feeLeft = feeDue - feeFromHold;
+      const feeFromPayout = feeLeft < toAvailable ? feeLeft : toAvailable;
+      t.move(available, feeAccount, feeFromPayout);
+      fees.push(feeFromHold + feeFromPayout);
+
+      wp.state = { ...r.next, margin: positionMargin + openMargin };
+      wp.realizedPnl += r.realizedPnl;
+      if (wp.state.size === 0n) wp.status = 'NORMAL';
+      wp.dirty = true;
+
+      order.filledLots = filled;
+      this.transition(order, nextStatus(order.status, 'trade'));
+    }
+
+    const postings = t.postings();
+    if (postings.length < 2)
+      throw new SettlementInvariantError(
+        `Perpetual fill ${market.symbol}#${event.seq} moved nothing`,
+      );
+    const key = `trade:${market.id}:${event.seq}`;
+    ctx.entries.push({
+      type: 'TRADE',
+      idempotencyKey: key,
+      description: `Perpetual trade ${market.symbol} #${event.seq}`,
+      postings,
+    });
+    ctx.trades.push({
+      key,
+      data: {
+        marketId: market.id,
+        eventSeq: event.seq,
+        makerOrderId: maker.row.id,
+        takerOrderId: taker.row.id,
+        buyerUserId: buyer.row.userId,
+        sellerUserId: seller.row.userId,
+        takerSide: taker.row.side,
+        priceTicks,
+        quantityLots: lots,
+        baseAmount: baseAmount(lots, u).toString(),
+        quoteAmount: notional.toString(),
+        buyerFee: fees[0]!.toString(),
+        sellerFee: fees[1]!.toString(),
+        executedAt: event.createdAt,
+      },
+    });
   }
 
   /** Terminal transition: releases whatever is still held for the order. */

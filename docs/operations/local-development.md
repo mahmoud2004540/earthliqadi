@@ -89,6 +89,42 @@ docker compose exec api node dist/cli/ledger.js create-asset --code PUSD --name 
 docker compose exec engine engine-replay
 ```
 
+## Perpetual futures (paper)
+
+A perpetual market needs paper assets and a `perp` configuration (admin API,
+`markets:configure`). Example request body for `POST /api/v1/admin/markets`:
+
+```json
+{
+  "base": "PBTC",
+  "quote": "PUSD",
+  "tickSize": "0.01",
+  "lotSize": "0.0001",
+  "makerFeeBps": 2,
+  "takerFeeBps": 5,
+  "kind": "perpetual",
+  "perp": {
+    "defaultLeverage": 10,
+    "tiers": [{ "maxNotional": "100000", "maxLeverage": 20, "mmrBps": 250 }],
+    "fundingIntervalSeconds": 3600,
+    "fundingClampBps": 75,
+    "maxBasisBps": 50,
+    "liquidationFeeBps": 50,
+    "priceBandBps": 1000,
+    "index": {
+      "sources": [{ "type": "spot", "market": "PBTC-PUSD" }],
+      "staleSeconds": 30,
+      "outlierBps": 500,
+      "minSources": 1
+    }
+  }
+}
+```
+
+The risk engine (index/mark, funding, liquidation) runs every
+`PERP_RISK_POLL_MS` (0 disables it). Seed the paper insurance fund with
+`POST /api/v1/admin/perp/insurance-fund {"asset":"PUSD","amount":"10000"}`.
+
 ## Quality checks
 
 ```bash

@@ -15,6 +15,7 @@ export default async function globalSetup(): Promise<void> {
   process.env.E2E_QUOTE = quote;
   const [paperBase, paperQuote] = [`PB${run}`, `PQ${run}`];
   process.env.E2E_PAPER_MARKET = `${paperBase}-${paperQuote}`;
+  process.env.E2E_PERP_MARKET = `${paperBase}-${paperQuote}-PERP`;
   const baseURL = process.env.E2E_BASE_URL ?? 'http://localhost:3000';
   compose(
     'exec',
@@ -103,6 +104,39 @@ export default async function globalSetup(): Promise<void> {
       },
     });
     if (!paper.ok()) throw new Error(`paper market creation failed: ${paper.status()}`);
+    // Paper perpetual with a clearly labelled SIMULATED index feed (ADR-0011).
+    const perp = await api.post('/api/v1/admin/markets', {
+      headers,
+      data: {
+        base: paperBase,
+        quote: paperQuote,
+        tickSize: '0.01',
+        lotSize: '0.0001',
+        makerFeeBps: 2,
+        takerFeeBps: 5,
+        kind: 'perpetual',
+        perp: {
+          defaultLeverage: 10,
+          tiers: [
+            { maxNotional: '100000', maxLeverage: 20, mmrBps: 250 },
+            { maxNotional: '1000000', maxLeverage: 10, mmrBps: 500 },
+          ],
+          fundingIntervalSeconds: 3600,
+          fundingClampBps: 75,
+          maxBasisBps: 50,
+          liquidationFeeBps: 50,
+          priceBandBps: 1000,
+          index: {
+            sources: [{ type: 'simulated', start: '100', volatilityBps: 2, seed: `e2e${run}` }],
+            staleSeconds: 30,
+            outlierBps: 500,
+            minSources: 1,
+          },
+        },
+      },
+    });
+    if (!perp.ok())
+      throw new Error(`perp market creation failed: ${perp.status()} ${await perp.text()}`);
   }
   await api.dispose();
 }

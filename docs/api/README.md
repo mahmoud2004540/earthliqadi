@@ -155,6 +155,30 @@ The `Origin` header must match the web origin.
 - Admin asset creation accepts `paper: true` with `faucetAmount`. The CLI
   equivalent is `ledger create-asset … --paper --faucet <amount>`.
 
+## Perpetual futures (Phase 6, paper only)
+
+| Method | Path                               | Auth | Permission          | Description                                                            |
+| ------ | ---------------------------------- | ---- | ------------------- | ---------------------------------------------------------------------- |
+| GET    | `/v1/perp/markets/:symbol/stats`   |      | public              | Mark, index, predicted/last funding, next funding, `indexStale`        |
+| GET    | `/v1/perp/markets/:symbol/funding` |      | public              | Funding history (`?limit=`)                                            |
+| GET    | `/v1/perp/insurance-fund`          |      | public              | Insurance fund balances (paper)                                        |
+| GET    | `/v1/perp/positions`               | ✔    | `account:self:read` | Positions with entry, mark, estimated liquidation and bankruptcy price |
+| POST   | `/v1/perp/leverage`                | ✔    | `trading:trade`     | `{market, leverage}`; only while flat with no open orders (`409`)      |
+| POST   | `/v1/perp/margin`                  | ✔    | `trading:trade`     | `{market, amount}`: adds isolated margin from the available balance    |
+| POST   | `/v1/admin/perp/insurance-fund`    | ✔    | `markets:configure` | `{asset, amount}`: paper only, funded from the paper faucet account    |
+
+- Perpetual symbols end in `-PERP`. `POST /v1/admin/markets` accepts
+  `kind: "perpetual"` with a `perp` configuration (tiers, funding, index
+  sources, bands; see `perpConfigSchema`). Real assets are refused.
+- `POST /v1/orders` on a perpetual market requires `price` (a limit price, or a
+  protection price for market orders), accepts `reduceOnly`, and returns:
+  - `400` outside the price band, beyond the bankruptcy price, or above the
+    tier size for the leverage;
+  - `409` while the position is liquidating or when there is no reliable
+    mark (except for reduce-only orders).
+- `MarketDto` gains `kind` and `perp`; `OrderDto` gains `reduceOnly` and
+  `liquidation`; `BalanceDto` gains `margin`.
+
 ## Example (curl through the edge)
 
 ```bash

@@ -1,4 +1,4 @@
-# Known issues and incomplete features (Sprints 1–5)
+# Known issues and incomplete features (Sprints 1–6)
 
 This is the honest list of what does **not** exist yet or is limited. Anything
 not described as implemented in the docs should be treated as absent.
@@ -6,7 +6,6 @@ not described as implemented in the docs should be treated as absent.
 ## Not implemented (by design, later phases)
 
 - Real deposits, withdrawals and custody (Phase 8). Balances can only be funded with **simulated** test deposits in local/CI.
-- Perpetual futures, risk engine, liquidation, insurance fund and ADL (Phase 6)
 - Admin application, KYC/AML workflows, support tickets, notifications and
   announcements (Phase 7)
 - API keys, IP allow-lists, institutional accounts beyond a schema enum, VIP fees,
@@ -81,6 +80,28 @@ not described as implemented in the docs should be treated as absent.
 - Paper markets currently use the same fee schedule mechanism as real markets
   (configurable per market). No paper leaderboard or reset feature yet.
 - Reports and Proof of Reserves (later phases) must filter `is_paper = false`.
+
+### Perpetual futures (Sprint 6, paper only)
+
+- **Paper only by design.** Real-money derivatives are refused by the database.
+- **ADL and an insurance-fund backstop are not live.** They are specified and
+  property-tested in the simulation harness only. If a fill ever realises a
+  loss larger than the margin plus the insurance fund, that market's
+  settlement halts for investigation.
+- Index sources are internal spot markets or labelled **simulated** feeds;
+  external feeds arrive with integrations (Phase 8).
+- Isolated margin only: no cross margin, no margin removal, no TP/SL
+  attached orders.
+- The risk engine runs on a timer inside the API process. Liquidation latency
+  is one or two ticks (`PERP_RISK_POLL_MS`, default 1 s) plus engine and
+  settlement time.
+- A reduce-only order can still race a shrinking position. The risk tick
+  cancels reduce-only orders that no longer fit, but a fill in between can
+  open a small position funded only by the fee hold. That position is then
+  liquidated normally.
+- Adding margin uses a time-based idempotency key, so a client retry can
+  add twice. Client-supplied idempotency keys are planned.
+- Mark and funding are pushed over REST polling (2 s), not WebSocket.
 
 ## Environment notes
 

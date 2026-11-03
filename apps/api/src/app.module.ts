@@ -22,6 +22,7 @@ import { MailModule } from './mail/mail.module';
 import { MarketDataModule } from './market-data/market-data.module';
 import { RbacModule } from './rbac/rbac.module';
 import { TradingModule } from './trading/trading.module';
+import { PerpsModule } from './perps/perps.module';
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9-]{8,64}$/;
 
@@ -82,6 +83,7 @@ export class AppModule {
         LedgerModule,
         TradingModule,
         MarketDataModule,
+        PerpsModule,
       ],
       controllers: [HealthController],
       providers: [

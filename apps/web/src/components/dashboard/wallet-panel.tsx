@@ -76,12 +76,13 @@ export function WalletPanel({ t }: { t: Dictionary }) {
           <p className="mt-4 text-sm text-muted">{d.noAssets}</p>
         ) : (
           <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[480px] text-sm">
+            <table className="w-full min-w-[560px] text-sm">
               <thead>
                 <tr className="border-b border-border text-muted">
                   <th className="py-2 text-start font-medium">{d.asset}</th>
                   <th className="py-2 text-end font-medium">{d.available}</th>
                   <th className="py-2 text-end font-medium">{d.locked}</th>
+                  <th className="py-2 text-end font-medium">{d.margin}</th>
                   <th className="py-2 text-end font-medium">{d.total}</th>
                 </tr>
               </thead>
@@ -102,6 +103,9 @@ export function WalletPanel({ t }: { t: Dictionary }) {
                     </td>
                     <td className="py-3 text-end">
                       <Amount value={b.locked} className="text-muted" />
+                    </td>
+                    <td className="py-3 text-end">
+                      <Amount value={b.margin} className="text-muted" />
                     </td>
                     <td className="py-3 text-end">
                       <Amount value={b.total} className="font-semibold" />
@@ -126,7 +130,11 @@ export function WalletPanel({ t }: { t: Dictionary }) {
                   <p className="text-sm">{d.entryTypes[item.entryType]}</p>
                   <p className="text-xs text-muted">
                     {fmt.format(new Date(item.createdAt))} ·{' '}
-                    {item.bucket === 'locked' ? d.bucketLocked : d.bucketAvailable}
+                    {item.bucket === 'locked'
+                      ? d.bucketLocked
+                      : item.bucket === 'margin'
+                        ? d.bucketMargin
+                        : d.bucketAvailable}
                   </p>
                 </div>
                 <Amount

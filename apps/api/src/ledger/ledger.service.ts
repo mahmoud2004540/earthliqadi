@@ -773,7 +773,8 @@ export class LedgerService {
       const mine = accounts.filter((a) => a.assetId === asset.id);
       const available = toMinorUnits(mine.find((a) => a.type === 'USER_AVAILABLE')?.balance ?? '0');
       const locked = toMinorUnits(mine.find((a) => a.type === 'USER_LOCKED')?.balance ?? '0');
-      if (asset.status !== 'ACTIVE' && available === 0n && locked === 0n) continue;
+      const margin = toMinorUnits(mine.find((a) => a.type === 'USER_MARGIN')?.balance ?? '0');
+      if (asset.status !== 'ACTIVE' && available === 0n && locked === 0n && margin === 0n) continue;
       result.push({
         asset: asset.code,
         name: asset.name,
@@ -781,7 +782,8 @@ export class LedgerService {
         paper: asset.isPaper,
         available: formatAmount(available, asset.scale),
         locked: formatAmount(locked, asset.scale),
-        total: formatAmount(available + locked, asset.scale),
+        margin: formatAmount(margin, asset.scale),
+        total: formatAmount(available + locked + margin, asset.scale),
       });
     }
     return result;
@@ -808,7 +810,12 @@ export class LedgerService {
         entryId: p.entryId.toString(),
         entryType: p.entry.type,
         asset: p.asset.code,
-        bucket: p.account.type === 'USER_LOCKED' ? ('locked' as const) : ('available' as const),
+        bucket:
+          p.account.type === 'USER_LOCKED'
+            ? ('locked' as const)
+            : p.account.type === 'USER_MARGIN'
+              ? ('margin' as const)
+              : ('available' as const),
         change: `${delta < 0n ? '-' : '+'}${formatted}`,
         createdAt: p.createdAt.toISOString(),
       };

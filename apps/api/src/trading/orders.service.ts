@@ -25,6 +25,9 @@ import {
   ticksToPrice,
 } from './order-math';
 import { isTerminal } from './order-state';
+import { parsePerpConfig } from '../perps/perp-config';
+import { checkPerpOrder, lockPosition, perpHold } from '../perps/perp-orders';
+import { currentMark } from '../perps/perp-prices';
 
 export interface PlaceOrderRequest {
   market: string;
@@ -35,6 +38,7 @@ export interface PlaceOrderRequest {
   price?: string;
   stopPrice?: string;
   quantity: string;
+  reduceOnly?: boolean;
 }
 
 type OrderWithMarket = Order & { market: MarketWithAssets };
@@ -97,6 +101,16 @@ export class OrdersService {
     if (type === 'STOP_MARKET' && side === 'BUY' && !req.price) {
       throw invalid('price', 'Stop-market buy orders need a protection price');
     }
+    const perp = market.kind === 'PERPETUAL';
+    const reduceOnly = req.reduceOnly ?? false;
+    if (!perp && reduceOnly)
+      throw invalid('reduceOnly', 'reduceOnly is only valid on perpetual markets');
+    if (perp && !req.price) {
+      throw invalid(
+        'price',
+        'Perpetual orders need a limit price or, for market orders, a protection price',
+      );
+    }
     const isStop = type === 'STOP_LIMIT' || type === 'STOP_MARKET';
     if (isStop && !req.stopPrice) throw invalid('stopPrice', 'A stop price is required');
     if (!isStop && req.stopPrice)
@@ -108,8 +122,9 @@ export class OrdersService {
     if (quantityLots < market.minQuantityLots) {
       throw invalid('quantity', `Minimum quantity is ${lotsToQuantity(market.minQuantityLots, u)}`);
     }
-    const hold = holdAmount(side, priceTicks, quantityLots, u);
-    const holdAsset = side === 'BUY' ? market.quoteAsset : market.baseAsset;
+    const perpConfig = perp ? parsePerpConfig(market.perpConfig) : null;
+    const spotHold = perp ? 0n : holdAmount(side, priceTicks, quantityLots, u);
+    const holdAsset = perp || side === 'BUY' ? market.quoteAsset : market.baseAsset;
 
     const fingerprint = {
       marketId: market.id,
@@ -119,6 +134,7 @@ export class OrdersService {
       priceTicks,
       stopPriceTicks,
       quantityLots,
+      reduceOnly,
     };
     const existing = await this.prisma.order.findUnique({
       where: { userId_clientOrderId: { userId, clientOrderId: req.clientOrderId } },
@@ -146,10 +162,27 @@ export class OrdersService {
     const available = await this.ledger.accountId(holdAsset.id, 'USER_AVAILABLE', userId);
     const locked = await this.ledger.accountId(holdAsset.id, 'USER_LOCKED', userId);
     const orderId = randomUUID();
+    const mark = perpConfig ? await currentMark(this.prisma, market.id, perpConfig) : null;
 
     try {
       const order = await this.prisma.$transaction(
         async (tx) => {
+          let hold = spotHold;
+          let leverage: number | null = null;
+          if (perpConfig) {
+            const position = await lockPosition(tx, userId, market.id, perpConfig.defaultLeverage);
+            leverage = await checkPerpOrder(tx, {
+              market,
+              config: perpConfig,
+              position,
+              side,
+              priceTicks: priceTicks!,
+              quantityLots,
+              reduceOnly,
+              mark,
+            });
+            hold = perpHold(market, priceTicks!, quantityLots, leverage, reduceOnly);
+          }
           const created = await tx.order.create({
             data: {
               id: orderId,
@@ -165,22 +198,25 @@ export class OrdersService {
               holdAssetId: holdAsset.id,
               holdAmount: hold.toString(),
               lockedRemaining: hold.toString(),
+              reduceOnly,
+              leverage,
             },
             include: { market: { include: { baseAsset: true, quoteAsset: true } } },
           });
-          await this.ledger.postWithin(
-            tx,
-            {
-              type: 'BALANCE_HOLD',
-              idempotencyKey: `order-hold:${orderId}`,
-              description: `Hold for order ${orderId} on ${market.symbol}`,
-              postings: [
-                { accountId: available, direction: 'DEBIT', amount: hold },
-                { accountId: locked, direction: 'CREDIT', amount: hold },
-              ],
-            },
-            { actorType: 'USER', actorUserId: userId, requestId: ctx.requestId },
-          );
+          if (hold > 0n)
+            await this.ledger.postWithin(
+              tx,
+              {
+                type: 'BALANCE_HOLD',
+                idempotencyKey: `order-hold:${orderId}`,
+                description: `Hold for order ${orderId} on ${market.symbol}`,
+                postings: [
+                  { accountId: available, direction: 'DEBIT', amount: hold },
+                  { accountId: locked, direction: 'CREDIT', amount: hold },
+                ],
+              },
+              { actorType: 'USER', actorUserId: userId, requestId: ctx.requestId },
+            );
           // Take the per-market sequence lock LAST: it is held until commit (keeping
           // sequences gap-free and commit-ordered) but no longer serialises the
           // order insert and fund hold of concurrent orders (measured: ADR-0007 notes).
@@ -312,16 +348,33 @@ export class OrdersService {
         price: ticksToPrice(t.priceTicks, u),
         quantity: lotsToQuantity(t.quantityLots, u),
         quoteAmount: formatAmountTrimmed(toMinorUnits(t.quoteAmount), u.quoteScale),
-        fee: isBuyer
-          ? formatAmountTrimmed(toMinorUnits(t.buyerFee), u.baseScale)
-          : formatAmountTrimmed(toMinorUnits(t.sellerFee), u.quoteScale),
-        feeAsset: isBuyer ? t.market.baseAsset.code : t.market.quoteAsset.code,
+        // Spot buyers pay fees in base; perpetual fees are always in the quote (margin) asset.
+        fee:
+          isBuyer && t.market.kind === 'SPOT'
+            ? formatAmountTrimmed(toMinorUnits(t.buyerFee), u.baseScale)
+            : formatAmountTrimmed(toMinorUnits(isBuyer ? t.buyerFee : t.sellerFee), u.quoteScale),
+        feeAsset:
+          isBuyer && t.market.kind === 'SPOT' ? t.market.baseAsset.code : t.market.quoteAsset.code,
         createdAt: t.createdAt.toISOString(),
       };
     });
   }
 
   // ---------------------------------------------------------------- helpers
+
+  /**
+   * Enqueues an engine command on behalf of the system (liquidation engine).
+   * Must run inside the caller's transaction, after its position/ledger locks.
+   */
+  async enqueueSystemCommand(
+    tx: Prisma.TransactionClient,
+    marketId: string,
+    kind: 'place' | 'cancel',
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    const seq = await this.nextCommandSeq(tx, marketId, kind === 'place');
+    await this.enqueue(tx, marketId, seq, kind, payload);
+  }
 
   /** Increments the per-market counter; the row lock orders command commits (ADR-0007). */
   private async nextCommandSeq(
@@ -370,7 +423,8 @@ export class OrdersService {
       existing.timeInForce === f.timeInForce &&
       existing.priceTicks === f.priceTicks &&
       existing.stopPriceTicks === f.stopPriceTicks &&
-      existing.quantityLots === f.quantityLots;
+      existing.quantityLots === f.quantityLots &&
+      existing.reduceOnly === f.reduceOnly;
     if (!same) {
       throw new AppError(
         HttpStatus.CONFLICT,
@@ -402,6 +456,8 @@ export class OrdersService {
       rejectReason: o.rejectReason,
       cancelReason: o.cancelReason,
       cancelRequested: o.cancelRequestedAt !== null,
+      reduceOnly: o.reduceOnly,
+      liquidation: o.isLiquidation,
       createdAt: o.createdAt.toISOString(),
       updatedAt: o.updatedAt.toISOString(),
     };

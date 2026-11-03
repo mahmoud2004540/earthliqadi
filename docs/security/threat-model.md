@@ -82,6 +82,19 @@ introduce withdrawals (8) and trading (3–6).
 | Order spam / resource exhaustion by one account | Per-user order rate limit (Redis), open-order cap per market                                         | e2e         |
 | Non-deterministic or regressed engine releases  | `engine-replay` gate against recorded history before deployment                                      | Rust + e2e  |
 
+## Perpetual futures controls (Phase 6, paper only)
+
+| Threat                                               | Control                                                                                                                    | Verified by        |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| Real-money derivatives offered without authorisation | `markets_perp_paper_only_chk`; derivative account types refused for real assets (trigger)                                  | e2e                |
+| Losses beyond margin / negative balances             | Closing orders capped at the bankruptcy price; liquidation orders protected at it; non-negative margin CHECK               | property + e2e     |
+| Mark-price manipulation through a thin book          | Mark = index + clamped basis EMA (`maxBasisBps`); last trade never used; index median with outlier and staleness checks    | unit + e2e         |
+| Stale or missing prices                              | No fresh mark: funding, liquidation and risk-increasing orders pause; UI warning                                           | e2e                |
+| PnL or funding created out of nothing                | Clearing identity (Σ entry = clearing), margin, open-interest and funding-pool reconciliation; zero-sum funding allocation | property + e2e     |
+| Double funding / double liquidation (multi-instance) | Funding idempotency key + state row lock; position row lock; one in-flight liquidation order per position                  | e2e                |
+| Over-leverage                                        | Validated tiers (maintenance < initial margin); tier/leverage check on projected size; leverage fixed while exposed        | unit + e2e         |
+| Insurance fund drained silently                      | Ledger refuses a negative fund; settlement halts that market for investigation; fund balance is public                     | ledger constraints |
+
 ## Known limitations (must be resolved before any production use)
 
 1. **No production email transport.** Staging and production intentionally refuse to boot.

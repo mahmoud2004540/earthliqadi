@@ -23,6 +23,12 @@ export const ACCOUNT_SPECS: Record<LedgerAccountType, AccountSpec> = {
   SIMULATED_CUSTODY: { normalSide: 'DEBIT', allowNegative: false, userOwned: false },
   // Paper trading faucet (ADR-0010): debit-normal like custody; grows with every grant.
   PAPER_FAUCET: { normalSide: 'DEBIT', allowNegative: false, userOwned: false },
+  // Perpetuals (ADR-0011). Isolated margin held for open positions.
+  USER_MARGIN: { normalSide: 'CREDIT', allowNegative: false, userOwned: true },
+  // Pays out realised PnL; its (signed) balance equals Σ open entry notional.
+  PERP_CLEARING: { normalSide: 'DEBIT', allowNegative: true, userOwned: false },
+  INSURANCE_FUND: { normalSide: 'CREDIT', allowNegative: false, userOwned: false },
+  PERP_FUNDING_POOL: { normalSide: 'CREDIT', allowNegative: false, userOwned: false },
 };
 
 export interface PostingRequest {

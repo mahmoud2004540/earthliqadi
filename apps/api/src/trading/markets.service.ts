@@ -1,11 +1,17 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { Prisma, type Asset, type Market } from '@prisma/client';
-import { formatAmountTrimmed, parseAmount, type MarketDto } from '@platform/shared';
+import {
+  formatAmountTrimmed,
+  parseAmount,
+  type MarketDto,
+  type PerpConfigInput,
+} from '@platform/shared';
 import { AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
 import { PrismaService } from '../infrastructure/prisma/prisma.service';
 import type { LedgerActor } from '../ledger/ledger.service';
 import { toMinorUnits } from '../ledger/ledger-domain';
+import { buildPerpConfig, parsePerpConfig, perpInfoDto } from '../perps/perp-config';
 import { lotsToQuantity, quantityToLots, quotePerTickLot, type MarketUnits } from './order-math';
 
 export type MarketWithAssets = Market & { baseAsset: Asset; quoteAsset: Asset };
@@ -35,6 +41,8 @@ export class MarketsService {
       minQuantity?: string;
       makerFeeBps: number;
       takerFeeBps: number;
+      kind?: 'spot' | 'perpetual';
+      perp?: PerpConfigInput;
     },
     actor: LedgerActor,
   ): Promise<MarketWithAssets> {
@@ -78,7 +86,42 @@ export class MarketsService {
     const minQuantityLots = input.minQuantity
       ? quantityToLots(input.minQuantity, units, 'minQuantity')
       : 1n;
-    const symbol = `${base.code}-${quote.code}`;
+    const perpetual = input.kind === 'perpetual';
+    if (perpetual !== (input.perp !== undefined)) {
+      throw new AppError(
+        HttpStatus.BAD_REQUEST,
+        'VALIDATION_FAILED',
+        'Perpetual markets need a perp configuration; spot markets must not have one',
+      );
+    }
+    if (perpetual && !base.isPaper) {
+      // Also enforced by the database (markets_perp_paper_only_chk).
+      throw new AppError(
+        HttpStatus.BAD_REQUEST,
+        'VALIDATION_FAILED',
+        'Perpetual markets are paper-only: real-money derivatives need separate authorisation',
+      );
+    }
+    const perpConfig = perpetual ? buildPerpConfig(input.perp!, quote.scale) : undefined;
+    if (perpetual) {
+      for (const src of input.perp!.index.sources) {
+        if (src.type !== 'spot') continue;
+        const ref = await this.prisma.market.findUnique({ where: { symbol: src.market } });
+        if (
+          !ref ||
+          ref.kind !== 'SPOT' ||
+          ref.baseAssetId !== base.id ||
+          ref.quoteAssetId !== quote.id
+        ) {
+          throw new AppError(
+            HttpStatus.BAD_REQUEST,
+            'VALIDATION_FAILED',
+            `Index source ${src.market} must be an existing spot market with the same base and quote assets`,
+          );
+        }
+      }
+    }
+    const symbol = `${base.code}-${quote.code}${perpetual ? '-PERP' : ''}`;
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -93,6 +136,8 @@ export class MarketsService {
             makerFeeBps: input.makerFeeBps,
             takerFeeBps: input.takerFeeBps,
             isPaper: base.isPaper,
+            kind: perpetual ? 'PERPETUAL' : 'SPOT',
+            ...(perpConfig ? { perpConfig } : {}),
           },
           include: { baseAsset: true, quoteAsset: true },
         });
@@ -178,6 +223,11 @@ export class MarketsService {
       takerFeeBps: m.takerFeeBps,
       status: m.status,
       paper: m.isPaper,
+      kind: m.kind === 'PERPETUAL' ? 'perpetual' : 'spot',
+      perp:
+        m.kind === 'PERPETUAL'
+          ? perpInfoDto(parsePerpConfig(m.perpConfig), m.quoteAsset.scale)
+          : null,
     };
   }
 }

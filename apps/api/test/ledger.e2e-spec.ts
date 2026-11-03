@@ -595,6 +595,7 @@ describe('HTTP API', () => {
           paper: false,
           available: '0.00000000',
           locked: '0.00000000',
+          margin: '0.00000000',
           total: '0.00000000',
         },
       ]),

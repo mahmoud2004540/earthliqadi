@@ -24,7 +24,10 @@ export const marketSymbolSchema = z
   .string()
   .trim()
   .toUpperCase()
-  .regex(/^[A-Z0-9]{2,16}-[A-Z0-9]{2,16}$/, 'Market symbol must look like BASE-QUOTE');
+  .regex(
+    /^[A-Z0-9]{2,16}-[A-Z0-9]{2,16}(-PERP)?$/,
+    'Market symbol must look like BASE-QUOTE or BASE-QUOTE-PERP',
+  );
 
 export const clientOrderIdSchema = z
   .string()
@@ -41,6 +44,8 @@ export const placeOrderSchema = z.object({
   price: amountStringSchema.optional(),
   stopPrice: amountStringSchema.optional(),
   quantity: amountStringSchema,
+  /** Perpetuals only: the order may only reduce the current position. */
+  reduceOnly: z.boolean().optional(),
 });
 export type PlaceOrderInput = z.input<typeof placeOrderSchema>;
 
@@ -53,6 +58,49 @@ export const orderListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 
+export const MARKET_KINDS = ['spot', 'perpetual'] as const;
+
+const indexSourceSchema = z.discriminatedUnion('type', [
+  /** Mid price (or recent last trade) of a market on this exchange. */
+  z.object({ type: z.literal('spot'), market: marketSymbolSchema }),
+  /** Clearly labelled simulated feed (deterministic random walk); paper only. */
+  z.object({
+    type: z.literal('simulated'),
+    start: amountStringSchema,
+    volatilityBps: z.number().int().min(1).max(500),
+    seed: z.string().regex(/^[A-Za-z0-9_-]{1,32}$/),
+  }),
+]);
+
+export const riskTierSchema = z.object({
+  /** Upper bound of position notional for the tier, in quote units. */
+  maxNotional: amountStringSchema,
+  maxLeverage: z.number().int().min(1).max(125),
+  /** Maintenance margin rate in basis points. */
+  mmrBps: z.number().int().min(1).max(5000),
+});
+
+/** Perpetual risk parameters (ADR-0011). Perpetual markets are paper-only. */
+export const perpConfigSchema = z.object({
+  defaultLeverage: z.number().int().min(1).max(125),
+  tiers: z.array(riskTierSchema).min(1).max(10),
+  fundingIntervalSeconds: z.number().int().min(60).max(86_400),
+  /** Maximum funding rate per interval, ± basis points. */
+  fundingClampBps: z.number().int().min(1).max(500),
+  /** Maximum distance of the mark price from the index, basis points. */
+  maxBasisBps: z.number().int().min(0).max(500),
+  liquidationFeeBps: z.number().int().min(0).max(500),
+  /** Order prices must be within this distance of the mark price. */
+  priceBandBps: z.number().int().min(10).max(5000),
+  index: z.object({
+    sources: z.array(indexSourceSchema).min(1).max(10),
+    staleSeconds: z.number().int().min(1).max(3600),
+    outlierBps: z.number().int().min(1).max(5000),
+    minSources: z.number().int().min(1).max(10),
+  }),
+});
+export type PerpConfigInput = z.infer<typeof perpConfigSchema>;
+
 export const createMarketSchema = z.object({
   base: assetCodeSchema,
   quote: assetCodeSchema,
@@ -63,6 +111,24 @@ export const createMarketSchema = z.object({
   minQuantity: amountStringSchema.optional(),
   makerFeeBps: z.number().int().min(0).max(1000),
   takerFeeBps: z.number().int().min(0).max(1000),
+  kind: z.enum(MARKET_KINDS).default('spot'),
+  perp: perpConfigSchema.optional(),
+});
+
+export const leverageSchema = z.object({
+  market: marketSymbolSchema,
+  leverage: z.number().int().min(1).max(125),
+});
+
+/** Adds margin to an isolated position (from the available balance). */
+export const addMarginSchema = z.object({
+  market: marketSymbolSchema,
+  amount: amountStringSchema,
+});
+
+export const insuranceSeedSchema = z.object({
+  asset: assetCodeSchema,
+  amount: amountStringSchema,
 });
 
 export const marketStatusSchema = z.object({ status: z.enum(MARKET_STATUSES) });
@@ -79,6 +145,67 @@ export interface MarketDto {
   status: (typeof MARKET_STATUSES)[number];
   /** Paper trading market (simulated funds only). */
   paper: boolean;
+  kind: (typeof MARKET_KINDS)[number];
+  /** Perpetuals only. */
+  perp: PerpMarketInfoDto | null;
+}
+
+export interface PerpMarketInfoDto {
+  defaultLeverage: number;
+  maxLeverage: number;
+  tiers: { maxNotional: string; maxLeverage: number; mmrBps: number }[];
+  fundingIntervalSeconds: number;
+  fundingClampBps: number;
+  liquidationFeeBps: number;
+  priceBandBps: number;
+  /** Human-readable index source labels; simulated sources say so. */
+  indexSources: string[];
+}
+
+/** Mark/index/funding snapshot for a perpetual market. Prices in quote units. */
+export interface PerpStatsDto {
+  market: string;
+  markPrice: string | null;
+  indexPrice: string | null;
+  /** Last computed funding rate for the current interval, percent string (e.g. "0.0100"). */
+  predictedFundingRate: string | null;
+  lastFundingRate: string | null;
+  nextFundingAt: string | null;
+  /** Index sources used in the latest sample. */
+  sourcesUsed: number;
+  /** True when there is no reliable index: funding and liquidations pause. */
+  indexStale: boolean;
+  sampledAt: string | null;
+}
+
+export interface PositionDto {
+  market: string;
+  side: 'long' | 'short' | 'flat';
+  /** Absolute size in base units. */
+  size: string;
+  entryPrice: string | null;
+  markPrice: string | null;
+  /** Estimated: where equity falls to the maintenance margin at the current tier. */
+  liquidationPrice: string | null;
+  bankruptcyPrice: string | null;
+  margin: string;
+  leverage: number;
+  unrealizedPnl: string | null;
+  realizedPnl: string;
+  fundingPnl: string;
+  status: 'normal' | 'liquidating';
+  asset: string;
+}
+
+export interface FundingRoundDto {
+  market: string;
+  fundingTime: string;
+  /** Percent string. */
+  rate: string;
+  markPrice: string;
+  collected: string;
+  distributed: string;
+  positions: number;
 }
 
 export interface OrderDto {
@@ -97,6 +224,8 @@ export interface OrderDto {
   rejectReason: string | null;
   cancelReason: string | null;
   cancelRequested: boolean;
+  reduceOnly: boolean;
+  liquidation: boolean;
   createdAt: string;
   updatedAt: string;
 }

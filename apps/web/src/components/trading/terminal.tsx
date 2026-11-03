@@ -9,6 +9,7 @@ import {
   type MarketDto,
   type OrderBookDto,
   type OrderDto,
+  type PositionDto,
   type PublicTradeDto,
   type TickerDto,
   type TradeDto,
@@ -26,6 +27,7 @@ import { cn } from '@/lib/utils';
 import { MyOrders } from './my-orders';
 import { OrderBook } from './order-book';
 import { OrderForm } from './order-form';
+import { PerpStatsStrip, PositionsPanel, usePerpStats } from './perp-panel';
 import { PriceChart } from './price-chart';
 import { RecentTrades } from './recent-trades';
 
@@ -69,6 +71,9 @@ export function Terminal({ symbol, t }: { symbol: string; t: Dictionary }) {
   const [myTrades, setMyTrades] = useState<TradeDto[]>([]);
   const [price, setPrice] = useState('');
   const [privateVersion, setPrivateVersion] = useState(0);
+  const [positions, setPositions] = useState<PositionDto[]>([]);
+  const isPerp = symbol.endsWith('-PERP');
+  const perpStats = usePerpStats(symbol, isPerp);
 
   useEffect(() => {
     let active = true;
@@ -115,6 +120,22 @@ export function Terminal({ symbol, t }: { symbol: string; t: Dictionary }) {
       active = false;
     };
   }, [signedIn, symbol, privateVersion]);
+
+  // Positions (perpetuals): refreshed on private updates and every 3 s for mark-to-market.
+  useEffect(() => {
+    if (!signedIn || !isPerp) return;
+    let active = true;
+    const load = () =>
+      api<{ positions: PositionDto[] }>('/v1/perp/positions')
+        .then((r) => active && setPositions(r.positions))
+        .catch(() => undefined);
+    void load();
+    const timer = setInterval(() => void load(), 3000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [signedIn, isPerp, privateVersion]);
 
   const subscriptions = useMemo<StreamSubscription[]>(
     () => [
@@ -183,6 +204,11 @@ export function Terminal({ symbol, t }: { symbol: string; t: Dictionary }) {
           {connection === 'connecting' ? tt.connection.connecting : tt.connection.disconnected}
         </Alert>
       )}
+      {isPerp && perpStats?.indexStale && (
+        <Alert tone="warning" className="mb-2" data-testid="perp-index-stale">
+          {tt.perp.indexStale}
+        </Alert>
+      )}
       {connection === 'open' && dataState && dataState !== 'live' && (
         <Alert tone="warning" className="mb-2" data-testid="stream-status">
           {dataState === 'halted' ? tt.connection.halted : tt.connection.delayed}
@@ -199,10 +225,15 @@ export function Terminal({ symbol, t }: { symbol: string; t: Dictionary }) {
           >
             {(markets ?? [{ symbol } as MarketDto]).map((m) => (
               <option key={m.symbol} value={m.symbol}>
-                {m.symbol.replace('-', ' / ')}
+                {m.symbol.replace('-', ' / ').replace('-PERP', ' Perp')}
               </option>
             ))}
           </select>
+          {market?.kind === 'perpetual' && (
+            <Badge tone="info" data-testid="perp-badge">
+              {tt.perp.badge}
+            </Badge>
+          )}
           {market?.paper && (
             <Badge tone="warning" data-testid="paper-badge">
               {tt.paper}
@@ -233,6 +264,11 @@ export function Terminal({ symbol, t }: { symbol: string; t: Dictionary }) {
             value={ticker?.volume24h ?? null}
           />
         </dl>
+        {isPerp && (
+          <div className="w-full border-t border-border pt-2">
+            <PerpStatsStrip stats={perpStats} tp={tt.perp} />
+          </div>
+        )}
       </div>
 
       <div className="grid gap-2 lg:grid-cols-[1fr_300px_320px]">
@@ -279,11 +315,22 @@ export function Terminal({ symbol, t }: { symbol: string; t: Dictionary }) {
               onPriceChange={setPrice}
               onPlaced={refreshPrivate}
               t={t}
+              leverage={positions.find((p) => p.market === symbol)?.leverage ?? null}
             />
           )}
         </div>
       </div>
 
+      {signedIn && isPerp && market && (
+        <div className="mt-2 rounded-lg border border-border bg-surface">
+          <PositionsPanel
+            positions={positions}
+            market={market}
+            tp={tt.perp}
+            onChanged={refreshPrivate}
+          />
+        </div>
+      )}
       {signedIn && (
         <div className="mt-2 min-h-[220px] rounded-lg border border-border bg-surface">
           <MyOrders orders={orders} trades={myTrades} t={tt} onChanged={refreshPrivate} />

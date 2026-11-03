@@ -50,7 +50,12 @@ export function MarketsTable({ t }: { t: Dictionary['terminal'] }) {
           {tickers.map((tk) => (
             <tr key={tk.market} className="border-t border-border">
               <td className="px-4 py-3 font-semibold">
-                {tk.market.replace('-', ' / ')}
+                {tk.market.replace('-', ' / ').replace('-PERP', ' Perp')}
+                {tk.market.endsWith('-PERP') && (
+                  <Badge tone="info" className="ms-2">
+                    {t.perp.badge}
+                  </Badge>
+                )}
                 {tk.paper && (
                   <Badge tone="warning" className="ms-2">
                     {t.paper}

@@ -11,8 +11,8 @@ tests, security review and documentation are done.
 | 3     | Spot matching engine (Rust)                                | **Complete** |
 | 4     | Market data and professional trading terminal              | **Complete** |
 | 5     | Spot paper trading and simulation                          | **Complete** |
-| 6     | Perpetual futures and risk simulation                      | Next         |
-| 7     | Admin, compliance and monitoring                           | Planned      |
+| 6     | Perpetual futures and risk simulation (paper only)         | **Complete** |
+| 7     | Admin, compliance and monitoring                           | Next         |
 | 8     | Custody and liquidity integrations                         | Planned      |
 | 9     | Security audits and regulatory readiness                   | Planned      |
 | 10    | Controlled production launch, after all required approvals | Planned      |
@@ -80,26 +80,35 @@ tests, security review and documentation are done.
 - [x] `engine-replay`: verifies the current engine build reproduces recorded history exactly; shipped in the engine image
 - [x] Tests: namespace isolation (incl. trigger-bypass detection), faucet, limits, replay (Rust + against real history), paper e2e in the browser
 
-## Sprint 6 plan: Phase 6, perpetual futures and risk simulation
+## Phase 6 acceptance criteria (Sprint 6)
 
-**Simulation first:** perpetuals start as paper markets only. Real-money
-derivatives require separate authorisation (ADR-0010 namespace; spec §15).
+- [x] ADR for the contract, position accounting, margin, index/mark, funding, liquidation and ADL ([ADR-0011](../decisions/0011-perpetual-futures.md))
+- [x] Paper-only perpetuals, database-enforced (market CHECK; derivative account types refused for real assets)
+- [x] Positions with exact integer accounting; clearing identity (Σ entry = clearing balance) property-tested and reconciled; margin, open-interest and funding-pool reconciliation
+- [x] Order entry: margin holds, leverage, validated risk tiers, reduce-only, bankruptcy-price and price-band checks
+- [x] Index (median, staleness, outlier rejection; spot or labelled simulated sources) and mark (index + clamped basis EMA; never last trade)
+- [x] Funding: clamped premium rate, zero-sum allocation capped at margin, idempotent rounds
+- [x] Liquidation: flag, cancel, IOC protected at the bankruptcy price, fee to the insurance fund; paper insurance-fund seeding
+- [x] Risk simulation harness (synthetic paths; insurance fund then ADL); ADL not live
+- [x] Terminal: mark/index/funding, leverage, reduce-only, positions with estimated liquidation price, add margin
+- [x] Tests: property tests (PnL identity, bankruptcy bound, funding, simulation conservation); integration with the real engine (open/close, limits, funding, liquidation, reconciliation); browser e2e
 
-1. **ADR:** contract specification (linear USDT-margined perpetuals first);
-   position accounting in the ledger (margin accounts, realised PnL, funding
-   transfers); risk engine boundaries (separate process vs. module).
-2. **Index and mark price:** index from configured external reference sources
-   (median of sources, staleness and outlier rejection; **simulated feeds in
-   development, clearly labelled**); mark = index + decaying basis. **Liquidation
-   never uses the last trade price alone.**
-3. **Margin:** isolated margin first, cross-margin architecture; initial and
-   maintenance margin tiers by position size; leverage limits; reduce-only
-   orders.
-4. **Funding:** periodic funding rate from the premium index with a clamp, settled
-   as ledger transfers between longs and shorts (zero-sum, reconciled).
-5. **Liquidation engine:** monitoring, staged liquidation orders, insurance fund
-   account, auto-deleveraging (ADL) ranking as an architecture plus simulation.
-6. **Risk simulation harness:** replay of historical or synthetic price paths
-   (clearly synthetic) through positions to test liquidation and insurance-fund
-   behaviour; property tests (conservation of PnL plus funding plus fees;
-   no negative user equity after liquidation unless ADL kicks in).
+## Sprint 7 plan: Phase 7, admin, compliance and monitoring
+
+1. **ADR:** admin application boundaries (separate app and origin, staff SSO
+   and MFA enforcement, maker-checker for every money-moving or risk action).
+2. **Admin app:** users and sessions, balances and ledger explorer, markets
+   and risk parameters (dual approval), engine/settlement/risk health,
+   reconciliation results, audit log viewer. Read-mostly first.
+3. **KYC/AML workflow architecture:** verification states and limits per
+   tier, provider abstraction (no provider chosen or claimed), case
+   management, sanctions screening interface. No real provider integration
+   without a contract and legal review.
+4. **Monitoring:** metrics (Prometheus format) for API, engine backlog,
+   settlement lag, risk ticks, reconciliation; dashboards; alert rules
+   (settlement halted, reconciliation mismatch, index stale, insurance fund
+   low); structured incident runbooks.
+5. **Notifications and support:** in-app notifications (liquidation, funding,
+   order fills), support ticket model, announcements.
+6. **Security:** staff-action rate limits, IP allow-lists for admin, session
+   hardening for staff, audit-log export with integrity hashing.

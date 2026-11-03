@@ -71,6 +71,7 @@ model User {
   grantedRoles   UserRole[]          @relation("RoleGrants")
   ledgerAccounts LedgerAccount[]
   orders         Order[]
+  positions      Position[]
 
   @@map("users")
 }
@@ -204,6 +205,14 @@ enum LedgerAccountType {
   SIMULATED_CUSTODY
   /// Paper trading only: source of faucet grants for paper assets (ADR-0010).
   PAPER_FAUCET
+  /// Perpetuals (ADR-0011, paper only): isolated position margin, per user and asset.
+  USER_MARGIN
+  /// Perpetuals: counterparty of realised PnL; balance = Σ open entry notional.
+  PERP_CLEARING
+  /// Perpetuals: receives liquidation fees, covers bankrupt positions.
+  INSURANCE_FUND
+  /// Perpetuals: funding is collected into and paid out of this pool.
+  PERP_FUNDING_POOL
 }
 
 enum PostingDirection {
@@ -218,6 +227,9 @@ enum JournalEntryType {
   REVERSAL
   TRADE
   PAPER_FAUCET_GRANT
+  MARGIN_TRANSFER
+  FUNDING
+  INSURANCE_FUND_SEED
 }
 
 enum ReconciliationStatus {
@@ -343,6 +355,16 @@ model LedgerReconciliationRun {
 // Prices are integer ticks, quantities integer lots. Money stays in the ledger.
 // ---------------------------------------------------------------------------
 
+enum MarketKind {
+  SPOT
+  PERPETUAL
+}
+
+enum PositionStatus {
+  NORMAL
+  LIQUIDATING
+}
+
 enum MarketStatus {
   ACTIVE
   HALTED
@@ -393,15 +415,23 @@ model Market {
   status          MarketStatus @default(ACTIVE)
   /// Paper market: both assets are paper assets (DB-enforced). Immutable.
   isPaper         Boolean      @default(false) @map("is_paper")
+  /// SPOT or PERPETUAL (perpetuals are paper-only, DB-enforced). Immutable.
+  kind            MarketKind   @default(SPOT)
+  /// Perpetual risk parameters (validated on write; ADR-0011). Null for spot.
+  perpConfig      Json?        @map("perp_config")
   /// Gap-free per-market command counter (row lock orders commits; ADR-0007).
   nextCommandSeq  BigInt       @default(0) @map("next_command_seq")
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  baseAsset  Asset   @relation("MarketBase", fields: [baseAssetId], references: [id], onDelete: Restrict)
-  quoteAsset Asset   @relation("MarketQuote", fields: [quoteAssetId], references: [id], onDelete: Restrict)
-  orders     Order[]
-  trades     Trade[]
+  baseAsset     Asset              @relation("MarketBase", fields: [baseAssetId], references: [id], onDelete: Restrict)
+  quoteAsset    Asset              @relation("MarketQuote", fields: [quoteAssetId], references: [id], onDelete: Restrict)
+  orders        Order[]
+  trades        Trade[]
+  positions     Position[]
+  priceSamples  PerpPriceSample[]
+  fundingRounds PerpFundingRound[]
+  perpState     PerpMarketState?
 
   @@map("markets")
 }
@@ -428,6 +458,12 @@ model Order {
   rejectReason      String?     @map("reject_reason") @db.VarChar(48)
   cancelReason      String?     @map("cancel_reason") @db.VarChar(48)
   cancelRequestedAt DateTime?   @map("cancel_requested_at") @db.Timestamptz(3)
+  /// Perpetuals: may only reduce the position.
+  reduceOnly        Boolean     @default(false) @map("reduce_only")
+  /// Perpetuals: placed by the liquidation engine (no hold; ADR-0011).
+  isLiquidation     Boolean     @default(false) @map("is_liquidation")
+  /// Perpetuals: leverage the order's margin was held at.
+  leverage          Int?
   createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -514,4 +550,84 @@ model SettlementState {
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("settlement_state")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6: perpetual futures, paper only (ADR-0011)
+// ---------------------------------------------------------------------------
+
+/// One isolated-margin position per user and perpetual market.
+model Position {
+  id            String         @id @default(uuid()) @db.Uuid
+  userId        String         @map("user_id") @db.Uuid
+  marketId      String         @map("market_id") @db.Uuid
+  /// Signed lots: positive = long.
+  sizeLots      BigInt         @default(0) @map("size_lots")
+  /// Signed entry notional (quote minor units), same sign as the size.
+  entryNotional Decimal        @default(0) @map("entry_notional") @db.Decimal(38, 0)
+  /// Isolated margin (quote minor units); Σ per user = USER_MARGIN balance.
+  margin        Decimal        @default(0) @db.Decimal(38, 0)
+  leverage      Int
+  status        PositionStatus @default(NORMAL)
+  realizedPnl   Decimal        @default(0) @map("realized_pnl") @db.Decimal(38, 0)
+  fundingPnl    Decimal        @default(0) @map("funding_pnl") @db.Decimal(38, 0)
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  market Market @relation(fields: [marketId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, marketId])
+  @@index([marketId, sizeLots])
+  @@map("positions")
+}
+
+/// Append-only index/mark history (quote minor units per whole base unit).
+model PerpPriceSample {
+  marketId    String   @map("market_id") @db.Uuid
+  sampledAt   DateTime @map("sampled_at") @db.Timestamptz(3)
+  indexPrice  Decimal  @map("index_price") @db.Decimal(38, 0)
+  markPrice   Decimal  @map("mark_price") @db.Decimal(38, 0)
+  midPrice    Decimal? @map("mid_price") @db.Decimal(38, 0)
+  /// Premium of the book mid over the index, 1e-8 units.
+  premiumRate BigInt?  @map("premium_rate")
+  sourcesUsed Int      @map("sources_used")
+
+  market Market @relation(fields: [marketId], references: [id], onDelete: Restrict)
+
+  @@id([marketId, sampledAt])
+  @@map("perp_price_samples")
+}
+
+model PerpMarketState {
+  marketId        String    @id @map("market_id") @db.Uuid
+  basisEma        Decimal   @default(0) @map("basis_ema") @db.Decimal(38, 0)
+  /// Simulated index sources' last prices (development/paper only, labelled).
+  simulatedPrices Json      @default("{}") @map("simulated_prices")
+  lastFundingAt   DateTime? @map("last_funding_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  market Market @relation(fields: [marketId], references: [id], onDelete: Restrict)
+
+  @@map("perp_market_state")
+}
+
+/// Append-only record of every funding settlement.
+model PerpFundingRound {
+  id             String   @id @default(uuid()) @db.Uuid
+  marketId       String   @map("market_id") @db.Uuid
+  fundingTime    DateTime @map("funding_time") @db.Timestamptz(3)
+  /// 1e-8 units; positive = longs pay shorts.
+  rate           BigInt
+  markPrice      Decimal  @map("mark_price") @db.Decimal(38, 0)
+  collected      Decimal  @db.Decimal(38, 0)
+  distributed    Decimal  @db.Decimal(38, 0)
+  positions      Int
+  journalEntryId BigInt?  @map("journal_entry_id")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  market Market @relation(fields: [marketId], references: [id], onDelete: Restrict)
+
+  @@unique([marketId, fundingTime])
+  @@map("perp_funding_rounds")
 }

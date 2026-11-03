@@ -25,7 +25,18 @@ export type ReconciliationFinding =
   | { kind: 'UNBALANCED_ENTRY'; entryId: string; assetId: string; net: string }
   | { kind: 'ENTRY_TOO_FEW_POSTINGS'; entryId: string; postings: number }
   | { kind: 'TRIAL_BALANCE_NONZERO'; assetId: string; net: string }
-  | { kind: 'MIXED_NAMESPACE_ENTRY'; entryId: string };
+  | { kind: 'MIXED_NAMESPACE_ENTRY'; entryId: string }
+  // Perpetuals (ADR-0011): sub-ledgers in positions/funding tables must match the ledger.
+  | {
+      kind: 'POSITION_MARGIN_MISMATCH';
+      userId: string;
+      assetId: string;
+      positions: string;
+      ledger: string;
+    }
+  | { kind: 'PERP_CLEARING_MISMATCH'; assetId: string; entryNotional: string; ledger: string }
+  | { kind: 'OPEN_INTEREST_IMBALANCE'; marketId: string; netLots: string }
+  | { kind: 'FUNDING_POOL_MISMATCH'; assetId: string; rounds: string; ledger: string };
 
 /**
  * Independently recomputes the ledger from postings and compares it with the
@@ -81,6 +92,49 @@ export class ReconciliationService {
         const mixed = await tx.$queryRaw<{ entry_id: string }[]>`
           SELECT p."entry_id"::text FROM "postings" p JOIN "assets" a ON a."id" = p."asset_id"
            GROUP BY p."entry_id" HAVING count(DISTINCT a."is_paper") > 1`;
+        const marginMismatch = await tx.$queryRaw<
+          { user_id: string; asset_id: string; positions: string; ledger: string }[]
+        >`
+          WITH pm AS (
+            SELECT p."user_id", m."quote_asset_id" AS "asset_id", SUM(p."margin") AS "s"
+              FROM "positions" p JOIN "markets" m ON m."id" = p."market_id"
+             GROUP BY 1, 2),
+          am AS (
+            SELECT "owner_user_id" AS "user_id", "asset_id", "balance" AS "s"
+              FROM "ledger_accounts" WHERE "type" = 'USER_MARGIN')
+          SELECT COALESCE(pm."user_id", am."user_id")::text AS "user_id",
+                 COALESCE(pm."asset_id", am."asset_id")::text AS "asset_id",
+                 COALESCE(pm."s", 0)::text AS "positions", COALESCE(am."s", 0)::text AS "ledger"
+            FROM pm FULL OUTER JOIN am ON pm."user_id" = am."user_id" AND pm."asset_id" = am."asset_id"
+           WHERE COALESCE(pm."s", 0) <> COALESCE(am."s", 0)`;
+        // Σ open entry notional = Σ realised PnL paid by clearing (identity in perp-math.ts).
+        const clearingMismatch = await tx.$queryRaw<
+          { asset_id: string; entry: string; ledger: string }[]
+        >`
+          WITH pe AS (
+            SELECT m."quote_asset_id" AS "asset_id", SUM(p."entry_notional") AS "s"
+              FROM "positions" p JOIN "markets" m ON m."id" = p."market_id" GROUP BY 1),
+          ca AS (
+            SELECT "asset_id", "balance" AS "s" FROM "ledger_accounts" WHERE "type" = 'PERP_CLEARING')
+          SELECT COALESCE(pe."asset_id", ca."asset_id")::text AS "asset_id",
+                 COALESCE(pe."s", 0)::text AS "entry", COALESCE(ca."s", 0)::text AS "ledger"
+            FROM pe FULL OUTER JOIN ca ON pe."asset_id" = ca."asset_id"
+           WHERE COALESCE(pe."s", 0) <> COALESCE(ca."s", 0)`;
+        const openInterest = await tx.$queryRaw<{ market_id: string; net: string }[]>`
+          SELECT "market_id"::text, SUM("size_lots")::text AS "net" FROM "positions"
+           GROUP BY "market_id" HAVING SUM("size_lots") <> 0`;
+        const poolMismatch = await tx.$queryRaw<
+          { asset_id: string; rounds: string; ledger: string }[]
+        >`
+          WITH fr AS (
+            SELECT m."quote_asset_id" AS "asset_id", SUM(r."collected" - r."distributed") AS "s"
+              FROM "perp_funding_rounds" r JOIN "markets" m ON m."id" = r."market_id" GROUP BY 1),
+          fp AS (
+            SELECT "asset_id", "balance" AS "s" FROM "ledger_accounts" WHERE "type" = 'PERP_FUNDING_POOL')
+          SELECT COALESCE(fr."asset_id", fp."asset_id")::text AS "asset_id",
+                 COALESCE(fr."s", 0)::text AS "rounds", COALESCE(fp."s", 0)::text AS "ledger"
+            FROM fr FULL OUTER JOIN fp ON fr."asset_id" = fp."asset_id"
+           WHERE COALESCE(fr."s", 0) <> COALESCE(fp."s", 0)`;
         const [{ count }] = await tx.$queryRaw<
           [{ count: number }]
         >`SELECT count(*)::int AS "count" FROM "journal_entries"`;
@@ -117,6 +171,30 @@ export class ReconciliationService {
         for (const t of trial)
           out.push({ kind: 'TRIAL_BALANCE_NONZERO', assetId: t.asset_id, net: t.net });
         for (const m of mixed) out.push({ kind: 'MIXED_NAMESPACE_ENTRY', entryId: m.entry_id });
+        for (const m of marginMismatch)
+          out.push({
+            kind: 'POSITION_MARGIN_MISMATCH',
+            userId: m.user_id,
+            assetId: m.asset_id,
+            positions: m.positions,
+            ledger: m.ledger,
+          });
+        for (const c of clearingMismatch)
+          out.push({
+            kind: 'PERP_CLEARING_MISMATCH',
+            assetId: c.asset_id,
+            entryNotional: c.entry,
+            ledger: c.ledger,
+          });
+        for (const o of openInterest)
+          out.push({ kind: 'OPEN_INTEREST_IMBALANCE', marketId: o.market_id, netLots: o.net });
+        for (const f of poolMismatch)
+          out.push({
+            kind: 'FUNDING_POOL_MISMATCH',
+            assetId: f.asset_id,
+            rounds: f.rounds,
+            ledger: f.ledger,
+          });
         return { findings: out, accountsChecked: accounts.length, entriesChecked: count };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, timeout: 120_000 },

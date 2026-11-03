@@ -1,6 +1,6 @@
 # Architecture overview
 
-> Status: **Phases 0–5 implemented** (foundation, identity, access control, double-entry ledger, spot matching engine and settlement, market data and trading terminal, paper trading and simulation tooling).
+> Status: **Phases 0–6 implemented** (foundation, identity, access control, double-entry ledger, spot matching engine and settlement, market data and trading terminal, paper trading and simulation tooling, paper-only perpetual futures with margin, funding and liquidation; ADR-0011).
 > Nothing in this repository handles real money. See [roadmap](roadmap.md).
 
 ## 1. Goals that drive the architecture

@@ -5,7 +5,7 @@ The final brand has not been chosen. The display name comes from configuration
 (`BRAND_NAME`, `NEXT_PUBLIC_BRAND_NAME`) and never appears in business logic or
 database identifiers.
 
-> **Status: pre-launch engineering (Phases 0–5 complete).**
+> **Status: pre-launch engineering (Phases 0–6 complete).**
 > Matching and settlement work end to end on **simulated** funds only. There is
 > no custody, no real deposits and no real money anywhere in this repository. Balances can only be funded with simulated test deposits in
 > local/CI environments. The platform is not licensed, audited or insured, and it offers no
@@ -45,6 +45,11 @@ database identifiers.
   batched settlement (~5× throughput), and `engine-replay` to verify engine
   builds against recorded history. See
   [ADR-0010](docs/decisions/0010-paper-trading-and-replay.md).
+- **Perpetual futures** (Phase 6, **paper only**, database-enforced): isolated
+  margin, leverage tiers, reduce-only orders, index and mark price (never last
+  trade), funding, liquidation protected at the bankruptcy price, a paper
+  insurance fund, and a risk simulation harness (ADL specified, not live). See
+  [ADR-0011](docs/decisions/0011-perpetual-futures.md).
 - **Shared packages:** zod schemas and the RBAC catalogue (`packages/shared`),
   and environment validation (`packages/config`).
 - **Infrastructure:** Dockerfiles, a Compose stack with an nginx edge proxy, a CI
@@ -99,7 +104,8 @@ tests/              (reserved) cross-service integration and browser e2e suites
   [0007 matching engine](docs/decisions/0007-matching-engine.md) ·
   [0008 English-only UI](docs/decisions/0008-english-only-ui.md) ·
   [0009 market data](docs/decisions/0009-market-data.md) ·
-  [0010 paper trading & replay](docs/decisions/0010-paper-trading-and-replay.md)
+  [0010 paper trading & replay](docs/decisions/0010-paper-trading-and-replay.md) ·
+  [0011 perpetual futures](docs/decisions/0011-perpetual-futures.md)
 - Security: [controls & threat model](docs/security/threat-model.md) ·
   [dependency policy](docs/security/dependency-policy.md) ·
   [incident response (draft)](docs/security/incident-response.md)

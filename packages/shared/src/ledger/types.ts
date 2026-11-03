@@ -11,6 +11,9 @@ export const JOURNAL_ENTRY_TYPES = [
   'REVERSAL',
   'TRADE',
   'PAPER_FAUCET_GRANT',
+  'MARGIN_TRANSFER',
+  'FUNDING',
+  'INSURANCE_FUND_SEED',
 ] as const;
 export type JournalEntryType = (typeof JOURNAL_ENTRY_TYPES)[number];
 
@@ -34,6 +37,9 @@ export interface BalanceDto {
   paper: boolean;
   available: string;
   locked: string;
+  /** Isolated margin backing open perpetual positions (paper only). */
+  margin: string;
+  /** available + locked + margin. */
   total: string;
 }
 
@@ -43,7 +49,7 @@ export interface LedgerHistoryItemDto {
   entryType: JournalEntryType;
   asset: string;
   /** Which of the user's balances changed. */
-  bucket: 'available' | 'locked';
+  bucket: 'available' | 'locked' | 'margin';
   /** Signed change from the user's perspective, e.g. "+1.50000000" or "-0.25000000". */
   change: string;
   createdAt: string;

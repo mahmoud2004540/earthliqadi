@@ -138,3 +138,41 @@ test('paper trading: faucet funds and a trade on a paper market', async ({ brows
     .click();
   await expect(buyer.getByText(/already used/)).toBeVisible();
 });
+
+test('perpetuals (paper): mark price, leverage, opening a position', async ({ browser }) => {
+  const market = process.env.E2E_PERP_MARKET!;
+  const quote = market.split('-')[1]!;
+  const long = await signUp(browser, 'e2e-perp-long');
+  const short = await signUp(browser, 'e2e-perp-short');
+  for (const page of [long, short]) {
+    await page.goto(`/trade/${market}`);
+    await expect(page.getByTestId('perp-badge')).toBeVisible();
+    await expect(page.getByTestId('perp-mark')).not.toHaveText('—');
+    await page
+      .getByTestId('paper-faucet')
+      .getByRole('button', { name: `Get paper ${quote}` })
+      .click();
+    await expect(page.getByText('Paper funds added.')).toBeVisible();
+  }
+  await expect(long.getByTestId('leverage')).toHaveText('10x');
+  // A price on the tick grid near the (simulated) mark, inside the 10% band.
+  const mark = (await long.getByTestId('perp-mark').innerText()).trim();
+  const [whole, frac = ''] = mark.split('.');
+  const price = `${whole}.${frac.padEnd(2, '0').slice(0, 2)}`;
+
+  await short.getByRole('button', { name: 'Sell / Short' }).click();
+  await short.fill('#price', price);
+  await short.fill('#quantity', '1');
+  await short.getByTestId('order-form').locator('button[type=submit]').click();
+  await expect(short.getByText('Order submitted.')).toBeVisible();
+
+  await long.fill('#price', price);
+  await long.fill('#quantity', '1');
+  await expect(long.getByTestId('margin-required')).not.toHaveText('—');
+  await long.getByTestId('order-form').locator('button[type=submit]').click();
+
+  const row = long.getByTestId('position-row');
+  await expect(row).toContainText('long 10x');
+  await expect(row).toContainText(price.replace(/\.?0+$/, ''));
+  await expect(short.getByTestId('position-row')).toContainText('short 10x');
+});

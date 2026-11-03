@@ -16,4 +16,5 @@ process.env.RATE_LIMIT_AUTH_PER_MINUTE = '20';
 process.env.RATE_LIMIT_DEFAULT_PER_MINUTE = '600';
 process.env.LEDGER_RECONCILIATION_INTERVAL_SECONDS = '0';
 process.env.SETTLEMENT_POLL_MS = '0';
+process.env.PERP_RISK_POLL_MS = '0';
 process.env.MARKET_DATA_POLL_MS = '50';
