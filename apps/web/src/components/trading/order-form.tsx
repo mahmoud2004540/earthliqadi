@@ -244,17 +244,20 @@ export function OrderForm({
       </dl>
 
       {market.paper && (
-        <div className="flex gap-2" data-testid="paper-faucet">
+        <div className="grid gap-2" data-testid="paper-faucet">
           {[market.base, market.quote].map((asset) => (
             <Button
               key={asset}
               type="button"
               size="sm"
               variant="outline"
-              className="flex-1"
+              className="w-full min-w-0"
+              title={`${tt.getPaperFunds} ${asset}`}
               onClick={() => void faucet(asset)}
             >
-              {tt.getPaperFunds} {asset}
+              <span className="truncate">
+                {tt.getPaperFunds} {asset}
+              </span>
             </Button>
           ))}
         </div>

@@ -342,7 +342,7 @@ export const en = {
     memberSince: 'Member since',
     modulesTitle: 'Account modules',
     modules: [
-      { name: 'Portfolio', phase: 4 },
+      { name: 'Portfolio valuation', phase: 6 },
       { name: 'Deposits & withdrawals', phase: 8 },
       { name: 'Identity verification (KYC)', phase: 7 },
       { name: 'Notifications', phase: 7 },

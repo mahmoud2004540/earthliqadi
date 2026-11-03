@@ -21,6 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import type { Dictionary } from '@/i18n';
 import { api } from '@/lib/api';
 import { useMarketStream, type StreamSubscription } from '@/lib/market-stream';
+import { mergeTrades } from '@/lib/trades';
 import { cn } from '@/lib/utils';
 import { MyOrders } from './my-orders';
 import { OrderBook } from './order-book';
@@ -139,7 +140,7 @@ export function Terminal({ symbol, t }: { symbol: string; t: Dictionary }) {
           if (m.interval === interval) setCandles(m.data);
           break;
         case 'trades':
-          setTrades((prev) => (m.snapshot ? m.data : [...m.data, ...prev]).slice(0, 60));
+          setTrades((prev) => mergeTrades(m.snapshot ? [] : prev, m.data));
           break;
         case 'orders':
           setOrders((prev) => {

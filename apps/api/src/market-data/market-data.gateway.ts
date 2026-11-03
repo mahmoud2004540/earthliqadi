@@ -314,9 +314,12 @@ export class MarketDataGateway implements OnApplicationBootstrap, OnApplicationS
         });
       }
       case 'trades': {
+        // The poller can run while the initial snapshot is still loading.
+        // Without a cursor it would resend history as "new" trades.
+        if (!initial && sub.tradeSeq === undefined) return;
         const trades = initial
           ? await this.marketData.trades(sub.market, 50)
-          : await this.marketData.trades(sub.market, 200, sub.tradeSeq ?? 0n);
+          : await this.marketData.trades(sub.market, 200, sub.tradeSeq);
         if (trades[0]) sub.tradeSeq = BigInt(trades[0].seq);
         else if (initial) sub.tradeSeq = 0n;
         if (initial || trades.length > 0) {
