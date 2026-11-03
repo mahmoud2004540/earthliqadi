@@ -10,7 +10,6 @@ export interface CurrentUserDto {
   emailVerified: boolean;
   status: UserStatus;
   accountType: AccountType;
-  locale: string;
   mfaEnabled: boolean;
   roles: string[];
   permissions: string[];

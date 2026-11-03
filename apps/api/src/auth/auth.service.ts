@@ -52,10 +52,7 @@ export class AuthService {
    * (prevents account enumeration). An existing account owner receives a
    * security notice instead of a second account.
    */
-  async register(
-    input: { email: string; password: string; locale: 'en' | 'ar' },
-    ctx: RequestContext,
-  ): Promise<void> {
+  async register(input: { email: string; password: string }, ctx: RequestContext): Promise<void> {
     // Hash first so timing does not depend on whether the account exists.
     const passwordHash = await this.passwords.hash(input.password);
     const existing = await this.prisma.user.findUnique({ where: { email: input.email } });
@@ -74,7 +71,7 @@ export class AuthService {
         subject: 'Registration attempt on your account',
         text:
           'Someone tried to create an account with this email address. If this was you, sign in or reset your password.\n' +
-          `${this.config.WEB_ORIGIN}/${existing.locale}/forgot-password`,
+          `${this.config.WEB_ORIGIN}/forgot-password`,
       });
       return;
     }
@@ -83,7 +80,7 @@ export class AuthService {
     try {
       created = await this.prisma.$transaction(async (tx) => {
         const user = await tx.user.create({
-          data: { email: input.email, passwordHash, locale: input.locale },
+          data: { email: input.email, passwordHash },
         });
         await this.rbac.assignDefaultRole(user.id, tx);
         const token = await this.createToken(
@@ -327,7 +324,7 @@ export class AuthService {
       subject: 'Reset your password',
       text:
         'Use the link below to choose a new password. It expires in 1 hour and can be used once.\n' +
-        `${this.config.WEB_ORIGIN}/${user.locale}/reset-password#token=${token}\n\n` +
+        `${this.config.WEB_ORIGIN}/reset-password#token=${token}\n\n` +
         'If you did not request this, you can ignore this email; your password has not changed.',
     });
   }
@@ -560,7 +557,7 @@ export class AuthService {
       subject: 'Verify your email address',
       text:
         'Confirm your email address to activate your account. The link expires in 24 hours.\n' +
-        `${this.config.WEB_ORIGIN}/${user.locale}/verify-email#token=${token}`,
+        `${this.config.WEB_ORIGIN}/verify-email#token=${token}`,
     });
   }
 

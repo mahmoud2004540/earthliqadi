@@ -33,7 +33,6 @@ export const registerSchema = z
   .object({
     email: emailSchema,
     password: passwordSchema,
-    locale: z.enum(['en', 'ar']).default('en'),
     acceptTerms: z.literal(true, { error: 'Terms must be accepted' }),
   })
   .refine((data) => !data.password.toLowerCase().includes(data.email.split('@')[0] ?? '\u0000'), {

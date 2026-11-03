@@ -1,6 +1,5 @@
 @import 'tailwindcss';
 @import '@fontsource-variable/inter';
-@import '@fontsource-variable/noto-sans-arabic';
 
 /* Design tokens. Brand palette is provisional and centralised here. */
 @theme {
@@ -16,9 +15,7 @@
   --color-negative: #f05b67;
   --color-warning: #f2b544;
 
-  --font-sans: 'Inter Variable', 'Noto Sans Arabic Variable', ui-sans-serif, system-ui, sans-serif;
-  --font-arabic:
-    'Noto Sans Arabic Variable', 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --radius-lg: 0.75rem;
@@ -33,9 +30,6 @@
     font-feature-settings:
       'tnum' 1,
       'cv11' 1;
-  }
-  html[lang='ar'] body {
-    font-family: var(--font-arabic);
   }
   :focus-visible {
     @apply outline-2 outline-offset-2 outline-primary;

@@ -1,27 +1,29 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { isLocale, negotiateLocale } from './i18n';
 
 const SESSION_COOKIES = ['__Host-session', 'session'];
+/** Former locale prefixes; kept as permanent redirects so old links (including emails) keep working. */
+const LEGACY_PREFIX = /^\/(en|ar)(?=\/|$)/;
 
 /**
- * 1. Redirects locale-less paths to the negotiated locale.
+ * 1. Redirects legacy /en/... and /ar/... URLs to the English-only paths.
  * 2. Fast-path redirect of signed-out visitors away from the dashboard. This is
- *    a UX convenience only — the API enforces authentication on every request.
+ *    a UX convenience only; the API enforces authentication on every request.
  */
 export function middleware(request: NextRequest): NextResponse {
   const { pathname } = request.nextUrl;
-  const [, first, second] = pathname.split('/');
 
-  if (!isLocale(first)) {
-    const locale = negotiateLocale(request.headers.get('accept-language'));
+  if (LEGACY_PREFIX.test(pathname)) {
     const url = request.nextUrl.clone();
-    url.pathname = `/${locale}${pathname === '/' ? '' : pathname}`;
-    return NextResponse.redirect(url);
+    url.pathname = pathname.replace(LEGACY_PREFIX, '') || '/';
+    return NextResponse.redirect(url, 308);
   }
 
-  if (second === 'dashboard' && !SESSION_COOKIES.some((name) => request.cookies.has(name))) {
+  if (
+    pathname.split('/')[1] === 'dashboard' &&
+    !SESSION_COOKIES.some((name) => request.cookies.has(name))
+  ) {
     const url = request.nextUrl.clone();
-    url.pathname = `/${first}/login`;
+    url.pathname = '/login';
     url.search = '';
     return NextResponse.redirect(url);
   }

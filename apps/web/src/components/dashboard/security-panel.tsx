@@ -11,23 +11,23 @@ import { Input, Label } from '@/components/ui/input';
 import type { Dictionary } from '@/i18n';
 import { api } from '@/lib/api';
 
-type Props = { user: CurrentUserDto; t: Dictionary; locale: string; onChange: () => void };
+type Props = { user: CurrentUserDto; t: Dictionary; onChange: () => void };
 
-export function SecurityPanel({ user, t, locale, onChange }: Props) {
+export function SecurityPanel({ user, t, onChange }: Props) {
   return (
     <div className="mt-8 space-y-6">
-      <SessionsCard t={t} locale={locale} />
+      <SessionsCard t={t} />
       <MfaCard user={user} t={t} onChange={onChange} />
       <PasswordCard t={t} />
     </div>
   );
 }
 
-function SessionsCard({ t, locale }: { t: Dictionary; locale: string }) {
+function SessionsCard({ t }: { t: Dictionary }) {
   const d = t.dashboard;
   const [sessions, setSessions] = useState<SessionDto[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const fmt = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' });
+  const fmt = new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' });
 
   const [version, setVersion] = useState(0);
 

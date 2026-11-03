@@ -8,10 +8,9 @@ describe('registerSchema', () => {
     acceptTerms: true,
   };
 
-  it('normalises email to trimmed lowercase and defaults locale', () => {
+  it('normalises email to trimmed lowercase', () => {
     const parsed = registerSchema.parse(valid);
     expect(parsed.email).toBe('alice@example.com');
-    expect(parsed.locale).toBe('en');
   });
 
   it('rejects short passwords', () => {

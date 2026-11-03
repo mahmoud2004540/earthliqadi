@@ -12,7 +12,6 @@ export function toCurrentUserDto(
     emailVerified: user.emailVerifiedAt !== null,
     status: user.status,
     accountType: user.accountType,
-    locale: user.locale,
     mfaEnabled: user.mfaEnabledAt !== null,
     roles,
     permissions,

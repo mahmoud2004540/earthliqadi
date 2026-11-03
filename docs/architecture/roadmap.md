@@ -28,7 +28,7 @@ tests, security review and documentation are done.
 - [x] RBAC catalogue, permission guard and audited role grants (CLI bootstrap, no default admin)
 - [x] CSRF protection, rate limiting, account lockout, security headers
 - [x] Health endpoints (liveness, readiness)
-- [x] Responsive bilingual (EN/AR, LTR/RTL) web app with public, auth and dashboard pages
+- [x] Responsive bilingual (EN/AR, LTR/RTL) web app with public, auth and dashboard pages _(Arabic later removed: ADR-0008)_
 - [x] Unit and integration tests against real PostgreSQL and Redis
 - [x] Docker images, Compose stack with an edge proxy, CI pipeline, dependency audit
 - [x] Architecture, ADR, security, API and operations documentation
@@ -45,7 +45,7 @@ tests, security review and documentation are done.
 - [x] Holds and releases (available ↔ locked) ready for the order system
 - [x] Reversals as the only correction mechanism; at most one reversal per entry
 - [x] Reconciliation (projection, per-entry balance, trial balance, negative balances): scheduled, manual and CLI; append-only results
-- [x] User balances and history API and dashboard (EN/AR); staff read API with audited access
+- [x] User balances and history API and dashboard; staff read API with audited access
 - [x] Simulated deposits for development only, refused outside `local`/`ci`
 - [x] Tests: property-based, concurrency, idempotency races, DB invariants, reconciliation tamper detection
 
@@ -73,7 +73,7 @@ tests, security review and documentation are done.
 3. **WebSocket API:** authenticated private channels (orders, fills, balances)
    and public channels (book, trades, candles, ticker), with rate limits,
    heartbeats, and reconnect with snapshot plus replay from sequence.
-4. **Trading terminal (web, EN/AR):** market selector, TradingView Lightweight
+4. **Trading terminal (web):** market selector, TradingView Lightweight
    Charts, order book and depth, recent trades, order form (limit, market with
    protection, stop), open orders, history, balances. Stale-data warnings.
 5. **Tests:** projection-equals-engine property tests, WebSocket gap/resync

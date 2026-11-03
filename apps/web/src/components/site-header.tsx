@@ -1,10 +1,9 @@
 import Link from 'next/link';
-import type { Dictionary, Locale } from '@/i18n';
+import type { Dictionary } from '@/i18n';
 import { brandName } from '@/lib/utils';
 import { Button } from './ui/button';
 
-export function SiteHeader({ locale, t }: { locale: Locale; t: Dictionary }) {
-  const other = locale === 'en' ? 'ar' : 'en';
+export function SiteHeader({ t }: { t: Dictionary }) {
   const links = [
     { href: 'markets', label: t.nav.markets },
     { href: 'trade', label: t.nav.trade },
@@ -16,7 +15,7 @@ export function SiteHeader({ locale, t }: { locale: Locale; t: Dictionary }) {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-7xl items-center gap-6 px-4 sm:px-6">
-        <Link href={`/${locale}`} className="flex items-center gap-2 font-semibold tracking-tight">
+        <Link href={'/'} className="flex items-center gap-2 font-semibold tracking-tight">
           <span
             aria-hidden
             className="grid size-7 place-items-center rounded-md bg-primary text-sm text-white"
@@ -29,7 +28,7 @@ export function SiteHeader({ locale, t }: { locale: Locale; t: Dictionary }) {
           {links.map((l) => (
             <Link
               key={l.href}
-              href={`/${locale}/${l.href}`}
+              href={`/${l.href}`}
               className="rounded-md px-3 py-2 text-sm text-muted transition-colors hover:text-foreground"
             >
               {l.label}
@@ -37,18 +36,11 @@ export function SiteHeader({ locale, t }: { locale: Locale; t: Dictionary }) {
           ))}
         </nav>
         <div className="ms-auto flex items-center gap-2">
-          <Link
-            href={`/${other}`}
-            hrefLang={other}
-            className="rounded-md px-2 py-2 text-sm text-muted hover:text-foreground"
-          >
-            {t.nav.language}
-          </Link>
           <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
-            <Link href={`/${locale}/login`}>{t.nav.login}</Link>
+            <Link href={'/login'}>{t.nav.login}</Link>
           </Button>
           <Button asChild size="sm">
-            <Link href={`/${locale}/register`}>{t.nav.register}</Link>
+            <Link href={'/register'}>{t.nav.register}</Link>
           </Button>
         </div>
       </div>
@@ -59,7 +51,7 @@ export function SiteHeader({ locale, t }: { locale: Locale; t: Dictionary }) {
         {links.map((l) => (
           <Link
             key={l.href}
-            href={`/${locale}/${l.href}`}
+            href={`/${l.href}`}
             className="shrink-0 rounded-md px-3 py-1.5 text-sm text-muted hover:bg-surface hover:text-foreground"
           >
             {l.label}

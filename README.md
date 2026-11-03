@@ -13,8 +13,8 @@ database identifiers.
 
 ## What exists today
 
-- **Web app** (`apps/web`): Next.js 15, React 19, Tailwind 4, English/Arabic
-  (LTR/RTL). Includes the landing page, Security Center, Trust Center (structure
+- **Web app** (`apps/web`): Next.js 15, React 19, Tailwind 4, English-only
+  ([ADR-0008](docs/decisions/0008-english-only-ui.md)). Includes the landing page, Security Center, Trust Center (structure
   only), fees, markets, API, risk, legal, about and contact pages; registration,
   email verification, login with TOTP, and password reset; and a dashboard with
   account overview, session/device management, MFA setup and password change.
@@ -85,7 +85,8 @@ tests/              (reserved) cross-service integration and browser e2e suites
   [0004 edge proxy](docs/decisions/0004-edge-proxy-topology.md) ·
   [0005 shared validation](docs/decisions/0005-shared-zod-validation.md) ·
   [0006 ledger](docs/decisions/0006-double-entry-ledger.md) ·
-  [0007 matching engine](docs/decisions/0007-matching-engine.md)
+  [0007 matching engine](docs/decisions/0007-matching-engine.md) ·
+  [0008 English-only UI](docs/decisions/0008-english-only-ui.md)
 - Security: [controls & threat model](docs/security/threat-model.md) ·
   [dependency policy](docs/security/dependency-policy.md) ·
   [incident response (draft)](docs/security/incident-response.md)

@@ -1,5 +1,5 @@
 /**
- * English dictionary — the reference shape for all locales.
+ * English UI copy (the web app is English-only, ADR-0008).
  * Content rule: never state that the platform is licensed, audited, insured,
  * solvent or partnered with anyone unless independently verified.
  */
@@ -21,7 +21,6 @@ export const en = {
     register: 'Create account',
     dashboard: 'Dashboard',
     logout: 'Sign out',
-    language: 'العربية',
     menu: 'Menu',
   },
   footer: {
@@ -354,5 +353,5 @@ type Widen<T> = T extends string
       ? readonly Widen<U>[]
       : { readonly [K in keyof T]: Widen<T[K]> };
 
-/** Every locale must provide exactly this shape (checked at compile time). */
+/** Shape of the UI copy (string literals widened). */
 export type Dictionary = Widen<typeof en>;

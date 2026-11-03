@@ -1,18 +1,15 @@
 import Link from 'next/link';
-import type { Dictionary, Locale } from '@/i18n';
+import type { Dictionary } from '@/i18n';
 import { brandName } from '@/lib/utils';
 
-export function SiteFooter({ locale, t }: { locale: Locale; t: Dictionary }) {
+export function SiteFooter({ t }: { t: Dictionary }) {
   const col = (heading: string, links: { href: string; label: string }[]) => (
     <div>
       <h2 className="text-sm font-semibold text-foreground">{heading}</h2>
       <ul className="mt-3 space-y-2">
         {links.map((l) => (
           <li key={l.href}>
-            <Link
-              href={`/${locale}/${l.href}`}
-              className="text-sm text-muted hover:text-foreground"
-            >
+            <Link href={`/${l.href}`} className="text-sm text-muted hover:text-foreground">
               {l.label}
             </Link>
           </li>

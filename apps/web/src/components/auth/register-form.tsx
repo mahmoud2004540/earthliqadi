@@ -9,15 +9,7 @@ import { Input, Label } from '@/components/ui/input';
 import { api } from '@/lib/api';
 import { AuthShell, FieldError, errorMessage, type AuthText } from './shared';
 
-export function RegisterForm({
-  locale,
-  t,
-  riskLabel,
-}: {
-  locale: 'en' | 'ar';
-  t: AuthText;
-  riskLabel: string;
-}) {
+export function RegisterForm({ t, riskLabel }: { t: AuthText; riskLabel: string }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [acceptTerms, setAcceptTerms] = useState(false);
@@ -30,7 +22,7 @@ export function RegisterForm({
     event.preventDefault();
     setError(null);
     // Same zod schema the API uses: instant feedback, no drift between client and server rules.
-    const parsed = registerSchema.safeParse({ email, password, acceptTerms, locale });
+    const parsed = registerSchema.safeParse({ email, password, acceptTerms });
     if (!parsed.success) {
       setFieldErrors(
         Object.fromEntries(parsed.error.issues.map((i) => [String(i.path[0]), i.message])),
@@ -105,7 +97,7 @@ export function RegisterForm({
           />
           <label htmlFor="terms" className="text-sm text-muted">
             {t.acceptTerms}{' '}
-            <Link href={`/${locale}/risk`} className="text-primary hover:underline">
+            <Link href={'/risk'} className="text-primary hover:underline">
               {riskLabel}
             </Link>
           </label>
@@ -116,7 +108,7 @@ export function RegisterForm({
         </Button>
         <p className="text-center text-sm text-muted">
           {t.haveAccount}{' '}
-          <Link href={`/${locale}/login`} className="text-primary hover:underline">
+          <Link href={'/login'} className="text-primary hover:underline">
             {t.loginSubmit}
           </Link>
         </p>

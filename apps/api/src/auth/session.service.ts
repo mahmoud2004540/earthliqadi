@@ -13,7 +13,6 @@ const sessionUserSelect = {
   email: true,
   status: true,
   accountType: true,
-  locale: true,
   emailVerifiedAt: true,
   mfaEnabledAt: true,
   createdAt: true,

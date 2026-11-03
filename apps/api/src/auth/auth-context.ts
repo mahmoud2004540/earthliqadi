@@ -9,7 +9,6 @@ export interface AuthContext {
     email: string;
     status: UserStatus;
     accountType: AccountType;
-    locale: string;
     emailVerifiedAt: Date | null;
     mfaEnabledAt: Date | null;
     createdAt: Date;

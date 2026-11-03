@@ -49,7 +49,6 @@ model User {
   passwordHash    String      @map("password_hash")
   status          UserStatus  @default(PENDING_VERIFICATION)
   accountType     AccountType @default(INDIVIDUAL) @map("account_type")
-  locale          String      @default("en") @db.VarChar(8)
   emailVerifiedAt DateTime?   @map("email_verified_at") @db.Timestamptz(3)
 
   /// AES-256-GCM encrypted TOTP secret (iv|tag|ciphertext). Never returned by the API.

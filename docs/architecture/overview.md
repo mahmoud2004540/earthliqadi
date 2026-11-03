@@ -32,7 +32,7 @@
   real peer address and assigns `X-Request-Id`. In production this is the load
   balancer or ingress, which also terminates TLS. See
   [ADR-0004](../decisions/0004-edge-proxy-topology.md).
-- **web** (`apps/web`): Next.js App Router with English (LTR) and Arabic (RTL).
+- **web** (`apps/web`): Next.js App Router, English-only ([ADR-0008](../decisions/0008-english-only-ui.md)).
   Public pages are statically generated. The authenticated dashboard is a client
   component that talks to the API on the same origin.
 - **api** (`apps/api`): NestJS modular monolith, REST under `/v1`, with OpenAPI.

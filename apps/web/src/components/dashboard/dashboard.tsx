@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 import { SecurityPanel } from './security-panel';
 import { WalletPanel } from './wallet-panel';
 
-export function Dashboard({ locale, t }: { locale: string; t: Dictionary }) {
+export function Dashboard({ t }: { t: Dictionary }) {
   const router = useRouter();
   const [user, setUser] = useState<CurrentUserDto | null>(null);
   const [tab, setTab] = useState<'overview' | 'wallet' | 'security'>('overview');
@@ -27,23 +27,23 @@ export function Dashboard({ locale, t }: { locale: string; t: Dictionary }) {
         if (active) setUser(me);
       })
       .catch((err: unknown) => {
-        if (err instanceof ApiError && err.status === 401) router.replace(`/${locale}/login`);
+        if (err instanceof ApiError && err.status === 401) router.replace('/login');
       });
     return () => {
       active = false;
     };
-  }, [locale, router, version]);
+  }, [router, version]);
 
   async function logout() {
     await api('/v1/auth/logout', { method: 'POST' }).catch(() => undefined);
-    router.replace(`/${locale}/login`);
+    router.replace('/login');
     router.refresh();
   }
 
   const d = t.dashboard;
   if (!user) return <p className="mx-auto max-w-5xl px-4 py-16 text-muted sm:px-6">{d.loading}</p>;
 
-  const dateFmt = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
+  const dateFmt = new Intl.DateTimeFormat('en', { dateStyle: 'medium' });
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-12 sm:px-6">
@@ -83,7 +83,7 @@ export function Dashboard({ locale, t }: { locale: string; t: Dictionary }) {
 
       {tab === 'wallet' ? (
         <div className="mt-8">
-          <WalletPanel t={t} locale={locale} />
+          <WalletPanel t={t} />
         </div>
       ) : tab === 'overview' ? (
         <div className="mt-8 space-y-8">
@@ -112,7 +112,7 @@ export function Dashboard({ locale, t }: { locale: string; t: Dictionary }) {
           </section>
         </div>
       ) : (
-        <SecurityPanel user={user} t={t} locale={locale} onChange={reload} />
+        <SecurityPanel user={user} t={t} onChange={reload} />
       )}
     </div>
   );

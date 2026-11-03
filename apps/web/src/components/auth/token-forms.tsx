@@ -28,7 +28,7 @@ function useFragmentToken(): string | null | undefined {
   return useSyncExternalStore(noSubscription, readFragmentToken, () => undefined);
 }
 
-export function VerifyEmail({ locale, t }: { locale: string; t: AuthText }) {
+export function VerifyEmail({ t }: { t: AuthText }) {
   const token = useFragmentToken();
   const [result, setResult] = useState<{ status: 'pending' | 'done' | 'error'; message?: string }>({
     status: 'pending',
@@ -52,7 +52,7 @@ export function VerifyEmail({ locale, t }: { locale: string; t: AuthText }) {
       {state.status === 'done' && <Alert tone="success">{t.verifyDone}</Alert>}
       {state.status !== 'pending' && (
         <Button asChild className="mt-6 w-full">
-          <Link href={`/${locale}/login`}>{t.loginSubmit}</Link>
+          <Link href={'/login'}>{t.loginSubmit}</Link>
         </Button>
       )}
     </AuthShell>
@@ -107,7 +107,7 @@ export function ForgotPasswordForm({ t }: { t: AuthText }) {
   );
 }
 
-export function ResetPasswordForm({ locale, t }: { locale: string; t: AuthText }) {
+export function ResetPasswordForm({ t }: { t: AuthText }) {
   const token = useFragmentToken();
   const [password, setPassword] = useState('');
   const [fieldError, setFieldError] = useState<string | undefined>();
@@ -152,7 +152,7 @@ export function ResetPasswordForm({ locale, t }: { locale: string; t: AuthText }
         <>
           <Alert tone="success">{t.resetDone}</Alert>
           <Button asChild className="mt-6 w-full">
-            <Link href={`/${locale}/login`}>{t.loginSubmit}</Link>
+            <Link href={'/login'}>{t.loginSubmit}</Link>
           </Button>
         </>
       ) : (

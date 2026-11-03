@@ -10,7 +10,7 @@ import { Input, Label } from '@/components/ui/input';
 import { api } from '@/lib/api';
 import { AuthShell, errorMessage, type AuthText } from './shared';
 
-export function LoginForm({ locale, t }: { locale: string; t: AuthText }) {
+export function LoginForm({ t }: { t: AuthText }) {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -37,7 +37,7 @@ export function LoginForm({ locale, t }: { locale: string; t: AuthText }) {
         setChallengeId(result.challengeId);
         setPassword('');
       } else {
-        router.replace(`/${locale}/dashboard`);
+        router.replace('/dashboard');
         router.refresh();
       }
     } catch (err) {
@@ -85,10 +85,7 @@ export function LoginForm({ locale, t }: { locale: string; t: AuthText }) {
             <div>
               <div className="flex items-baseline justify-between">
                 <Label htmlFor="password">{t.password}</Label>
-                <Link
-                  href={`/${locale}/forgot-password`}
-                  className="text-xs text-primary hover:underline"
-                >
+                <Link href={'/forgot-password'} className="text-xs text-primary hover:underline">
                   {t.forgot}
                 </Link>
               </div>
@@ -110,7 +107,7 @@ export function LoginForm({ locale, t }: { locale: string; t: AuthText }) {
         {!challengeId && (
           <p className="text-center text-sm text-muted">
             {t.noAccount}{' '}
-            <Link href={`/${locale}/register`} className="text-primary hover:underline">
+            <Link href={'/register'} className="text-primary hover:underline">
               {t.registerSubmit}
             </Link>
           </p>

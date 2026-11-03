@@ -19,14 +19,14 @@ function Amount({ value, className }: { value: string; className?: string }) {
   );
 }
 
-export function WalletPanel({ t, locale }: { t: Dictionary; locale: string }) {
+export function WalletPanel({ t }: { t: Dictionary }) {
   const d = t.dashboard;
   const [balances, setBalances] = useState<BalanceDto[] | null>(null);
   const [items, setItems] = useState<LedgerHistoryItemDto[]>([]);
   const [nextBefore, setNextBefore] = useState<string | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const fmt = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' });
+  const fmt = new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' });
 
   useEffect(() => {
     let active = true;
