@@ -27,6 +27,9 @@ export const PERMISSIONS = {
   LEDGER_RECONCILE: 'ledger:reconcile',
   ASSETS_CONFIGURE: 'assets:configure',
   TRADING_TRADE: 'trading:trade',
+  LEDGER_ADJUST: 'ledger:adjust',
+  ANNOUNCEMENTS_MANAGE: 'announcements:manage',
+  APPROVALS_READ: 'approvals:read',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -51,7 +54,21 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   'ledger:reconcile': 'Run a ledger reconciliation',
   'assets:configure': 'Create and enable/disable assets (listing decisions)',
   'trading:trade': 'Place, amend and cancel own orders',
+  'ledger:adjust': 'Request or approve ledger corrections (always maker-checker)',
+  'announcements:manage': 'Publish announcements',
+  'approvals:read': 'View maker-checker approval requests',
 };
+
+/** Permissions every customer has. Everything else is a staff permission and requires MFA. */
+export const CUSTOMER_PERMISSIONS: readonly Permission[] = [
+  'account:self:read',
+  'account:self:manage',
+  'trading:trade',
+];
+
+export function isStaffPermission(p: Permission): boolean {
+  return !CUSTOMER_PERMISSIONS.includes(p);
+}
 
 export const ROLES = {
   USER: 'user',
@@ -87,7 +104,7 @@ export const SYSTEM_ROLES: readonly RoleDefinition[] = [
     key: 'support_agent',
     name: 'Support agent',
     description: 'Handles support tickets; read-only access to user profiles',
-    permissions: [P.USERS_READ, P.SUPPORT_TICKETS_MANAGE],
+    permissions: [P.USERS_READ, P.SUPPORT_TICKETS_MANAGE, P.ANNOUNCEMENTS_MANAGE],
     staff: true,
   },
   {
@@ -102,6 +119,7 @@ export const SYSTEM_ROLES: readonly RoleDefinition[] = [
       P.REPORTS_READ,
       P.AUDIT_READ,
       P.LEDGER_READ,
+      P.APPROVALS_READ,
     ],
     staff: true,
   },
@@ -116,6 +134,8 @@ export const SYSTEM_ROLES: readonly RoleDefinition[] = [
       P.OPERATIONS_EMERGENCY,
       P.LEDGER_READ,
       P.LEDGER_RECONCILE,
+      P.LEDGER_ADJUST,
+      P.APPROVALS_READ,
     ],
     staff: true,
   },
@@ -123,7 +143,14 @@ export const SYSTEM_ROLES: readonly RoleDefinition[] = [
     key: 'auditor',
     name: 'Auditor',
     description: 'Read-only access to the audit log, ledger and reports; may run reconciliations',
-    permissions: [P.AUDIT_READ, P.REPORTS_READ, P.ROLES_READ, P.LEDGER_READ, P.LEDGER_RECONCILE],
+    permissions: [
+      P.AUDIT_READ,
+      P.REPORTS_READ,
+      P.ROLES_READ,
+      P.LEDGER_READ,
+      P.LEDGER_RECONCILE,
+      P.APPROVALS_READ,
+    ],
     staff: true,
   },
   {
@@ -138,6 +165,8 @@ export const SYSTEM_ROLES: readonly RoleDefinition[] = [
       P.ROLES_ASSIGN,
       P.AUDIT_READ,
       P.FEES_CONFIGURE,
+      P.ANNOUNCEMENTS_MANAGE,
+      P.APPROVALS_READ,
     ],
     staff: true,
   },

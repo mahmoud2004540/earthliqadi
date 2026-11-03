@@ -118,6 +118,28 @@ export const apiEnvSchema = z
 
     /** Display name used as the TOTP issuer and in emails. Temporary until the brand is final. */
     BRAND_NAME: z.string().min(1).max(40).default('Exchange'),
+
+    /** Staff permissions require MFA on the account (ADR-0012). Cannot be disabled outside local/ci. */
+    STAFF_MFA_REQUIRED: booleanString.default(true),
+    /** Hours before an unanswered maker-checker request expires. */
+    APPROVAL_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
+    /** ISO 3166-1 alpha-2 codes (comma-separated) refused at identity verification. Legal input required. */
+    RESTRICTED_COUNTRIES: z
+      .string()
+      .default('')
+      .transform((v) =>
+        v
+          .split(',')
+          .map((c) => c.trim().toUpperCase())
+          .filter(Boolean),
+      )
+      .pipe(z.array(z.string().regex(/^[A-Z]{2}$/))),
+    /** Real (non-paper) trading requires KYC level ≥ 1 when true. */
+    KYC_REQUIRED_FOR_REAL_TRADING: booleanString.default(false),
+    /** 32-byte base64 key for identity data at rest. Falls back to MFA_ENCRYPTION_KEY only in local/ci. */
+    PII_ENCRYPTION_KEY: z.string().optional(),
+    /** Bearer token for GET /metrics (Prometheus). Unset = endpoint disabled. */
+    METRICS_TOKEN: z.string().min(32).optional(),
   })
   .superRefine((env, ctx) => {
     const strict = env.DEPLOY_ENV === 'staging' || env.DEPLOY_ENV === 'production';
@@ -128,6 +150,27 @@ export const apiEnvSchema = z
         code: 'custom',
         path: ['NODE_ENV'],
         message: `must be "production" when DEPLOY_ENV=${env.DEPLOY_ENV}`,
+      });
+    }
+    if (!env.PII_ENCRYPTION_KEY) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['PII_ENCRYPTION_KEY'],
+        message: 'is required outside local/ci (separate from MFA_ENCRYPTION_KEY)',
+      });
+    }
+    if (!env.STAFF_MFA_REQUIRED) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['STAFF_MFA_REQUIRED'],
+        message: 'must be true outside local/ci',
+      });
+    }
+    if (!env.KYC_REQUIRED_FOR_REAL_TRADING) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['KYC_REQUIRED_FOR_REAL_TRADING'],
+        message: 'must be true outside local/ci',
       });
     }
     if (!env.SESSION_COOKIE_SECURE) {

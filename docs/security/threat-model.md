@@ -95,6 +95,20 @@ introduce withdrawals (8) and trading (3–6).
 | Over-leverage                                        | Validated tiers (maintenance < initial margin); tier/leverage check on projected size; leverage fixed while exposed        | unit + e2e         |
 | Insurance fund drained silently                      | Ledger refuses a negative fund; settlement halts that market for investigation; fund balance is public                     | ledger constraints |
 
+## Back-office controls (Phase 7)
+
+| Threat                                          | Control                                                                                                    | Verified by |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ----------- |
+| Stolen staff password                           | Staff permissions require account MFA (`MFA_REQUIRED`); cannot be disabled outside local/ci                | unit + e2e  |
+| Single insider moving value or restoring access | Maker-checker: different approver (DB CHECK), same permission, immutable decided requests (trigger)        | e2e         |
+| Double execution of an approved action          | Conditional decision update + idempotent execution keyed by request id                                     | e2e         |
+| Self-escalation                                 | Role grants never for oneself (request or approval); no self-suspension                                    | e2e         |
+| PII exposure from back-office tools or logs     | AES-256-GCM profile (separate key, AAD per case); decrypted only on audited single-case view; never logged | e2e         |
+| Approving sanctioned / restricted applicants    | Restricted-country block; unscreened approvals refused outside local/ci; screener boundary                 | e2e         |
+| Reviewer conflict of interest                   | Reviewer ≠ subject (DB CHECK + service)                                                                    | e2e         |
+| Support data leakage between users              | Ownership checks return 404; append-only messages                                                          | e2e         |
+| Metrics leaking internals                       | Disabled without token; bearer with constant-time compare; blocked at the edge; bounded labels             | e2e         |
+
 ## Known limitations (must be resolved before any production use)
 
 1. **No production email transport.** Staging and production intentionally refuse to boot.

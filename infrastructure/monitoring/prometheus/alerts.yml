@@ -1,0 +1,86 @@
+# Alert rules (ADR-0012). Each alert links to a runbook section in
+# docs/operations/runbooks.md. Severity "page" = wake someone up.
+groups:
+  - name: exchange-money-safety
+    rules:
+      - alert: LedgerReconciliationMismatch
+        expr: exchange_reconciliation_ok == 0
+        for: 0m
+        labels: { severity: page }
+        annotations:
+          summary: Ledger reconciliation found discrepancies
+          runbook: docs/operations/runbooks.md#ledger-reconciliation-mismatch
+      - alert: LedgerReconciliationStale
+        expr: exchange_reconciliation_age_seconds > 3 * 300
+        for: 5m
+        labels: { severity: ticket }
+        annotations:
+          summary: No reconciliation has run for 15 minutes
+          runbook: docs/operations/runbooks.md#ledger-reconciliation-stale
+      - alert: SettlementHalted
+        expr: increase(exchange_settlement_failures_total[5m]) > 0
+        for: 2m
+        labels: { severity: page }
+        annotations:
+          summary: Settlement passes are failing (a market's settlement is halted)
+          runbook: docs/operations/runbooks.md#settlement-halted
+      - alert: SettlementLagHigh
+        expr: exchange_settlement_lag_events > 1000
+        for: 2m
+        labels: { severity: ticket }
+        annotations:
+          summary: 'Settlement lag above 1000 events on {{ $labels.market }}'
+          runbook: docs/operations/runbooks.md#settlement-lag-high
+      - alert: EngineBacklogHigh
+        expr: exchange_engine_backlog_commands > 1000
+        for: 2m
+        labels: { severity: page }
+        annotations:
+          summary: 'Matching engine backlog above 1000 commands on {{ $labels.market }}'
+          runbook: docs/operations/runbooks.md#engine-backlog-high
+  - name: exchange-derivatives-risk
+    rules:
+      - alert: PerpIndexStale
+        expr: exchange_perp_index_stale == 1
+        for: 1m
+        labels: { severity: page }
+        annotations:
+          summary: 'No reliable index price on {{ $labels.market }}: funding and liquidations paused'
+          runbook: docs/operations/runbooks.md#perpetual-index-stale
+      - alert: PerpRiskTickFailing
+        expr: increase(exchange_perp_risk_tick_failures_total[5m]) > 3
+        for: 0m
+        labels: { severity: page }
+        annotations:
+          summary: The perpetual risk engine is failing
+          runbook: docs/operations/runbooks.md#perpetual-risk-engine-failing
+      - alert: LiquidationsStuck
+        expr: exchange_positions_liquidating > 0
+        for: 10m
+        labels: { severity: ticket }
+        annotations:
+          summary: Positions have been liquidating for over 10 minutes (insufficient liquidity?)
+          runbook: docs/operations/runbooks.md#liquidations-stuck
+  - name: exchange-operations
+    rules:
+      - alert: ApiErrorRateHigh
+        expr: sum(rate(exchange_http_requests_total{status="5xx"}[5m])) / clamp_min(sum(rate(exchange_http_requests_total[5m])), 1) > 0.02
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: More than 2% of API requests fail with 5xx
+          runbook: docs/operations/runbooks.md#api-error-rate-high
+      - alert: MarketHalted
+        expr: exchange_market_halted == 1
+        for: 30m
+        labels: { severity: ticket }
+        annotations:
+          summary: '{{ $labels.market }} has been halted for 30 minutes'
+          runbook: docs/operations/runbooks.md#market-halted
+      - alert: ComplianceQueueBacklog
+        expr: exchange_kyc_cases_pending > 50
+        for: 1h
+        labels: { severity: ticket }
+        annotations:
+          summary: More than 50 identity verifications are waiting
+          runbook: docs/operations/runbooks.md#compliance-queue-backlog

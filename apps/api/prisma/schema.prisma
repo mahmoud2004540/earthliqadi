@@ -65,13 +65,23 @@ model User {
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  sessions       Session[]
-  tokens         VerificationToken[]
-  roles          UserRole[]          @relation("UserRoles")
-  grantedRoles   UserRole[]          @relation("RoleGrants")
-  ledgerAccounts LedgerAccount[]
-  orders         Order[]
-  positions      Position[]
+  sessions           Session[]
+  tokens             VerificationToken[]
+  roles              UserRole[]          @relation("UserRoles")
+  grantedRoles       UserRole[]          @relation("RoleGrants")
+  ledgerAccounts     LedgerAccount[]
+  orders             Order[]
+  positions          Position[]
+  /// 0 = none, 1 = basic identity verified, 2 = enhanced (ADR-0012).
+  kycLevel           Int                 @default(0) @map("kyc_level")
+  approvalsRequested ApprovalRequest[]   @relation("ApprovalRequester")
+  approvalsDecided   ApprovalRequest[]   @relation("ApprovalDecider")
+  kycCases           KycCase[]           @relation("KycSubject")
+  kycReviews         KycCase[]           @relation("KycReviewer")
+  notifications      Notification[]
+  supportTickets     SupportTicket[]
+  supportMessages    SupportMessage[]
+  announcements      Announcement[]
 
   @@map("users")
 }
@@ -630,4 +640,135 @@ model PerpFundingRound {
 
   @@unique([marketId, fundingTime])
   @@map("perp_funding_rounds")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 7: admin, compliance and support (ADR-0012)
+// ---------------------------------------------------------------------------
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  EXPIRED
+}
+
+enum KycStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  NEEDS_INFO
+}
+
+enum TicketStatus {
+  OPEN
+  WAITING_ON_USER
+  CLOSED
+}
+
+/// Maker-checker request: executed only when a DIFFERENT staff member approves (DB-enforced).
+model ApprovalRequest {
+  id            String         @id @default(uuid()) @db.Uuid
+  action        String         @db.VarChar(48)
+  payload       Json
+  reason        String         @db.VarChar(256)
+  status        ApprovalStatus @default(PENDING)
+  requestedById String         @map("requested_by_id") @db.Uuid
+  requestedAt   DateTime       @default(now()) @map("requested_at") @db.Timestamptz(3)
+  expiresAt     DateTime       @map("expires_at") @db.Timestamptz(3)
+  decidedById   String?        @map("decided_by_id") @db.Uuid
+  decidedAt     DateTime?      @map("decided_at") @db.Timestamptz(3)
+  decisionNote  String?        @map("decision_note") @db.VarChar(256)
+  result        Json?
+
+  requestedBy User  @relation("ApprovalRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  decidedBy   User? @relation("ApprovalDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+
+  @@index([status, requestedAt])
+  @@map("approval_requests")
+}
+
+model KycCase {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  level        Int
+  status       KycStatus @default(PENDING)
+  /// AES-256-GCM encrypted JSON profile. Never logged or returned in lists.
+  profileEnc   Bytes     @map("profile_enc")
+  countryCode  String    @map("country_code") @db.Char(2)
+  screening    Json
+  reviewerId   String?   @map("reviewer_id") @db.Uuid
+  decisionNote String?   @map("decision_note") @db.VarChar(512)
+  submittedAt  DateTime  @default(now()) @map("submitted_at") @db.Timestamptz(3)
+  decidedAt    DateTime? @map("decided_at") @db.Timestamptz(3)
+
+  user     User  @relation("KycSubject", fields: [userId], references: [id], onDelete: Restrict)
+  reviewer User? @relation("KycReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+
+  @@index([status, submittedAt])
+  @@index([userId])
+  @@map("kyc_cases")
+}
+
+model Notification {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  kind      String    @db.VarChar(48)
+  title     String    @db.VarChar(160)
+  body      String    @db.VarChar(1000)
+  data      Json      @default("{}")
+  readAt    DateTime? @map("read_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+model SupportTicket {
+  id        String       @id @default(uuid()) @db.Uuid
+  userId    String       @map("user_id") @db.Uuid
+  subject   String       @db.VarChar(160)
+  status    TicketStatus @default(OPEN)
+  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user     User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  messages SupportMessage[]
+
+  @@index([status, updatedAt])
+  @@index([userId])
+  @@map("support_tickets")
+}
+
+/// Append-only.
+model SupportMessage {
+  id        String   @id @default(uuid()) @db.Uuid
+  ticketId  String   @map("ticket_id") @db.Uuid
+  authorId  String   @map("author_id") @db.Uuid
+  fromStaff Boolean  @map("from_staff")
+  body      String   @db.VarChar(5000)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Restrict)
+  author User          @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([ticketId, createdAt])
+  @@map("support_messages")
+}
+
+/// Append-only.
+model Announcement {
+  id          String   @id @default(uuid()) @db.Uuid
+  title       String   @db.VarChar(160)
+  body        String   @db.VarChar(5000)
+  createdById String   @map("created_by_id") @db.Uuid
+  publishedAt DateTime @default(now()) @map("published_at") @db.Timestamptz(3)
+
+  createdBy User @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([publishedAt])
+  @@map("announcements")
 }

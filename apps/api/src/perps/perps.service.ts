@@ -283,7 +283,12 @@ export class PerpsService {
   }
 
   /** Paper only: funds the insurance fund from the paper faucet account (audited). */
-  async seedInsuranceFund(assetCode: string, amount: string, actor: LedgerActor): Promise<string> {
+  async seedInsuranceFund(
+    assetCode: string,
+    amount: string,
+    actor: LedgerActor,
+    idempotencyKey = `insurance-seed:${assetCode}:${Date.now()}`,
+  ): Promise<string> {
     const asset = await this.ledger.requireAsset(assetCode);
     if (!asset.isPaper) throw conflict('Insurance fund seeding is only available for paper assets');
     let value: bigint;
@@ -299,7 +304,7 @@ export class PerpsService {
     const result = await this.ledger.post(
       {
         type: 'INSURANCE_FUND_SEED',
-        idempotencyKey: `insurance-seed:${asset.id}:${Date.now()}`,
+        idempotencyKey,
         description: `Paper insurance fund seed ${asset.code} (simulated, no value)`,
         postings: [
           { accountId: faucet, direction: 'DEBIT', amount: value },

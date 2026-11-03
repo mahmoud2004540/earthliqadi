@@ -3,7 +3,6 @@ import { ApiTags } from '@nestjs/swagger';
 import {
   PERMISSIONS,
   addMarginSchema,
-  insuranceSeedSchema,
   leverageSchema,
   marketSymbolSchema,
   type FundingRoundDto,
@@ -87,28 +86,5 @@ export class PerpsController {
       actorUserId: auth.user.id,
       requestId: ctx.requestId,
     });
-  }
-}
-
-@ApiTags('admin')
-@Controller({ path: 'admin/perp', version: '1' })
-export class AdminPerpsController {
-  constructor(private readonly perps: PerpsService) {}
-
-  /** Paper only: seeds the insurance fund from the paper faucet (audited). */
-  @Post('insurance-fund')
-  @RequirePermissions(PERMISSIONS.MARKETS_CONFIGURE)
-  @ApiZodBody(insuranceSeedSchema)
-  async seed(
-    @CurrentAuth() auth: AuthContext,
-    @Body(new ZodValidationPipe(insuranceSeedSchema)) body: z.infer<typeof insuranceSeedSchema>,
-    @ReqContext() ctx: RequestContext,
-  ): Promise<{ asset: string; amount: string }> {
-    const amount = await this.perps.seedInsuranceFund(body.asset, body.amount, {
-      actorType: 'STAFF',
-      actorUserId: auth.user.id,
-      requestId: ctx.requestId,
-    });
-    return { asset: body.asset, amount };
   }
 }

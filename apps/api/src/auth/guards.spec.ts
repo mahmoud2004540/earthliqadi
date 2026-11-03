@@ -18,13 +18,21 @@ function httpContext(req: Record<string, unknown>): ExecutionContext {
 describe('PermissionsGuard', () => {
   const audit = { recordSafe: jest.fn().mockResolvedValue(undefined) } as unknown as AuditService;
 
-  function guardRequiring(perms: string[] | undefined): PermissionsGuard {
+  function guardRequiring(perms: string[] | undefined, staffMfa = true): PermissionsGuard {
     const reflector = { getAllAndOverride: () => perms } as unknown as Reflector;
-    return new PermissionsGuard(reflector, audit);
+    return new PermissionsGuard(reflector, audit, {
+      ...testConfig(),
+      STAFF_MFA_REQUIRED: staffMfa,
+    });
   }
 
-  const auth = (permissions: string[]) => ({
-    auth: { user: { id: 'u1' }, permissions, roles: [], sessionId: 's1' },
+  const auth = (permissions: string[], mfa = true) => ({
+    auth: {
+      user: { id: 'u1', mfaEnabledAt: mfa ? new Date() : null },
+      permissions,
+      roles: [],
+      sessionId: 's1',
+    },
     method: 'GET',
     path: '/v1/admin/users',
     headers: {},
@@ -53,6 +61,21 @@ describe('PermissionsGuard', () => {
         metadata: { missing: ['audit:read'] },
       }),
     );
+  });
+
+  it('requires MFA on the account for staff permissions (not for customer permissions)', async () => {
+    const staff = guardRequiring([PERMISSIONS.USERS_READ]);
+    await expect(
+      staff.canActivate(httpContext(auth([PERMISSIONS.USERS_READ], false))),
+    ).rejects.toMatchObject({ code: 'MFA_REQUIRED' });
+    const customer = guardRequiring([PERMISSIONS.TRADING_TRADE]);
+    await expect(
+      customer.canActivate(httpContext(auth([PERMISSIONS.TRADING_TRADE], false))),
+    ).resolves.toBe(true);
+    const relaxed = guardRequiring([PERMISSIONS.USERS_READ], false);
+    await expect(
+      relaxed.canActivate(httpContext(auth([PERMISSIONS.USERS_READ], false))),
+    ).resolves.toBe(true);
   });
 
   it('rejects unauthenticated requests on protected routes', async () => {

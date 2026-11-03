@@ -6,7 +6,7 @@ import {
   type ExecutionContext,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import type { Permission } from '@platform/shared';
+import { isStaffPermission, type Permission } from '@platform/shared';
 import type { Request } from 'express';
 import { AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
@@ -79,12 +79,17 @@ export class SessionAuthGuard implements CanActivate {
   }
 }
 
-/** Enforces @RequirePermissions(). Denials are audited. */
+/**
+ * Enforces @RequirePermissions(). Denials are audited. Staff permissions also
+ * require MFA on the account (ADR-0012), so a stolen staff password alone is
+ * not enough to use back-office capabilities.
+ */
 @Injectable()
 export class PermissionsGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly audit: AuditService,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -99,6 +104,28 @@ export class PermissionsGuard implements CanActivate {
     if (!auth) throw AppError.unauthenticated();
 
     const missing = required.filter((p) => !auth.permissions.includes(p));
+    if (
+      missing.length === 0 &&
+      this.config.STAFF_MFA_REQUIRED &&
+      auth.user.mfaEnabledAt === null &&
+      required.some(isStaffPermission)
+    ) {
+      await this.audit.recordSafe({
+        action: 'rbac.access.denied',
+        outcome: 'DENIED',
+        actorType: 'USER',
+        actorUserId: auth.user.id,
+        targetType: 'route',
+        targetId: `${req.method} ${req.path}`.slice(0, 128),
+        context: requestContextFrom(req),
+        metadata: { reason: 'staff permission without MFA' },
+      });
+      throw new AppError(
+        HttpStatus.FORBIDDEN,
+        'MFA_REQUIRED',
+        'Staff access requires two-factor authentication on your account',
+      );
+    }
     if (missing.length === 0) return true;
 
     await this.audit.recordSafe({

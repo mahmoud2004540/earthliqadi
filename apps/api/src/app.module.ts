@@ -23,6 +23,11 @@ import { MarketDataModule } from './market-data/market-data.module';
 import { RbacModule } from './rbac/rbac.module';
 import { TradingModule } from './trading/trading.module';
 import { PerpsModule } from './perps/perps.module';
+import { ApprovalsModule } from './approvals/approvals.module';
+import { ComplianceModule } from './compliance/compliance.module';
+import { MonitoringModule } from './monitoring/monitoring.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { SupportModule } from './support/support.module';
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9-]{8,64}$/;
 
@@ -84,6 +89,11 @@ export class AppModule {
         TradingModule,
         MarketDataModule,
         PerpsModule,
+        NotificationsModule,
+        ApprovalsModule,
+        ComplianceModule,
+        SupportModule,
+        MonitoringModule,
       ],
       controllers: [HealthController],
       providers: [

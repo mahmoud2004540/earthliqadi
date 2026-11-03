@@ -1,3 +1,4 @@
+import { metrics } from '../monitoring/metrics';
 import {
   Inject,
   Injectable,
@@ -13,6 +14,7 @@ import { PrismaService } from '../infrastructure/prisma/prisma.service';
 import { toMinorUnits, type EntryRequest } from '../ledger/ledger-domain';
 import { LedgerService, type LedgerActor } from '../ledger/ledger.service';
 import { unitsOf, type MarketWithAssets } from '../trading/markets.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { OrdersService } from '../trading/orders.service';
 import { parsePerpConfig, type IndexSource, type PerpConfig } from './perp-config';
 import {
@@ -79,6 +81,7 @@ export class PerpRiskService {
     private readonly ledger: LedgerService,
     private readonly orders: OrdersService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async perpMarkets(): Promise<MarketWithAssets[]> {
@@ -386,6 +389,16 @@ export class PerpRiskService {
               tx,
             );
             await this.cancelAll(tx, market.id, cur.userId, open);
+            await this.notifications.notify(
+              {
+                userId: cur.userId,
+                kind: 'perp.liquidation',
+                title: `Your ${market.symbol} position is being liquidated`,
+                body: 'Equity fell below the maintenance margin. Open orders on this market were cancelled and the position is being closed (paper).',
+                data: { market: market.symbol },
+              },
+              tx,
+            );
             actions++;
             return;
           }
@@ -553,6 +566,7 @@ export class PerpRiskScheduler implements OnApplicationBootstrap, OnApplicationS
     try {
       await this.risk.tick();
     } catch (err) {
+      metrics.riskTickFailures.inc();
       this.logger.error(
         { err: err instanceof Prisma.PrismaClientKnownRequestError ? err.code : err },
         'PERP_RISK_TICK_FAILED: retrying next tick',

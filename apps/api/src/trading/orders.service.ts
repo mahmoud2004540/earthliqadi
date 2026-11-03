@@ -159,6 +159,19 @@ export class OrdersService {
     }
     if (market.status !== 'ACTIVE')
       throw new AppError(HttpStatus.CONFLICT, 'CONFLICT', `Market ${market.symbol} is halted`);
+    if (this.config.KYC_REQUIRED_FOR_REAL_TRADING && !market.isPaper) {
+      const { kycLevel } = await this.prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { kycLevel: true },
+      });
+      if (kycLevel < 1) {
+        throw new AppError(
+          HttpStatus.FORBIDDEN,
+          'KYC_REQUIRED',
+          'Verify your identity before trading on this market (paper markets are open to everyone)',
+        );
+      }
+    }
     const available = await this.ledger.accountId(holdAsset.id, 'USER_AVAILABLE', userId);
     const locked = await this.ledger.accountId(holdAsset.id, 'USER_LOCKED', userId);
     const orderId = randomUUID();

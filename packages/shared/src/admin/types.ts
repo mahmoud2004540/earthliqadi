@@ -1,0 +1,212 @@
+import { z } from 'zod';
+import { amountStringSchema, assetCodeSchema } from '../money/amount';
+import { marketSymbolSchema } from '../trading/types';
+
+// ------------------------------------------------------------ notifications
+
+export const markNotificationsReadSchema = z.object({
+  /** Omit to mark everything read. */
+  ids: z.array(z.uuid()).max(100).optional(),
+});
+
+export interface NotificationDto {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  data: Record<string, string>;
+  read: boolean;
+  createdAt: string;
+}
+
+// ------------------------------------------------------- maker-checker approvals
+
+const reason = z.string().trim().min(5).max(256);
+
+/** Actions that always need a second staff member (ADR-0012). */
+export const approvalRequestSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('market.resume'),
+    payload: z.object({ symbol: marketSymbolSchema }),
+    reason,
+  }),
+  z.object({
+    action: z.literal('insurance_fund.seed'),
+    payload: z.object({ asset: assetCodeSchema, amount: amountStringSchema }),
+    reason,
+  }),
+  z.object({
+    action: z.literal('ledger.reversal'),
+    payload: z.object({ entryId: z.string().regex(/^\d{1,19}$/) }),
+    reason,
+  }),
+  z.object({
+    action: z.literal('user.reactivate'),
+    payload: z.object({ userId: z.uuid() }),
+    reason,
+  }),
+  z.object({
+    action: z.literal('role.grant'),
+    payload: z.object({
+      userId: z.uuid(),
+      role: z.enum([
+        'support_agent',
+        'compliance_officer',
+        'risk_officer',
+        'auditor',
+        'administrator',
+      ]),
+    }),
+    reason,
+  }),
+]);
+export type ApprovalRequestInput = z.infer<typeof approvalRequestSchema>;
+export type ApprovalAction = ApprovalRequestInput['action'];
+
+export const approvalDecisionSchema = z.object({
+  note: z.string().trim().max(256).optional(),
+});
+
+export interface ApprovalDto {
+  id: string;
+  action: ApprovalAction;
+  payload: Record<string, string>;
+  reason: string;
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'expired';
+  requestedBy: string;
+  requestedAt: string;
+  expiresAt: string;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  decisionNote: string | null;
+  result: Record<string, string> | null;
+}
+
+export const suspendUserSchema = z.object({ reason });
+
+// ------------------------------------------------------------------- KYC
+
+function adultDate(value: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const date = new Date(Date.UTC(y, mo - 1, d));
+  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d)
+    return false;
+  const now = new Date();
+  const eighteen = new Date(
+    Date.UTC(now.getUTCFullYear() - 18, now.getUTCMonth(), now.getUTCDate()),
+  );
+  return date <= eighteen && y >= 1900;
+}
+
+export const kycSubmitSchema = z.object({
+  legalName: z.string().trim().min(2).max(120),
+  dateOfBirth: z
+    .string()
+    .refine(adultDate, 'Enter a valid date (YYYY-MM-DD); you must be 18 or older'),
+  countryCode: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{2}$/, 'Use a two-letter country code (ISO 3166-1)'),
+  addressLine: z.string().trim().min(3).max(200),
+  city: z.string().trim().min(1).max(100),
+  postalCode: z.string().trim().min(1).max(20),
+});
+export type KycSubmitInput = z.infer<typeof kycSubmitSchema>;
+
+export const kycDecisionSchema = z.object({
+  decision: z.enum(['approve', 'reject', 'needs_info']),
+  note: z.string().trim().min(3).max(512),
+});
+
+export type KycCaseStatusDto = 'pending' | 'approved' | 'rejected' | 'needs_info';
+
+export interface KycStatusDto {
+  level: number;
+  case: {
+    id: string;
+    status: KycCaseStatusDto;
+    submittedAt: string;
+    decidedAt: string | null;
+    /** Shown to the user for rejected / needs-info decisions. */
+    note: string | null;
+  } | null;
+}
+
+export interface KycReviewDto {
+  id: string;
+  userId: string;
+  email: string;
+  status: KycCaseStatusDto;
+  level: number;
+  countryCode: string;
+  screening: {
+    restrictedCountry: boolean;
+    sanctions: 'not_screened' | 'clear' | 'hit';
+    sanctionsProvider: string;
+  };
+  submittedAt: string;
+  /** Decrypted only on the single-case endpoint (access is audited). */
+  profile?: KycSubmitInput;
+}
+
+// --------------------------------------------------------------- support
+
+export const createTicketSchema = z.object({
+  subject: z.string().trim().min(3).max(160),
+  body: z.string().trim().min(1).max(5000),
+});
+
+export const ticketReplySchema = z.object({ body: z.string().trim().min(1).max(5000) });
+
+export interface TicketMessageDto {
+  id: string;
+  fromStaff: boolean;
+  body: string;
+  createdAt: string;
+}
+
+export interface TicketDto {
+  id: string;
+  subject: string;
+  status: 'open' | 'waiting_on_user' | 'closed';
+  createdAt: string;
+  updatedAt: string;
+  /** Staff views only. */
+  userEmail?: string;
+  messages?: TicketMessageDto[];
+}
+
+// ---------------------------------------------------------- announcements
+
+export const announcementSchema = z.object({
+  title: z.string().trim().min(3).max(160),
+  body: z.string().trim().min(1).max(5000),
+});
+
+export interface AnnouncementDto {
+  id: string;
+  title: string;
+  body: string;
+  publishedAt: string;
+}
+
+// ------------------------------------------------------------------ health
+
+export interface SystemHealthDto {
+  generatedAt: string;
+  markets: {
+    symbol: string;
+    kind: 'spot' | 'perpetual';
+    status: string;
+    engineBacklog: string;
+    settlementLag: string;
+    indexStale: boolean | null;
+  }[];
+  reconciliation: { status: string; startedAt: string; findings: number } | null;
+  insuranceFunds: { asset: string; balance: string }[];
+  queues: { approvalsPending: number; kycPending: number; ticketsOpen: number };
+  positionsLiquidating: number;
+}

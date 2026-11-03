@@ -5,7 +5,7 @@ The final brand has not been chosen. The display name comes from configuration
 (`BRAND_NAME`, `NEXT_PUBLIC_BRAND_NAME`) and never appears in business logic or
 database identifiers.
 
-> **Status: pre-launch engineering (Phases 0–6 complete).**
+> **Status: pre-launch engineering (Phases 0–7 complete).**
 > Matching and settlement work end to end on **simulated** funds only. There is
 > no custody, no real deposits and no real money anywhere in this repository. Balances can only be funded with simulated test deposits in
 > local/CI environments. The platform is not licensed, audited or insured, and it offers no
@@ -50,6 +50,12 @@ database identifiers.
   trade), funding, liquidation protected at the bankruptcy price, a paper
   insurance fund, and a risk simulation harness (ADL specified, not live). See
   [ADR-0011](docs/decisions/0011-perpetual-futures.md).
+- **Admin, compliance & monitoring** (Phase 7): staff MFA enforcement,
+  maker-checker approvals for sensitive actions (database-enforced four eyes),
+  identity verification with encrypted profiles (no KYC/sanctions provider is
+  claimed), support tickets, notifications, announcements, an admin console,
+  and Prometheus metrics with alert rules and runbooks. See
+  [ADR-0012](docs/decisions/0012-admin-compliance-monitoring.md).
 - **Shared packages:** zod schemas and the RBAC catalogue (`packages/shared`),
   and environment validation (`packages/config`).
 - **Infrastructure:** Dockerfiles, a Compose stack with an nginx edge proxy, a CI
@@ -105,13 +111,15 @@ tests/              (reserved) cross-service integration and browser e2e suites
   [0008 English-only UI](docs/decisions/0008-english-only-ui.md) ·
   [0009 market data](docs/decisions/0009-market-data.md) ·
   [0010 paper trading & replay](docs/decisions/0010-paper-trading-and-replay.md) ·
-  [0011 perpetual futures](docs/decisions/0011-perpetual-futures.md)
+  [0011 perpetual futures](docs/decisions/0011-perpetual-futures.md) ·
+  [0012 admin, compliance & monitoring](docs/decisions/0012-admin-compliance-monitoring.md)
 - Security: [controls & threat model](docs/security/threat-model.md) ·
   [dependency policy](docs/security/dependency-policy.md) ·
   [incident response (draft)](docs/security/incident-response.md)
 - [API reference](docs/api/README.md)
 - Operations: [local development](docs/operations/local-development.md) ·
   [known issues](docs/operations/known-issues.md) ·
+  [runbooks](docs/operations/runbooks.md) ·
   [backup & recovery](docs/operations/backup-recovery.md)
 
 ## Ground rules

@@ -12,8 +12,8 @@ tests, security review and documentation are done.
 | 4     | Market data and professional trading terminal              | **Complete** |
 | 5     | Spot paper trading and simulation                          | **Complete** |
 | 6     | Perpetual futures and risk simulation (paper only)         | **Complete** |
-| 7     | Admin, compliance and monitoring                           | Next         |
-| 8     | Custody and liquidity integrations                         | Planned      |
+| 7     | Admin, compliance and monitoring                           | **Complete** |
+| 8     | Custody and liquidity integrations                         | Next         |
 | 9     | Security audits and regulatory readiness                   | Planned      |
 | 10    | Controlled production launch, after all required approvals | Planned      |
 
@@ -93,22 +93,39 @@ tests, security review and documentation are done.
 - [x] Terminal: mark/index/funding, leverage, reduce-only, positions with estimated liquidation price, add margin
 - [x] Tests: property tests (PnL identity, bankruptcy bound, funding, simulation conservation); integration with the real engine (open/close, limits, funding, liquidation, reconciliation); browser e2e
 
-## Sprint 7 plan: Phase 7, admin, compliance and monitoring
+## Phase 7 acceptance criteria (Sprint 7)
 
-1. **ADR:** admin application boundaries (separate app and origin, staff SSO
-   and MFA enforcement, maker-checker for every money-moving or risk action).
-2. **Admin app:** users and sessions, balances and ledger explorer, markets
-   and risk parameters (dual approval), engine/settlement/risk health,
-   reconciliation results, audit log viewer. Read-mostly first.
-3. **KYC/AML workflow architecture:** verification states and limits per
-   tier, provider abstraction (no provider chosen or claimed), case
-   management, sanctions screening interface. No real provider integration
-   without a contract and legal review.
-4. **Monitoring:** metrics (Prometheus format) for API, engine backlog,
-   settlement lag, risk ticks, reconciliation; dashboards; alert rules
-   (settlement halted, reconciliation mismatch, index stale, insurance fund
-   low); structured incident runbooks.
-5. **Notifications and support:** in-app notifications (liquidation, funding,
-   order fills), support ticket model, announcements.
-6. **Security:** staff-action rate limits, IP allow-lists for admin, session
-   hardening for staff, audit-log export with integrity hashing.
+- [x] ADR for staff MFA, maker-checker, KYC, support and monitoring ([ADR-0012](../decisions/0012-admin-compliance-monitoring.md))
+- [x] Staff permissions require account MFA (`MFA_REQUIRED`); cannot be disabled outside local/ci
+- [x] Maker-checker requests (market resume, insurance seed, ledger reversal, reactivation, role grants): database-enforced four eyes, immutable decisions, idempotent execution, expiry, cancellation, audit, notifications
+- [x] Immediate single-person protective controls: market halt, user suspension (sessions revoked)
+- [x] KYC: encrypted profile (separate key), restricted-country and sanctions-provider boundary (no provider claimed), officer review with audited decryption, KYC gate for real trading
+- [x] Support tickets (append-only messages), in-app notifications, announcements
+- [x] Admin console (overview, approvals, KYC, support, users, audit) and user verification/support/inbox tabs
+- [x] Prometheus metrics endpoint (token, edge-blocked), alert rules and runbooks
+- [x] Tests: guard unit tests; 12 integration tests (MFA, four eyes, DB backstops, KYC encryption/screening/gate, support, metrics); browser e2e (KYC + support reviewed in the admin console, customer denied)
+
+## Sprint 8 plan: Phase 8, custody and liquidity integrations (testnet only)
+
+**Testnets and sandboxes only.** No real funds until Phases 9–10 and
+authorisation.
+
+1. **ADR:** custody architecture (hot/warm/cold separation, signing service
+   boundary, HSM/MPC options, address management), deposit and withdrawal
+   state machines, confirmation policies per chain, travel-rule hooks.
+2. **Deposits (testnet):** address allocation per user and asset, chain
+   watchers (one chain first, e.g. a Bitcoin or Ethereum testnet), a
+   confirmation policy, crediting through the ledger (`DEPOSIT` entries,
+   idempotent per transaction id and output), reorg handling.
+3. **Withdrawals (testnet):** request, then limits and KYC level, then
+   address allow-list (optional) and cooling-off, then maker-checker review
+   above a threshold, then signing through an isolated signer, then
+   broadcast and tracking. Ledger holds at request; finalisation on
+   confirmation.
+4. **Proof of reserves (design + testnet):** liabilities snapshot (Merkle
+   tree of user balances, `is_paper = false` only) and on-chain asset
+   attestation; publish in the Trust Center only when real and audited.
+5. **External price feeds** for perpetual indices (signed or multi-source),
+   replacing simulated sources where available.
+6. **Liquidity:** market-maker API keys with scoped permissions and rate
+   limits (API key auth, HMAC signing, IP allow-lists).

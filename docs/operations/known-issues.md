@@ -1,4 +1,4 @@
-# Known issues and incomplete features (Sprints 1–6)
+# Known issues and incomplete features (Sprints 1–7)
 
 This is the honest list of what does **not** exist yet or is limited. Anything
 not described as implemented in the docs should be treated as absent.
@@ -6,12 +6,10 @@ not described as implemented in the docs should be treated as absent.
 ## Not implemented (by design, later phases)
 
 - Real deposits, withdrawals and custody (Phase 8). Balances can only be funded with **simulated** test deposits in local/CI.
-- Admin application, KYC/AML workflows, support tickets, notifications and
-  announcements (Phase 7)
 - API keys, IP allow-lists, institutional accounts beyond a schema enum, VIP fees,
   FIX (Phase 4+)
-- Monitoring and alerting stack: metrics, dashboards, alert routing
-  (`infrastructure/monitoring/` is a placeholder)
+- Deployed monitoring stack: Prometheus/Alertmanager/Grafana are not running
+  and alerts are not routed (metrics endpoint, rules and runbooks exist)
 - Trust Center content: the structure exists; every item is "Not yet published"
 
 ## Functional gaps in what was built
@@ -102,6 +100,22 @@ not described as implemented in the docs should be treated as absent.
 - Adding margin uses a time-based idempotency key, so a client retry can
   add twice. Client-supplied idempotency keys are planned.
 - Mark and funding are pushed over REST polling (2 s), not WebSocket.
+
+### Admin, compliance and support (Sprint 7)
+
+- **No KYC or sanctions provider is integrated or claimed.** Review is
+  manual. Unscreened cases cannot be approved outside local/ci. There is no
+  document upload or liveness check.
+- No AML transaction monitoring rules yet (there are no real deposits or
+  withdrawals to monitor).
+- Staff MFA is checked per account, not per session (no step-up
+  re-authentication before sensitive actions).
+- The admin console is served from the same origin as the customer app. A
+  separate origin, IP allow-lists and staff SSO are planned for Phase 9.
+- Notifications are in-app only (no email or push).
+- GDPR data export and deletion are still missing.
+- After `docker compose up --force-recreate api`, restart `edge`: nginx
+  caches the API container's IP address.
 
 ## Environment notes
 

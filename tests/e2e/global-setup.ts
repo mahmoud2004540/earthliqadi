@@ -1,5 +1,5 @@
 import { request } from '@playwright/test';
-import { PASSWORD, cli, compose, uniqueEmail, verificationLink } from './stack';
+import { PASSWORD, cli, compose, totp, uniqueEmail, verificationLink } from './stack';
 
 /**
  * Creates a FRESH market for every run (unique asset codes), through the real
@@ -87,6 +87,18 @@ export default async function globalSetup(): Promise<void> {
       data: { email, password: PASSWORD },
     });
     if (!login.ok()) throw new Error(`login failed: ${login.status()}`);
+    // Staff permissions require MFA (ADR-0012): enrol TOTP like a real staff member.
+    const setup = await api.post('/api/v1/me/mfa/totp/setup', {
+      headers,
+      data: { password: PASSWORD },
+    });
+    if (!setup.ok()) throw new Error(`MFA setup failed: ${setup.status()}`);
+    const { secret } = (await setup.json()) as { secret: string };
+    const enabled = await api.post('/api/v1/me/mfa/totp/enable', {
+      headers,
+      data: { code: totp(secret) },
+    });
+    if (!enabled.ok()) throw new Error(`MFA enable failed: ${enabled.status()}`);
     const created = await api.post('/api/v1/admin/markets', {
       headers,
       data: { base, quote, tickSize: '0.01', lotSize: '0.0001', makerFeeBps: 10, takerFeeBps: 20 },

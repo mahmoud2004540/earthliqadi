@@ -1,3 +1,4 @@
+import { metrics } from '../monitoring/metrics';
 import {
   Inject,
   Injectable,
@@ -791,6 +792,7 @@ export class SettlementScheduler implements OnApplicationBootstrap, OnApplicatio
     try {
       await this.settlement.processPending();
     } catch (err) {
+      metrics.settlementFailures.inc();
       this.logger.error(
         { err },
         'SETTLEMENT_HALTED: an engine event could not be settled; retrying',

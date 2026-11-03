@@ -48,6 +48,15 @@ export class TestClient {
       .send(body ?? {});
   }
 
+  async patch(path: string, body?: object) {
+    const token = await this.csrf();
+    return this.agent
+      .patch(path)
+      .set('X-Forwarded-For', this.ip)
+      .set('X-CSRF-Token', token)
+      .send(body ?? {});
+  }
+
   async delete(path: string) {
     const token = await this.csrf();
     return this.agent.delete(path).set('X-Forwarded-For', this.ip).set('X-CSRF-Token', token);

@@ -1,6 +1,7 @@
 'use client';
 
 import type { CurrentUserDto } from '@platform/shared';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
@@ -9,13 +10,15 @@ import { Card, CardDescription, CardTitle } from '@/components/ui/card';
 import type { Dictionary } from '@/i18n';
 import { ApiError, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { InboxPanel, SupportPanel, VerificationPanel } from './account-panels';
 import { SecurityPanel } from './security-panel';
 import { WalletPanel } from './wallet-panel';
 
 export function Dashboard({ t }: { t: Dictionary }) {
   const router = useRouter();
   const [user, setUser] = useState<CurrentUserDto | null>(null);
-  const [tab, setTab] = useState<'overview' | 'wallet' | 'security'>('overview');
+  type Tab = 'overview' | 'wallet' | 'verification' | 'support' | 'inbox' | 'security';
+  const [tab, setTab] = useState<Tab>('overview');
 
   const [version, setVersion] = useState(0);
   const reload = useCallback(() => setVersion((v) => v + 1), []);
@@ -57,33 +60,67 @@ export function Dashboard({ t }: { t: Dictionary }) {
             </span>
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={logout}>
-          {t.nav.logout}
-        </Button>
+        <div className="flex gap-2">
+          {user.permissions.some(
+            (p) => !['account:self:read', 'account:self:manage', 'trading:trade'].includes(p),
+          ) && (
+            <Button asChild variant="outline" size="sm">
+              <Link href="/admin" data-testid="admin-link">
+                {d.adminConsole}
+              </Link>
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={logout}>
+            {t.nav.logout}
+          </Button>
+        </div>
       </div>
 
-      <div role="tablist" className="mt-8 flex gap-1 border-b border-border">
-        {(['overview', 'wallet', 'security'] as const).map((key) => (
-          <button
-            key={key}
-            role="tab"
-            aria-selected={tab === key}
-            onClick={() => setTab(key)}
-            className={cn(
-              '-mb-px border-b-2 px-4 py-2 text-sm font-medium',
-              tab === key
-                ? 'border-primary text-foreground'
-                : 'border-transparent text-muted hover:text-foreground',
-            )}
-          >
-            {key === 'overview' ? d.overview : key === 'wallet' ? d.balancesTitle : d.securityTab}
-          </button>
-        ))}
+      <div role="tablist" className="mt-8 flex gap-1 overflow-x-auto border-b border-border">
+        {(['overview', 'wallet', 'verification', 'support', 'inbox', 'security'] as const).map(
+          (key) => (
+            <button
+              key={key}
+              role="tab"
+              aria-selected={tab === key}
+              onClick={() => setTab(key)}
+              className={cn(
+                '-mb-px whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium',
+                tab === key
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted hover:text-foreground',
+              )}
+            >
+              {
+                {
+                  overview: d.overview,
+                  wallet: d.balancesTitle,
+                  verification: d.verificationTab,
+                  support: d.supportTab,
+                  inbox: d.inboxTab,
+                  security: d.securityTab,
+                }[key]
+              }
+            </button>
+          ),
+        )}
       </div>
 
       {tab === 'wallet' ? (
         <div className="mt-8">
           <WalletPanel t={t} />
+        </div>
+      ) : tab === 'verification' ? (
+        <div className="mt-8">
+          <VerificationPanel t={t} />
+        </div>
+      ) : tab === 'support' ? (
+        <div className="mt-8">
+          <SupportPanel t={t} />
+        </div>
+      ) : tab === 'inbox' ? (
+        <div className="mt-8">
+          <InboxPanel t={t} />
         </div>
       ) : tab === 'overview' ? (
         <div className="mt-8 space-y-8">

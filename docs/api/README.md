@@ -179,6 +179,37 @@ The `Origin` header must match the web origin.
 - `MarketDto` gains `kind` and `perp`; `OrderDto` gains `reduceOnly` and
   `liquidation`; `BalanceDto` gains `margin`.
 
+## Admin, compliance and support (Phase 7)
+
+Staff permissions require MFA on the account (`403 MFA_REQUIRED` otherwise).
+
+| Method | Path                                         | Permission                           | Description                                                     |
+| ------ | -------------------------------------------- | ------------------------------------ | --------------------------------------------------------------- |
+| GET    | `/v1/me/verification`                        | `account:self:read`                  | KYC level and latest case                                       |
+| POST   | `/v1/me/verification`                        | `account:self:manage`                | Submit identity details (encrypted at rest)                     |
+| GET    | `/v1/me/notifications`                       | `account:self:read`                  | Notifications and unread count                                  |
+| POST   | `/v1/me/notifications/read`                  | `account:self:manage`                | `{ids?}`: mark read (all if omitted)                            |
+| GET    | `/v1/me/tickets`, `/v1/me/tickets/:id`       | `account:self:read`                  | Own tickets                                                     |
+| POST   | `/v1/me/tickets`, `.../:id/messages`         | `account:self:manage`                | Open a ticket, reply                                            |
+| GET    | `/v1/announcements`                          | public                               | Latest announcements                                            |
+| POST   | `/v1/announcements`                          | `announcements:manage`               | Publish                                                         |
+| GET    | `/v1/admin/approvals`                        | `approvals:read`                     | `?status=pending\|all`                                          |
+| POST   | `/v1/admin/approvals`                        | `approvals:read` + action permission | `{action, payload, reason}` (see ADR-0012 table)                |
+| POST   | `/v1/admin/approvals/:id/approve`            | action permission                    | By a different staff member; executes the action                |
+| POST   | `/v1/admin/approvals/:id/reject\|cancel`     | action permission / requester        | Reject (other staff) or cancel (requester)                      |
+| POST   | `/v1/admin/users/:id/suspend`                | `users:manage-status`                | `{reason}`: immediate; revokes sessions                         |
+| GET    | `/v1/admin/users/:id`                        | `users:read`                         | Profile, roles, balances, positions (audited)                   |
+| GET    | `/v1/admin/kyc`, `/v1/admin/kyc/:id`         | `kyc:review`                         | Queue; single case with decrypted profile (audited)             |
+| POST   | `/v1/admin/kyc/:id/decision`                 | `kyc:review`                         | `{decision: approve\|reject\|needs_info, note}`                 |
+| GET    | `/v1/admin/tickets`, `/v1/admin/tickets/:id` | `support:tickets:manage`             | Queue and ticket                                                |
+| POST   | `/v1/admin/tickets/:id/messages\|close`      | `support:tickets:manage`             | Reply, close                                                    |
+| GET    | `/v1/admin/health`                           | `reports:read`                       | Markets, reconciliation, insurance funds, queues                |
+| GET    | `/metrics`                                   | bearer `METRICS_TOKEN`               | Prometheus (internal only; 404 at the edge and without a token) |
+
+`POST /v1/admin/perp/insurance-fund` was removed: seeding now goes through
+maker-checker (`insurance_fund.seed`). Real-asset orders return
+`403 KYC_REQUIRED` when `KYC_REQUIRED_FOR_REAL_TRADING=true`.
+
 ## Example (curl through the edge)
 
 ```bash
