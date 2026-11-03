@@ -572,6 +572,88 @@ describe('concurrency under load', () => {
   });
 });
 
+describe('batched settlement', () => {
+  it('produces exactly the same results as event-by-event settlement', async () => {
+    // Same scripted scenario on two markets: settle one with batch size 1, the other in one batch.
+    async function scenario() {
+      const m = await newMarket({ makerFeeBps: 7, takerFeeBps: 13 });
+      const a = await trader([
+        { asset: m.base, amount: '3', scale: 8 },
+        { asset: m.quote, amount: '5000', scale: 6 },
+      ]);
+      const b = await trader([
+        { asset: m.base, amount: '3', scale: 8 },
+        { asset: m.quote, amount: '5000', scale: 6 },
+      ]);
+      const script: [typeof a, Record<string, unknown>][] = [
+        [a, { side: 'sell', type: 'limit', price: '101', quantity: '0.7' }],
+        [a, { side: 'sell', type: 'limit', price: '102.5', quantity: '0.4' }],
+        [b, { side: 'buy', type: 'limit', price: '103', quantity: '0.9' }], // fills 0.7@101 + 0.2@102.5, price improvement
+        [b, { side: 'buy', type: 'limit', price: '99', quantity: '1' }],
+        [a, { side: 'sell', type: 'market', quantity: '0.3' }], // takes 0.3@99
+        [b, { side: 'buy', type: 'stop_limit', stopPrice: '104', price: '104', quantity: '0.1' }],
+        [a, { side: 'sell', type: 'limit', price: '98', quantity: '0.2', timeInForce: 'ioc' }], // 0.2@99
+      ];
+      const ids: string[] = [];
+      for (const [t, body] of script)
+        ids.push((await place(t, { market: m.symbol, ...body })).body.id);
+      // Wait for the ENGINE only (no settlement yet).
+      for (;;) {
+        const st = await prisma.engineMarketState.findUnique({ where: { marketId: m.id } });
+        if (st?.lastCommandSeq === BigInt(script.length)) break;
+        await sleep(20);
+      }
+      return { m, a, b, ids };
+    }
+    const one = await scenario();
+    const two = await scenario();
+    const marketOf = (id: string) =>
+      prisma.market.findUniqueOrThrow({
+        where: { id },
+        include: { baseAsset: true, quoteAsset: true },
+      });
+    while ((await settlement.processMarket(await marketOf(one.m.id), 1)) > 0) {
+      /* event by event */
+    }
+    expect(await settlement.processMarket(await marketOf(two.m.id), 10_000)).toBeGreaterThan(5);
+
+    const snapshot = async (s: typeof one) => ({
+      orders: await Promise.all(
+        s.ids.map(async (id) => {
+          const o = await prisma.order.findUniqueOrThrow({ where: { id } });
+          return [
+            o.status,
+            o.filledLots,
+            o.lockedRemaining.toFixed(0),
+            o.cancelReason,
+            o.rejectReason,
+          ];
+        }),
+      ),
+      trades: (
+        await prisma.trade.findMany({ where: { marketId: s.m.id }, orderBy: { eventSeq: 'asc' } })
+      ).map((t) => [
+        t.eventSeq,
+        t.priceTicks,
+        t.quantityLots,
+        t.quoteAmount.toFixed(0),
+        t.buyerFee.toFixed(0),
+        t.sellerFee.toFixed(0),
+      ]),
+      balances: [
+        await balance(s.a.userId, s.m.base),
+        await balance(s.a.userId, s.m.quote),
+        await balance(s.b.userId, s.m.base),
+        await balance(s.b.userId, s.m.quote),
+      ],
+    });
+    const [r1, r2] = [await snapshot(one), await snapshot(two)];
+    expect(r1.trades.length).toBe(4);
+    expect(r2).toEqual(r1);
+    expect((await app.get(ReconciliationService).run('MANUAL')).status).toBe('OK');
+  });
+});
+
 describe('engine recovery', () => {
   it('replays and verifies state on restart, then continues processing', async () => {
     const m = await newMarket({ makerFeeBps: 0, takerFeeBps: 0 });

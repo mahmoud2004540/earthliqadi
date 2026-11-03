@@ -280,6 +280,11 @@ export const en = {
       disconnected: 'Disconnected from live data. Reconnecting… Displayed data may be out of date.',
     },
     submitted: 'Order submitted.',
+    paper: 'Paper',
+    paperNotice:
+      'Paper trading market: simulated funds with no value, kept fully separate from real balances.',
+    getPaperFunds: 'Get paper',
+    paperFundsGranted: 'Paper funds added.',
   },
   auth: {
     email: 'Email',
@@ -381,6 +386,7 @@ export const en = {
       BALANCE_RELEASE: 'Funds released',
       REVERSAL: 'Correction (reversal)',
       TRADE: 'Trade',
+      PAPER_FAUCET_GRANT: 'Paper funds (faucet)',
     },
     bucketAvailable: 'available',
     bucketLocked: 'locked',

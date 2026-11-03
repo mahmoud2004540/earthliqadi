@@ -10,8 +10,8 @@ tests, security review and documentation are done.
 | 2     | Financial ledger and accounting                            | **Complete** |
 | 3     | Spot matching engine (Rust)                                | **Complete** |
 | 4     | Market data and professional trading terminal              | **Complete** |
-| 5     | Spot paper trading and simulation                          | Next         |
-| 6     | Perpetual futures and risk simulation                      | Planned      |
+| 5     | Spot paper trading and simulation                          | **Complete** |
+| 6     | Perpetual futures and risk simulation                      | Next         |
 | 7     | Admin, compliance and monitoring                           | Planned      |
 | 8     | Custody and liquidity integrations                         | Planned      |
 | 9     | Security audits and regulatory readiness                   | Planned      |
@@ -70,18 +70,36 @@ tests, security review and documentation are done.
 - [x] Playwright browser end-to-end tests against the Compose stack, in CI
 - [x] First load measurement with bottleneck analysis ([performance](../operations/performance.md))
 
-## Sprint 5 plan: Phase 5, spot paper trading and simulation
+## Phase 5 acceptance criteria (Sprint 5)
 
-1. **ADR:** paper trading as a separate ledger namespace, so simulated balances
-   can never mix with real ones (distinct account types and assets, or a
-   separate schema), and how simulation markets mirror real market rules.
-2. **Replay/simulation harness:** deterministic replay of recorded command logs
-   through the engine. This allows "what-if" testing of rule changes and
-   regression testing of the engine with production-like flows.
-3. **Settlement throughput:** settle multiple fills per ledger transaction, or
-   pipeline settlement per market, guided by the measurements in
-   `docs/operations/performance.md`. Target: settlement keeps pace with order entry.
-4. **Order entry abuse controls:** per-user order rate limits and open-order caps.
-5. **Faucet UX for paper trading:** rate-limited, clearly labelled simulated funds.
-6. **Tests:** isolation property (no posting can touch both namespaces) and
-   replay determinism across engine versions.
+- [x] ADR for the paper namespace, faucet, order limits and replay ([ADR-0010](../decisions/0010-paper-trading-and-replay.md))
+- [x] Paper assets and markets; database-enforced isolation (no market or journal entry can mix paper and real; immutable flags; namespace-restricted account types); reconciliation check
+- [x] Paper faucet: once per user, asset and UTC day (idempotency-key enforced), audited, labelled in the UI
+- [x] Settlement throughput: profiling (~2.4 ms per round trip, ~10 round trips per fill), then in-memory batching with bulk writes; **~5× events/s**; batched ≡ event-by-event equivalence test
+- [x] Order abuse controls: per-user order command rate limit, open-order cap per market
+- [x] `engine-replay`: verifies the current engine build reproduces recorded history exactly; shipped in the engine image
+- [x] Tests: namespace isolation (incl. trigger-bypass detection), faucet, limits, replay (Rust + against real history), paper e2e in the browser
+
+## Sprint 6 plan: Phase 6, perpetual futures and risk simulation
+
+**Simulation first:** perpetuals start as paper markets only. Real-money
+derivatives require separate authorisation (ADR-0010 namespace; spec §15).
+
+1. **ADR:** contract specification (linear USDT-margined perpetuals first);
+   position accounting in the ledger (margin accounts, realised PnL, funding
+   transfers); risk engine boundaries (separate process vs. module).
+2. **Index and mark price:** index from configured external reference sources
+   (median of sources, staleness and outlier rejection; **simulated feeds in
+   development, clearly labelled**); mark = index + decaying basis. **Liquidation
+   never uses the last trade price alone.**
+3. **Margin:** isolated margin first, cross-margin architecture; initial and
+   maintenance margin tiers by position size; leverage limits; reduce-only
+   orders.
+4. **Funding:** periodic funding rate from the premium index with a clamp, settled
+   as ledger transfers between longs and shorts (zero-sum, reconciled).
+5. **Liquidation engine:** monitoring, staged liquidation orders, insurance fund
+   account, auto-deleveraging (ADL) ranking as an architecture plus simulation.
+6. **Risk simulation harness:** replay of historical or synthetic price paths
+   (clearly synthetic) through positions to test liquidation and insurance-fund
+   behaviour; property tests (conservation of PnL plus funding plus fees;
+   no negative user equity after liquidation unless ADL kicks in).

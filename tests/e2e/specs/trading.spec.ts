@@ -103,3 +103,38 @@ test('signed-out visitors see the market but must sign in to trade', async ({ pa
   await expect(page.getByTestId('order-book')).toBeVisible();
   await expect(page.getByText('Sign in to trade')).toBeVisible();
 });
+
+test('paper trading: faucet funds and a trade on a paper market', async ({ browser }) => {
+  const market = process.env.E2E_PAPER_MARKET!;
+  const [base, quote] = market.split('-') as [string, string];
+  const seller = await signUp(browser, 'e2e-paper-seller');
+  const buyer = await signUp(browser, 'e2e-paper-buyer');
+  for (const [page, asset] of [
+    [seller, base],
+    [buyer, quote],
+  ] as const) {
+    await page.goto(`/trade/${market}`);
+    await expect(page.getByTestId('paper-badge')).toBeVisible();
+    await page
+      .getByTestId('paper-faucet')
+      .getByRole('button', { name: `Get paper ${asset}` })
+      .click();
+    await expect(page.getByText('Paper funds added.')).toBeVisible();
+  }
+  await seller.getByRole('button', { name: 'Sell', exact: true }).click();
+  await expect(seller.getByTestId('available')).toHaveText(`2.00000000 ${base}`);
+  await seller.fill('#price', '100');
+  await seller.fill('#quantity', '1');
+  await seller.getByTestId('order-form').locator('button[type=submit]').click();
+  await expect(buyer.getByTestId('order-book').getByRole('button', { name: /^100/ })).toBeVisible();
+  await buyer.fill('#price', '100');
+  await buyer.fill('#quantity', '1');
+  await buyer.getByTestId('order-form').locator('button[type=submit]').click();
+  await expect(buyer.getByTestId('recent-trades')).toContainText('100');
+  // The faucet is limited to once per asset per day.
+  await buyer
+    .getByTestId('paper-faucet')
+    .getByRole('button', { name: `Get paper ${quote}` })
+    .click();
+  await expect(buyer.getByText(/already used/)).toBeVisible();
+});

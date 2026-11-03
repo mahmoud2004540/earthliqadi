@@ -24,7 +24,8 @@ export type ReconciliationFinding =
   | { kind: 'NEGATIVE_BALANCE'; accountId: string; assetId: string; balance: string }
   | { kind: 'UNBALANCED_ENTRY'; entryId: string; assetId: string; net: string }
   | { kind: 'ENTRY_TOO_FEW_POSTINGS'; entryId: string; postings: number }
-  | { kind: 'TRIAL_BALANCE_NONZERO'; assetId: string; net: string };
+  | { kind: 'TRIAL_BALANCE_NONZERO'; assetId: string; net: string }
+  | { kind: 'MIXED_NAMESPACE_ENTRY'; entryId: string };
 
 /**
  * Independently recomputes the ledger from postings and compares it with the
@@ -76,6 +77,10 @@ export class ReconciliationService {
           SELECT "asset_id", SUM(CASE WHEN "direction" = 'DEBIT' THEN "amount" ELSE -"amount" END)::text AS "net"
             FROM "postings" GROUP BY "asset_id"
           HAVING SUM(CASE WHEN "direction" = 'DEBIT' THEN "amount" ELSE -"amount" END) <> 0`;
+        // Paper and real assets must never share an entry (ADR-0010); also enforced by trigger.
+        const mixed = await tx.$queryRaw<{ entry_id: string }[]>`
+          SELECT p."entry_id"::text FROM "postings" p JOIN "assets" a ON a."id" = p."asset_id"
+           GROUP BY p."entry_id" HAVING count(DISTINCT a."is_paper") > 1`;
         const [{ count }] = await tx.$queryRaw<
           [{ count: number }]
         >`SELECT count(*)::int AS "count" FROM "journal_entries"`;
@@ -111,6 +116,7 @@ export class ReconciliationService {
           out.push({ kind: 'ENTRY_TOO_FEW_POSTINGS', entryId: t.id, postings: t.n });
         for (const t of trial)
           out.push({ kind: 'TRIAL_BALANCE_NONZERO', assetId: t.asset_id, net: t.net });
+        for (const m of mixed) out.push({ kind: 'MIXED_NAMESPACE_ENTRY', entryId: m.entry_id });
         return { findings: out, accountsChecked: accounts.length, entriesChecked: count };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, timeout: 120_000 },

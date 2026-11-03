@@ -17,6 +17,7 @@ import {
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import type { Dictionary } from '@/i18n';
 import { api } from '@/lib/api';
 import { useMarketStream, type StreamSubscription } from '@/lib/market-stream';
@@ -201,6 +202,11 @@ export function Terminal({ symbol, t }: { symbol: string; t: Dictionary }) {
               </option>
             ))}
           </select>
+          {market?.paper && (
+            <Badge tone="warning" data-testid="paper-badge">
+              {tt.paper}
+            </Badge>
+          )}
           <span className="flex items-center gap-1.5 text-[11px] text-muted">
             <span
               aria-hidden

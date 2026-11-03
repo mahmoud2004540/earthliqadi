@@ -13,6 +13,8 @@ export default async function globalSetup(): Promise<void> {
   process.env.E2E_MARKET = `${base}-${quote}`;
   process.env.E2E_BASE = base;
   process.env.E2E_QUOTE = quote;
+  const [paperBase, paperQuote] = [`PB${run}`, `PQ${run}`];
+  process.env.E2E_PAPER_MARKET = `${paperBase}-${paperQuote}`;
   const baseURL = process.env.E2E_BASE_URL ?? 'http://localhost:3000';
   compose(
     'exec',
@@ -35,6 +37,25 @@ export default async function globalSetup(): Promise<void> {
       `E2E test ${code}`,
       '--scale',
       scale,
+    );
+  }
+
+  for (const [code, scale, faucet] of [
+    [paperBase, '8', '2'],
+    [paperQuote, '6', '50000'],
+  ] as const) {
+    cli(
+      'dist/cli/ledger.js',
+      'create-asset',
+      '--code',
+      code,
+      '--name',
+      `E2E paper ${code}`,
+      '--scale',
+      scale,
+      '--paper',
+      '--faucet',
+      faucet,
     );
   }
 
@@ -70,6 +91,18 @@ export default async function globalSetup(): Promise<void> {
       data: { base, quote, tickSize: '0.01', lotSize: '0.0001', makerFeeBps: 10, takerFeeBps: 20 },
     });
     if (!created.ok()) throw new Error(`market creation failed: ${created.status()}`);
+    const paper = await api.post('/api/v1/admin/markets', {
+      headers,
+      data: {
+        base: paperBase,
+        quote: paperQuote,
+        tickSize: '0.01',
+        lotSize: '0.0001',
+        makerFeeBps: 0,
+        takerFeeBps: 0,
+      },
+    });
+    if (!paper.ok()) throw new Error(`paper market creation failed: ${paper.status()}`);
   }
   await api.dispose();
 }

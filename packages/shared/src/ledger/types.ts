@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MAX_ASSET_SCALE, assetCodeSchema } from '../money/amount';
+import { MAX_ASSET_SCALE, amountStringSchema, assetCodeSchema } from '../money/amount';
 
 export const ASSET_STATUSES = ['ACTIVE', 'DISABLED'] as const;
 export type AssetStatus = (typeof ASSET_STATUSES)[number];
@@ -10,6 +10,7 @@ export const JOURNAL_ENTRY_TYPES = [
   'BALANCE_RELEASE',
   'REVERSAL',
   'TRADE',
+  'PAPER_FAUCET_GRANT',
 ] as const;
 export type JournalEntryType = (typeof JOURNAL_ENTRY_TYPES)[number];
 
@@ -19,12 +20,18 @@ export interface AssetDto {
   name: string;
   scale: number;
   status: AssetStatus;
+  /** Paper (simulated) asset for paper trading; never mixes with real assets. */
+  paper: boolean;
+  /** Paper assets only: amount granted per faucet request. */
+  faucetAmount: string | null;
 }
 
 export interface BalanceDto {
   asset: string;
   name: string;
   scale: number;
+  /** Paper (simulated) asset. */
+  paper: boolean;
   available: string;
   locked: string;
   total: string;
@@ -42,11 +49,21 @@ export interface LedgerHistoryItemDto {
   createdAt: string;
 }
 
-export const createAssetSchema = z.object({
-  code: assetCodeSchema,
-  name: z.string().trim().min(2).max(64),
-  scale: z.number().int().min(0).max(MAX_ASSET_SCALE),
-});
+export const createAssetSchema = z
+  .object({
+    code: assetCodeSchema,
+    name: z.string().trim().min(2).max(64),
+    scale: z.number().int().min(0).max(MAX_ASSET_SCALE),
+    paper: z.boolean().default(false),
+    /** Decimal string; required for paper assets (faucet grant size). */
+    faucetAmount: amountStringSchema.optional(),
+  })
+  .refine((a) => a.paper === (a.faucetAmount !== undefined), {
+    path: ['faucetAmount'],
+    message: 'faucetAmount is required for paper assets and not allowed for real assets',
+  });
+
+export const faucetRequestSchema = z.object({ asset: assetCodeSchema });
 
 export const assetStatusSchema = z.object({ status: z.enum(ASSET_STATUSES) });
 

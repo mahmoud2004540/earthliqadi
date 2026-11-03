@@ -34,6 +34,8 @@ async function run(): Promise<void> {
       email: { type: 'string' },
       asset: { type: 'string' },
       amount: { type: 'string' },
+      paper: { type: 'boolean' },
+      faucet: { type: 'string' },
     },
   });
   const command = positionals[0];
@@ -53,6 +55,8 @@ async function run(): Promise<void> {
         code: values.code,
         name: values.name,
         scale: Number(values.scale),
+        paper: values.paper ?? false,
+        ...(values.faucet ? { faucetAmount: values.faucet } : {}),
       });
       if (!input.success)
         fail(

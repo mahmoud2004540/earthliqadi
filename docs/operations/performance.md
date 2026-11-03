@@ -1,4 +1,4 @@
-# Performance baseline (Sprint 4)
+# Performance baseline (Sprints 4–5)
 
 Measured with `tests/load/order-flow.mjs` against the local Docker Compose stack
 (edge → API → PostgreSQL → engine → settlement), inside a 4-vCPU development
@@ -23,8 +23,9 @@ event (`commandToEngineEventMs`), and engine fill → settled trade row
 | 3   | Same code; load spread over 32 traders (realistic)         | 32      | 24 (submit ≈ 39)      | 785 / 1,347 ms             | 14 ms      | 28,967 ms (backlog)          |
 | 4   | Cached ledger account ids (first attempt)                  | 32      | —                     | —                          | —          | — **deadlocked** (see below) |
 | 5   | Transaction-scoped account resolution (fix)                | 32      | **28** (submit ≈ 44)  | **678 / 1,185 ms**         | 20 ms      | 25,247 ms (backlog)          |
+| 6   | Sprint 5: batched in-memory settlement                     | 32      | **49**                | **585 / 936 ms**           | 22 ms      | **1,508 ms** (no backlog)    |
 
-All completed runs (1–3, 5): **0 failed orders, reconciliation OK**. Correctness held
+All completed runs (1–3, 5, 6): **0 failed orders, reconciliation OK**. Correctness held
 under load in every completed run.
 
 ## Findings
@@ -55,23 +56,35 @@ under load in every completed run.
    - **Regression test:** `ledger.e2e-spec.ts` uses a one-connection pool, so it
      is deterministic. It was verified to fail with the bug reintroduced.
 
-**Current state (iteration 5):** order entry and matching are healthy. Settlement
-is the limit (~60–70 events/s, one sequential worker per market). Under a
-sustained burst that exceeds it, fills settle late; balances and the book stay
-consistent, and the market reports `delayed` honestly.
+6. **Settlement profiling (Sprint 5).** A 1,000-event backlog settled at
+   99 events/s. Each fill needed about 10 round trips of ~2.4 ms inside the
+   transaction. Applying a batch of events in memory and writing it with bulk
+   statements (`LedgerService.postBatchWithin`, `trades.createMany`, one
+   `UPDATE … FROM unnest(…)` for orders) raised this to **497 events/s (5×)**.
+   An integration test proves batched and event-by-event settlement produce
+   identical results.
 
-## Next steps (Sprint 5)
+**Current state (iteration 6):** settlement keeps pace with order entry (fill →
+settled p50 1.5 s, p95 3.0 s; the backlog drained 0.5 s after the last
+submit). The limit is now order entry (~50 orders/s end to end on this shared
+4-vCPU container): one transaction per order with several round trips plus the
+per-market sequence lock.
 
-- Settle several fills per ledger transaction, and/or pipeline settlement per
-  market, so settlement keeps pace with order entry.
+## Next steps
+
+- Order entry: fewer round trips per order (for example a single stored
+  procedure for hold + insert + sequence, or batched intake per market).
+- Settlement: set-based trigger checks instead of per-row deferred checks.
 - Measure again with a dedicated database host. This container shares 4 vCPUs
   across every component.
-- Add per-user order rate limits before any public exposure.
+- Per-user order limits exist (Sprint 5); the load test raises them.
 
 ## How to run
 
 ```bash
-RATE_LIMIT_DEFAULT_PER_MINUTE=10000000 RATE_LIMIT_AUTH_PER_MINUTE=10000 docker compose up -d --no-build api
-ORDERS=2000 CONCURRENCY=32 node tests/load/order-flow.mjs
+RATE_LIMIT_DEFAULT_PER_MINUTE=10000000 RATE_LIMIT_AUTH_PER_MINUTE=10000 \
+  ORDER_RATE_LIMIT_PER_SECOND=100000 MAX_OPEN_ORDERS_PER_MARKET=1000000 \
+  docker compose up -d --no-build api
+ORDERS=2000 CONCURRENCY=32 TRADERS=32 node tests/load/order-flow.mjs
 docker compose up -d --no-build api   # restore normal rate limits afterwards
 ```

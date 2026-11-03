@@ -1,4 +1,4 @@
-# Known issues and incomplete features (Sprints 1–4)
+# Known issues and incomplete features (Sprints 1–5)
 
 This is the honest list of what does **not** exist yet or is limited. Anything
 not described as implemented in the docs should be treated as absent.
@@ -70,6 +70,17 @@ not described as implemented in the docs should be treated as absent.
   the experience is desktop-first).
 - The private WebSocket channel carries order updates only. Balances are
   refreshed over REST when an order update arrives.
+
+### Paper trading and simulation (Sprint 5)
+
+- The open-order cap is checked outside the order transaction, so a concurrent
+  burst can exceed it by the number of in-flight requests (abuse control, not a
+  financial invariant).
+- `engine-replay` re-runs whole histories. Snapshot-based incremental replay
+  will be needed as logs grow.
+- Paper markets currently use the same fee schedule mechanism as real markets
+  (configurable per market). No paper leaderboard or reset feature yet.
+- Reports and Proof of Reserves (later phases) must filter `is_paper = false`.
 
 ## Environment notes
 

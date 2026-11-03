@@ -47,6 +47,20 @@ export function OrderForm({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
 
+  async function faucet(asset: string) {
+    setMessage(null);
+    try {
+      await api('/v1/paper/faucet', { method: 'POST', body: { asset } });
+      setMessage({ tone: 'success', text: tt.paperFundsGranted });
+      onPlaced();
+    } catch (err) {
+      setMessage({
+        tone: 'error',
+        text: err instanceof ApiError ? err.message : errorMessage(t.auth, err),
+      });
+    }
+  }
+
   const isMarketLike = type === 'market' || type === 'stop_market';
   const isStop = type === 'stop_limit' || type === 'stop_market';
   const holdAsset = side === 'buy' ? market.quote : market.base;
@@ -229,6 +243,22 @@ export function OrderForm({
         </div>
       </dl>
 
+      {market.paper && (
+        <div className="flex gap-2" data-testid="paper-faucet">
+          {[market.base, market.quote].map((asset) => (
+            <Button
+              key={asset}
+              type="button"
+              size="sm"
+              variant="outline"
+              className="flex-1"
+              onClick={() => void faucet(asset)}
+            >
+              {tt.getPaperFunds} {asset}
+            </Button>
+          ))}
+        </div>
+      )}
       {message && <Alert tone={message.tone}>{message.text}</Alert>}
       <Button
         type="submit"
@@ -242,7 +272,9 @@ export function OrderForm({
       >
         {side === 'buy' ? tt.placeBuy : tt.placeSell} {market.base}
       </Button>
-      <p className="text-center text-[11px] text-muted">{tt.simulatedNotice}</p>
+      <p className="text-center text-[11px] text-muted">
+        {market.paper ? tt.paperNotice : tt.simulatedNotice}
+      </p>
     </form>
   );
 }

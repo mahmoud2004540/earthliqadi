@@ -141,6 +141,20 @@ The `Origin` header must match the web origin.
 - After reconnecting, re-subscribe: the server answers with fresh snapshots
   (there are no deltas to stitch).
 
+## Paper trading (Phase 5)
+
+| Method | Path               | Auth | Permission      | Description                                                                                     |
+| ------ | ------------------ | ---- | --------------- | ----------------------------------------------------------------------------------------------- |
+| POST   | `/v1/paper/faucet` | ✔    | `trading:trade` | `{asset}`: grants the paper asset's faucet amount; once per asset per UTC day (`429` otherwise) |
+
+- `GET /v1/assets` and `GET /v1/markets` include `paper` (and `faucetAmount` for assets).
+- Tickers and balances include `paper`.
+- Order limits: `429 RATE_LIMITED` above `ORDER_RATE_LIMIT_PER_SECOND` (default
+  10 per user, for place/cancel/reduce); `409 LIMIT_EXCEEDED` at
+  `MAX_OPEN_ORDERS_PER_MARKET` (default 200).
+- Admin asset creation accepts `paper: true` with `faucetAmount`. The CLI
+  equivalent is `ledger create-asset … --paper --faucet <amount>`.
+
 ## Example (curl through the edge)
 
 ```bash

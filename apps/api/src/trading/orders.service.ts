@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import {
   Prisma,
   type Order,
@@ -9,6 +9,9 @@ import {
 import { formatAmountTrimmed, type OrderDto, type TradeDto } from '@platform/shared';
 import { randomUUID } from 'node:crypto';
 import { AppError } from '../common/app-error';
+import { APP_CONFIG, type AppConfig } from '../config/app-config';
+import { REDIS } from '../infrastructure/redis/redis.module';
+import type Redis from 'ioredis';
 import type { RequestContext } from '../common/request-context';
 import { PrismaService } from '../infrastructure/prisma/prisma.service';
 import { toMinorUnits } from '../ledger/ledger-domain';
@@ -50,7 +53,23 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly markets: MarketsService,
     private readonly ledger: LedgerService,
+    @Inject(REDIS) private readonly redis: Redis,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
+
+  /** Per-user fixed one-second window across place/cancel/reduce (shared via Redis). */
+  private async checkRate(userId: string): Promise<void> {
+    const key = `orders:rate:${userId}:${Math.floor(Date.now() / 1000)}`;
+    const count = await this.redis.incr(key);
+    if (count === 1) await this.redis.expire(key, 2);
+    if (count > this.config.ORDER_RATE_LIMIT_PER_SECOND) {
+      throw new AppError(
+        HttpStatus.TOO_MANY_REQUESTS,
+        'RATE_LIMITED',
+        'Too many order requests; slow down',
+      );
+    }
+  }
 
   async place(
     userId: string,
@@ -107,6 +126,21 @@ export class OrdersService {
     });
     if (existing) return { order: this.replayOrConflict(existing, fingerprint), replayed: true };
 
+    await this.checkRate(userId);
+    const open = await this.prisma.order.count({
+      where: {
+        userId,
+        marketId: market.id,
+        status: { in: ['PENDING_NEW', 'PENDING_TRIGGER', 'OPEN', 'PARTIALLY_FILLED'] },
+      },
+    });
+    if (open >= this.config.MAX_OPEN_ORDERS_PER_MARKET) {
+      throw new AppError(
+        HttpStatus.CONFLICT,
+        'LIMIT_EXCEEDED',
+        `At most ${this.config.MAX_OPEN_ORDERS_PER_MARKET} open orders per market; cancel some first`,
+      );
+    }
     if (market.status !== 'ACTIVE')
       throw new AppError(HttpStatus.CONFLICT, 'CONFLICT', `Market ${market.symbol} is halted`);
     const available = await this.ledger.accountId(holdAsset.id, 'USER_AVAILABLE', userId);
@@ -180,6 +214,7 @@ export class OrdersService {
   }
 
   async cancel(userId: string, orderId: string): Promise<OrderDto> {
+    await this.checkRate(userId);
     const order = await this.ownOrder(userId, orderId);
     if (isTerminal(order.status))
       throw new AppError(HttpStatus.CONFLICT, 'CONFLICT', 'Order is already closed');
@@ -201,6 +236,7 @@ export class OrdersService {
   }
 
   async reduce(userId: string, orderId: string, remainingQuantity: string): Promise<OrderDto> {
+    await this.checkRate(userId);
     const order = await this.ownOrder(userId, orderId);
     if (isTerminal(order.status))
       throw new AppError(HttpStatus.CONFLICT, 'CONFLICT', 'Order is already closed');

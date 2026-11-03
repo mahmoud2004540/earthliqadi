@@ -62,6 +62,8 @@ export interface CandleDto {
 
 export interface TickerDto {
   market: string;
+  /** Paper trading market. */
+  paper: boolean;
   seq: string;
   last: string | null;
   open24h: string | null;

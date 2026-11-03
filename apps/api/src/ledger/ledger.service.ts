@@ -10,6 +10,8 @@ import {
 } from '@prisma/client';
 import {
   formatAmount,
+  formatAmountTrimmed,
+  parseAmount,
   type AssetDto,
   type BalanceDto,
   type LedgerHistoryItemDto,
@@ -102,12 +104,42 @@ export class LedgerService {
   // ------------------------------------------------------------------ assets
 
   async createAsset(
-    input: { code: string; name: string; scale: number },
+    input: { code: string; name: string; scale: number; paper?: boolean; faucetAmount?: string },
     actor: LedgerActor,
   ): Promise<Asset> {
+    const paper = input.paper ?? false;
+    let faucet: bigint | null = null;
+    if (paper !== (input.faucetAmount !== undefined)) {
+      throw new AppError(
+        HttpStatus.BAD_REQUEST,
+        'VALIDATION_FAILED',
+        'Paper assets need a faucetAmount; real assets must not have one',
+      );
+    }
+    if (input.faucetAmount !== undefined) {
+      try {
+        faucet = parseAmount(input.faucetAmount, input.scale);
+      } catch (err) {
+        throw new AppError(HttpStatus.BAD_REQUEST, 'VALIDATION_FAILED', (err as Error).message);
+      }
+      if (faucet <= 0n)
+        throw new AppError(
+          HttpStatus.BAD_REQUEST,
+          'VALIDATION_FAILED',
+          'faucetAmount must be positive',
+        );
+    }
     try {
       return await this.prisma.$transaction(async (tx) => {
-        const asset = await tx.asset.create({ data: input });
+        const asset = await tx.asset.create({
+          data: {
+            code: input.code,
+            name: input.name,
+            scale: input.scale,
+            isPaper: paper,
+            faucetAmount: faucet === null ? null : faucet.toString(),
+          },
+        });
         await this.audit.record(
           {
             action: 'ledger.asset.created',
@@ -169,7 +201,17 @@ export class LedgerService {
   }
 
   toAssetDto(asset: Asset): AssetDto {
-    return { code: asset.code, name: asset.name, scale: asset.scale, status: asset.status };
+    return {
+      code: asset.code,
+      name: asset.name,
+      scale: asset.scale,
+      status: asset.status,
+      paper: asset.isPaper,
+      faucetAmount:
+        asset.faucetAmount === null
+          ? null
+          : formatAmountTrimmed(toMinorUnits(asset.faucetAmount), asset.scale),
+    };
   }
 
   async requireAsset(code: string, mustBeActive = true): Promise<Asset> {
@@ -311,6 +353,96 @@ export class LedgerService {
     try {
       const entry = await this.writeEntry(tx, req, postings, fingerprint, actor, options);
       return { entry, replayed: false };
+    } catch (err) {
+      throw this.mapPostError(err);
+    }
+  }
+
+  /**
+   * Posts many entries inside the caller's transaction with a constant number
+   * of round trips (settlement hot path). Same guarantees as `postWithin` for
+   * every entry: validation, per-asset balance, idempotency (replays return the
+   * existing entry; fingerprint mismatch is rejected), non-negative pre-check
+   * applied sequentially in request order, and all accounts locked in id order.
+   * The database triggers still verify every posting and entry at commit.
+   */
+  async postBatchWithin(
+    tx: Prisma.TransactionClient,
+    requests: EntryRequest[],
+    actor: LedgerActor,
+  ): Promise<Map<string, JournalEntry>> {
+    const result = new Map<string, JournalEntry>();
+    if (requests.length === 0) return result;
+    const prepared = requests.map((req) => ({
+      req,
+      postings: validateEntryRequest(req),
+      fingerprint: fingerprintOf(req),
+    }));
+    const keys = prepared.map((p) => p.req.idempotencyKey);
+    if (new Set(keys).size !== keys.length)
+      throw new Error('Duplicate idempotency key within a ledger batch');
+
+    const existing = await tx.journalEntry.findMany({ where: { idempotencyKey: { in: keys } } });
+    for (const entry of existing) {
+      const p = prepared.find((x) => x.req.idempotencyKey === entry.idempotencyKey)!;
+      result.set(entry.idempotencyKey, this.replay(entry, p.fingerprint).entry);
+    }
+    const toWrite = prepared.filter((p) => !result.has(p.req.idempotencyKey));
+    if (toWrite.length === 0) return result;
+
+    const accountIds = [
+      ...new Set(toWrite.flatMap((p) => p.postings.map((x) => x.accountId))),
+    ].sort();
+    const rows = await tx.$queryRaw<LockedAccountRow[]>`
+      SELECT "id", "asset_id", "normal_side", "allow_negative", "balance"::text AS "balance"
+        FROM "ledger_accounts"
+       WHERE "id" = ANY(${accountIds}::uuid[])
+       ORDER BY "id"
+         FOR UPDATE`;
+    if (rows.length !== accountIds.length) throw AppError.notFound('Ledger account not found');
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const balances = new Map(rows.map((r) => [r.id, toMinorUnits(r.balance)]));
+
+    for (const p of toWrite) {
+      assertBalancedPerAsset(
+        p.postings.map((x) => ({ ...x, assetId: byId.get(x.accountId)!.asset_id })),
+      );
+      for (const x of p.postings) {
+        const row = byId.get(x.accountId)!;
+        const next =
+          balances.get(x.accountId)! + balanceDelta(row.normal_side, x.direction, x.amount);
+        if (!row.allow_negative && next < 0n) throw insufficientFunds();
+        balances.set(x.accountId, next);
+      }
+    }
+
+    try {
+      const created = await tx.journalEntry.createManyAndReturn({
+        data: toWrite.map((p) => ({
+          type: p.req.type,
+          idempotencyKey: p.req.idempotencyKey,
+          fingerprint: p.fingerprint,
+          description: p.req.description,
+          reversesEntryId: p.req.reversesEntryId ?? null,
+          actorType: actor.actorType,
+          actorUserId: actor.actorUserId ?? null,
+          requestId: actor.requestId ?? null,
+        })),
+      });
+      const idByKey = new Map(created.map((e) => [e.idempotencyKey, e]));
+      await tx.posting.createMany({
+        data: toWrite.flatMap((p) =>
+          p.postings.map((x) => ({
+            entryId: idByKey.get(p.req.idempotencyKey)!.id,
+            accountId: x.accountId,
+            assetId: byId.get(x.accountId)!.asset_id,
+            direction: x.direction,
+            amount: x.amount.toString(),
+          })),
+        ),
+      });
+      for (const e of created) result.set(e.idempotencyKey, e);
+      return result;
     } catch (err) {
       throw this.mapPostError(err);
     }
@@ -476,6 +608,13 @@ export class LedgerService {
       );
     }
     const { asset, available } = await this.userAccounts(params.userId, params.assetCode);
+    if (asset.isPaper) {
+      throw new AppError(
+        HttpStatus.CONFLICT,
+        'CONFLICT',
+        'Paper assets are funded through the paper faucet',
+      );
+    }
     const custody = await this.ensureAccount(asset.id, 'SIMULATED_CUSTODY', null);
     return this.post(
       {
@@ -499,6 +638,75 @@ export class LedgerService {
         },
       },
     );
+  }
+
+  /**
+   * Paper trading faucet (ADR-0010): grants the asset's configured amount of a
+   * PAPER asset, at most once per user, asset and UTC day (enforced by the
+   * idempotency key). Available in every environment because paper funds can
+   * never touch real assets (database-enforced namespace isolation).
+   */
+  async paperFaucet(
+    userId: string,
+    assetCode: string,
+    actor: LedgerActor,
+    now = new Date(),
+  ): Promise<PostResult> {
+    const asset = await this.requireAsset(assetCode);
+    if (!asset.isPaper || asset.faucetAmount === null) {
+      throw new AppError(
+        HttpStatus.BAD_REQUEST,
+        'VALIDATION_FAILED',
+        `${asset.code} is not a paper asset`,
+      );
+    }
+    const day = now.toISOString().slice(0, 10);
+    const key = `paper-faucet:${userId}:${asset.id}:${day}`;
+    if (
+      await this.prisma.journalEntry.findUnique({
+        where: { idempotencyKey: key },
+        select: { id: true },
+      })
+    ) {
+      throw new AppError(
+        HttpStatus.TOO_MANY_REQUESTS,
+        'RATE_LIMITED',
+        'Paper faucet already used for this asset today (resets 00:00 UTC)',
+      );
+    }
+    const amount = toMinorUnits(asset.faucetAmount);
+    const faucet = await this.accountId(asset.id, 'PAPER_FAUCET', null);
+    const available = await this.accountId(asset.id, 'USER_AVAILABLE', userId);
+    const result = await this.post(
+      {
+        type: 'PAPER_FAUCET_GRANT',
+        idempotencyKey: key,
+        description: `Paper trading funds: ${formatAmount(amount, asset.scale)} ${asset.code} (simulated, no value)`,
+        postings: [
+          { accountId: faucet, direction: 'DEBIT', amount },
+          { accountId: available, direction: 'CREDIT', amount },
+        ],
+      },
+      actor,
+      {
+        audit: {
+          action: 'paper.faucet.grant',
+          outcome: 'SUCCESS',
+          targetType: 'user',
+          targetId: userId,
+          context: { requestId: actor.requestId ?? null },
+          metadata: { asset: asset.code, amount: formatAmount(amount, asset.scale) },
+        },
+      },
+    );
+    if (result.replayed) {
+      throw new AppError(
+        HttpStatus.TOO_MANY_REQUESTS,
+        'RATE_LIMITED',
+        'Paper faucet already used for this asset today (resets 00:00 UTC)',
+      );
+    }
+    return result;
   }
 
   /** Posts the mirror image of an entry. Each entry can be reversed once; reversals cannot be reversed. */
@@ -570,6 +778,7 @@ export class LedgerService {
         asset: asset.code,
         name: asset.name,
         scale: asset.scale,
+        paper: asset.isPaper,
         available: formatAmount(available, asset.scale),
         locked: formatAmount(locked, asset.scale),
         total: formatAmount(available + locked, asset.scale),

@@ -565,7 +565,16 @@ describe('HTTP API', () => {
     const code = await newAsset(2);
     const res = await new TestClient(app).get('/v1/assets').expect(200);
     expect(res.body.assets).toEqual(
-      expect.arrayContaining([{ code, name: `Test asset ${code}`, scale: 2, status: 'ACTIVE' }]),
+      expect.arrayContaining([
+        {
+          code,
+          name: `Test asset ${code}`,
+          scale: 2,
+          status: 'ACTIVE',
+          paper: false,
+          faucetAmount: null,
+        },
+      ]),
     );
   });
 
@@ -583,6 +592,7 @@ describe('HTTP API', () => {
           asset: code,
           name: `Test asset ${code}`,
           scale: 8,
+          paper: false,
           available: '0.00000000',
           locked: '0.00000000',
           total: '0.00000000',
@@ -657,7 +667,14 @@ describe('HTTP API', () => {
       scale: 6,
     });
     expect(created.status).toBe(201);
-    expect(created.body).toEqual({ code, name: 'API asset', scale: 6, status: 'ACTIVE' });
+    expect(created.body).toEqual({
+      code,
+      name: 'API asset',
+      scale: 6,
+      status: 'ACTIVE',
+      paper: false,
+      faucetAmount: null,
+    });
     expect((await risk.post('/v1/admin/assets', { code, name: 'Dup', scale: 6 })).status).toBe(409);
     expect(
       (await risk.post('/v1/admin/assets', { code: 'BAD CODE', name: 'x', scale: 99 })).status,

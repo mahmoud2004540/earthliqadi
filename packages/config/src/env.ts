@@ -103,6 +103,10 @@ export const apiEnvSchema = z
 
     SWAGGER_ENABLED: booleanString.default(false),
 
+    /** Per-user order commands (place/cancel/reduce) per second; abuse protection. */
+    ORDER_RATE_LIMIT_PER_SECOND: z.coerce.number().int().min(1).max(100_000).default(10),
+    /** Maximum open orders per user per market. */
+    MAX_OPEN_ORDERS_PER_MARKET: z.coerce.number().int().min(1).max(1_000_000).default(200),
     /** Milliseconds between market-data change checks for WebSocket pushes; 0 disables pushes. */
     MARKET_DATA_POLL_MS: z.coerce.number().int().min(0).max(60_000).default(250),
     /** Seconds between scheduled ledger reconciliations; 0 disables the scheduler. */

@@ -77,6 +77,8 @@ export interface MarketDto {
   makerFeeBps: number;
   takerFeeBps: number;
   status: (typeof MARKET_STATUSES)[number];
+  /** Paper trading market (simulated funds only). */
+  paper: boolean;
 }
 
 export interface OrderDto {

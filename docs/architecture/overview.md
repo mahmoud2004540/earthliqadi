@@ -1,6 +1,6 @@
 # Architecture overview
 
-> Status: **Phases 0–4 implemented** (foundation, identity, access control, double-entry ledger, spot matching engine and settlement, market data and trading terminal).
+> Status: **Phases 0–5 implemented** (foundation, identity, access control, double-entry ledger, spot matching engine and settlement, market data and trading terminal, paper trading and simulation tooling).
 > Nothing in this repository handles real money. See [roadmap](roadmap.md).
 
 ## 1. Goals that drive the architecture

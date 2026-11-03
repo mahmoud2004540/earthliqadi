@@ -4,6 +4,7 @@
 //! sequence of commands it produces byte-identical events and state hashes.
 
 pub mod book;
+pub mod replay;
 pub mod sequencer;
 pub mod types;
 

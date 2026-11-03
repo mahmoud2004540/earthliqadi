@@ -3,6 +3,7 @@
 import type { TickerDto } from '@platform/shared';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { Dictionary } from '@/i18n';
 import { api } from '@/lib/api';
@@ -48,7 +49,14 @@ export function MarketsTable({ t }: { t: Dictionary['terminal'] }) {
         <tbody>
           {tickers.map((tk) => (
             <tr key={tk.market} className="border-t border-border">
-              <td className="px-4 py-3 font-semibold">{tk.market.replace('-', ' / ')}</td>
+              <td className="px-4 py-3 font-semibold">
+                {tk.market.replace('-', ' / ')}
+                {tk.paper && (
+                  <Badge tone="warning" className="ms-2">
+                    {t.paper}
+                  </Badge>
+                )}
+              </td>
               <td className="px-4 font-mono">{tk.last ?? '—'}</td>
               <td
                 className={cn(

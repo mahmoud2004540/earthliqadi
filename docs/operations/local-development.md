@@ -79,6 +79,16 @@ engine backlog and settlement lag.
 `pnpm test:integration` builds the engine (`cargo build`) and spawns it against
 the test database. It needs a Rust toolchain.
 
+## Paper trading and engine replay
+
+```bash
+# Paper assets (faucet amount required) and a paper market (admin API, markets:configure)
+docker compose exec api node dist/cli/ledger.js create-asset --code PBTC --name "Paper BTC" --scale 8 --paper --faucet 1
+docker compose exec api node dist/cli/ledger.js create-asset --code PUSD --name "Paper USD" --scale 6 --paper --faucet 10000
+# Verify the running engine build reproduces all recorded history (exit 0 = identical)
+docker compose exec engine engine-replay
+```
+
 ## Quality checks
 
 ```bash

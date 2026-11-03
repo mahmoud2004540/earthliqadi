@@ -4,6 +4,7 @@ import type { BalanceDto, LedgerHistoryItemDto } from '@platform/shared';
 import { useEffect, useState } from 'react';
 import { errorMessage } from '@/components/auth/shared';
 import { Alert } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardTitle } from '@/components/ui/card';
 import type { Dictionary } from '@/i18n';
@@ -93,6 +94,7 @@ export function WalletPanel({ t }: { t: Dictionary }) {
                           {b.asset}
                         </span>
                         <span className="text-xs text-muted">{b.name}</span>
+                        {b.paper && <Badge tone="warning">{t.terminal.paper}</Badge>}
                       </div>
                     </td>
                     <td className="py-3 text-end">

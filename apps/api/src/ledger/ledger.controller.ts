@@ -15,6 +15,7 @@ import {
   assetCodeSchema,
   assetStatusSchema,
   createAssetSchema,
+  faucetRequestSchema,
   ledgerHistoryQuerySchema,
   type AssetDto,
   type BalanceDto,
@@ -46,6 +47,35 @@ export class AssetsController {
   @Get()
   async list(): Promise<{ assets: AssetDto[] }> {
     return { assets: (await this.ledger.listAssets(true)).map((a) => this.ledger.toAssetDto(a)) };
+  }
+}
+
+/** Paper trading faucet (simulated funds for paper assets only, ADR-0010). */
+@ApiTags('ledger')
+@Controller({ path: 'paper', version: '1' })
+export class PaperController {
+  constructor(private readonly ledger: LedgerService) {}
+
+  @Post('faucet')
+  @HttpCode(HttpStatus.CREATED)
+  @RequirePermissions(PERMISSIONS.TRADING_TRADE)
+  @ApiZodBody(faucetRequestSchema)
+  async faucet(
+    @CurrentAuth() auth: AuthContext,
+    @Body(new ZodValidationPipe(faucetRequestSchema)) body: z.infer<typeof faucetRequestSchema>,
+    @ReqContext() ctx: RequestContext,
+  ): Promise<{ asset: string; amount: string; entryId: string }> {
+    const asset = await this.ledger.requireAsset(body.asset);
+    const { entry } = await this.ledger.paperFaucet(auth.user.id, body.asset, {
+      actorType: 'USER',
+      actorUserId: auth.user.id,
+      requestId: ctx.requestId,
+    });
+    return {
+      asset: asset.code,
+      amount: this.ledger.toAssetDto(asset).faucetAmount ?? '0',
+      entryId: entry.id.toString(),
+    };
   }
 }
 

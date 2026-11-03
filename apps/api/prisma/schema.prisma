@@ -202,6 +202,8 @@ enum LedgerAccountType {
   FEE_REVENUE
   SUSPENSE
   SIMULATED_CUSTODY
+  /// Paper trading only: source of faucet grants for paper assets (ADR-0010).
+  PAPER_FAUCET
 }
 
 enum PostingDirection {
@@ -215,6 +217,7 @@ enum JournalEntryType {
   BALANCE_RELEASE
   REVERSAL
   TRADE
+  PAPER_FAUCET_GRANT
 }
 
 enum ReconciliationStatus {
@@ -229,15 +232,19 @@ enum ReconciliationTrigger {
 }
 
 model Asset {
-  id        String      @id @default(uuid()) @db.Uuid
+  id           String      @id @default(uuid()) @db.Uuid
   /// Upper-case ticker-like code, unique (e.g. BTC). Not a listing claim.
-  code      String      @unique @db.VarChar(16)
-  name      String      @db.VarChar(64)
+  code         String      @unique @db.VarChar(16)
+  name         String      @db.VarChar(64)
   /// Number of decimal places of the minor unit (BTC = 8, ETH = 18).
-  scale     Int
-  status    AssetStatus @default(ACTIVE)
-  createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  scale        Int
+  status       AssetStatus @default(ACTIVE)
+  /// Paper (simulated) asset: may never share a journal entry or market with real assets (ADR-0010). Immutable.
+  isPaper      Boolean     @default(false) @map("is_paper")
+  /// Paper assets only: amount (minor units) granted per faucet request.
+  faucetAmount Decimal?    @map("faucet_amount") @db.Decimal(38, 0)
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   accounts     LedgerAccount[]
   postings     Posting[]
@@ -384,6 +391,8 @@ model Market {
   makerFeeBps     Int          @map("maker_fee_bps")
   takerFeeBps     Int          @map("taker_fee_bps")
   status          MarketStatus @default(ACTIVE)
+  /// Paper market: both assets are paper assets (DB-enforced). Immutable.
+  isPaper         Boolean      @default(false) @map("is_paper")
   /// Gap-free per-market command counter (row lock orders commits; ADR-0007).
   nextCommandSeq  BigInt       @default(0) @map("next_command_seq")
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)

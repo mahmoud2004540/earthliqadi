@@ -50,6 +50,13 @@ export class MarketsService {
       this.prisma.asset.findUnique({ where: { code: input.quote } }),
     ]);
     if (!base || !quote) throw AppError.notFound('Unknown base or quote asset');
+    if (base.isPaper !== quote.isPaper) {
+      throw new AppError(
+        HttpStatus.BAD_REQUEST,
+        'VALIDATION_FAILED',
+        'A market cannot combine a paper asset with a real asset',
+      );
+    }
     if (base.status !== 'ACTIVE' || quote.status !== 'ACTIVE') {
       throw new AppError(HttpStatus.CONFLICT, 'CONFLICT', 'Both assets must be active');
     }
@@ -85,6 +92,7 @@ export class MarketsService {
             minQuantityLots,
             makerFeeBps: input.makerFeeBps,
             takerFeeBps: input.takerFeeBps,
+            isPaper: base.isPaper,
           },
           include: { baseAsset: true, quoteAsset: true },
         });
@@ -169,6 +177,7 @@ export class MarketsService {
       makerFeeBps: m.makerFeeBps,
       takerFeeBps: m.takerFeeBps,
       status: m.status,
+      paper: m.isPaper,
     };
   }
 }

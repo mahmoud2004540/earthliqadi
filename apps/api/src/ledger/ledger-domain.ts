@@ -21,6 +21,8 @@ export const ACCOUNT_SPECS: Record<LedgerAccountType, AccountSpec> = {
   FEE_REVENUE: { normalSide: 'CREDIT', allowNegative: false, userOwned: false },
   SUSPENSE: { normalSide: 'CREDIT', allowNegative: true, userOwned: false },
   SIMULATED_CUSTODY: { normalSide: 'DEBIT', allowNegative: false, userOwned: false },
+  // Paper trading faucet (ADR-0010): debit-normal like custody; grows with every grant.
+  PAPER_FAUCET: { normalSide: 'DEBIT', allowNegative: false, userOwned: false },
 };
 
 export interface PostingRequest {

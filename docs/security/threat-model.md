@@ -1,4 +1,4 @@
-# Security controls and threat model (Phases 1–4)
+# Security controls and threat model (Phases 1–5)
 
 Scope: identity, sessions, access control, the HTTP surface and the ledger.
 Withdrawal fraud and market manipulation are modelled with the phases that
@@ -71,6 +71,16 @@ introduce withdrawals (8) and trading (3–6).
 | Resource exhaustion                              | Per-IP connection cap, subscription cap, message rate limit, 4 KB frames, heartbeat termination                                     | e2e         |
 | Client IP spoofing on WebSockets                 | Same trusted-hop model as HTTP; the edge repeats `X-Forwarded-For` in the WS location (nginx header inheritance pitfall documented) | review      |
 | Float rounding in the UI                         | Totals and spreads computed with `bigint`; only the chart plots floats (visual only)                                                | unit + e2e  |
+
+## Paper trading and simulation controls (Phase 5)
+
+| Threat                                          | Control                                                                                              | Verified by |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ----------- |
+| Simulated value leaking into real balances      | Deferred trigger rejects any entry mixing paper and real assets; markets cannot mix; immutable flags | e2e         |
+| Faucet abuse / double grants                    | Once per user/asset/UTC day via idempotency key (race-safe); audited                                 | e2e         |
+| Bypassed triggers (privileged DB access)        | Reconciliation `MIXED_NAMESPACE_ENTRY` finding                                                       | e2e         |
+| Order spam / resource exhaustion by one account | Per-user order rate limit (Redis), open-order cap per market                                         | e2e         |
+| Non-deterministic or regressed engine releases  | `engine-replay` gate against recorded history before deployment                                      | Rust + e2e  |
 
 ## Known limitations (must be resolved before any production use)
 
