@@ -56,6 +56,11 @@ database identifiers.
   claimed), support tickets, notifications, announcements, an admin console,
   and Prometheus metrics with alert rules and runbooks. See
   [ADR-0012](docs/decisions/0012-admin-compliance-monitoring.md).
+- **Wallet sign-in, no KYC** ([ADR-0013](docs/decisions/0013-wallet-sign-in-no-kyc.md)):
+  customers connect an Ethereum wallet and sign (EIP-4361). There is no
+  registration, email or identity documents; the KYC module is off by
+  default. Staff use email + password + MFA. Phase 8 moves to a
+  **non-custodial** on-chain vault (testnet).
 - **Shared packages:** zod schemas and the RBAC catalogue (`packages/shared`),
   and environment validation (`packages/config`).
 - **Infrastructure:** Dockerfiles, a Compose stack with an nginx edge proxy, a CI
@@ -112,7 +117,8 @@ tests/              (reserved) cross-service integration and browser e2e suites
   [0009 market data](docs/decisions/0009-market-data.md) ·
   [0010 paper trading & replay](docs/decisions/0010-paper-trading-and-replay.md) ·
   [0011 perpetual futures](docs/decisions/0011-perpetual-futures.md) ·
-  [0012 admin, compliance & monitoring](docs/decisions/0012-admin-compliance-monitoring.md)
+  [0012 admin, compliance & monitoring](docs/decisions/0012-admin-compliance-monitoring.md) ·
+  [0013 wallet sign-in, no KYC](docs/decisions/0013-wallet-sign-in-no-kyc.md)
 - Security: [controls & threat model](docs/security/threat-model.md) ·
   [dependency policy](docs/security/dependency-policy.md) ·
   [incident response (draft)](docs/security/incident-response.md)

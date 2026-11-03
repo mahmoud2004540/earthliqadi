@@ -73,51 +73,31 @@ async function staff(browser: Browser, roles: string[]): Promise<Page> {
   return context.newPage();
 }
 
-test('identity verification and support, reviewed in the admin console', async ({ browser }) => {
-  const user = await signUp(browser, 'e2e-kyc');
-  await user.getByRole('tab', { name: 'Verification' }).click();
-  await user.fill('#kyc-legalName', 'E2E Test Person');
-  await user.fill('#kyc-dateOfBirth', '1988-02-29');
-  await user.fill('#kyc-countryCode', 'NL');
-  await user.fill('#kyc-addressLine', '1 Test Lane');
-  await user.fill('#kyc-city', 'Utrecht');
-  await user.fill('#kyc-postalCode', '3511');
-  await user.getByRole('button', { name: 'Submit for review' }).click();
-  await expect(user.getByText('Under review')).toBeVisible();
-
+test('support conversation through the admin console; KYC is switched off', async ({ browser }) => {
+  const user = await signUp(browser, 'e2e-support');
+  await expect(user.getByRole('tab', { name: 'Verification' })).toHaveCount(0);
   await user.getByRole('tab', { name: 'Support' }).click();
   await user.fill('#ticket-subject', 'Question about paper funds');
   await user.fill('#ticket-body', 'How often can I use the faucet?');
   await user.getByRole('button', { name: 'Open ticket' }).click();
   await expect(user.getByTestId('ticket-message')).toHaveCount(1);
 
-  const officer = await staff(browser, ['compliance_officer', 'support_agent']);
-  await officer.goto('/admin');
-  await expect(officer.getByTestId('admin-console')).toBeVisible();
-  await officer.getByRole('tab', { name: 'Verification' }).click();
-  const row = officer.getByRole('listitem').filter({ hasText: 'NL' }).last();
-  await row.getByRole('button', { name: 'Review' }).click();
-  await expect(officer.getByText('E2E Test Person')).toBeVisible(); // decrypted for the reviewer
-  await officer.fill('#kyc-note', 'Details consistent');
-  await officer.getByRole('button', { name: 'Approve' }).click();
-  await expect(officer.getByText('Done.')).toBeVisible();
-
-  await officer.getByRole('tab', { name: 'Support' }).click();
-  await officer
+  const agent = await staff(browser, ['support_agent', 'compliance_officer']);
+  await agent.goto('/admin');
+  await expect(agent.getByTestId('admin-console')).toBeVisible();
+  await agent.getByRole('tab', { name: 'Verification' }).click();
+  await expect(agent.getByText('Identity verification is not enabled')).toBeVisible();
+  await agent.getByRole('tab', { name: 'Support' }).click();
+  await agent
     .getByRole('button', { name: /Question about paper funds/ })
     .last()
     .click();
-  await officer.getByLabel('Reply').fill('Once per asset per UTC day.');
-  await officer.getByRole('button', { name: 'Reply' }).click();
-  await expect(officer.getByText('Once per asset per UTC day.')).toBeVisible();
+  await agent.getByLabel('Reply').fill('Once per asset per UTC day.');
+  await agent.getByRole('button', { name: 'Reply' }).click();
+  await expect(agent.getByText('Once per asset per UTC day.')).toBeVisible();
 
   await user.reload();
-  await user.getByRole('tab', { name: 'Verification' }).click();
-  await expect(user.getByTestId('kyc-level')).toHaveText('Basic verified');
   await user.getByRole('tab', { name: 'Inbox' }).click();
-  await expect(
-    user.getByTestId('notification').filter({ hasText: 'Identity verified' }),
-  ).toBeVisible();
   await expect(
     user.getByTestId('notification').filter({ hasText: 'Support replied to your ticket' }),
   ).toBeVisible();

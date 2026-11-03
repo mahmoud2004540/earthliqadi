@@ -33,11 +33,8 @@ export function HeaderAuth({ t }: { t: Dictionary['nav'] }) {
   }
   return (
     <>
-      <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
-        <Link href="/login">{t.login}</Link>
-      </Button>
       <Button asChild size="sm">
-        <Link href="/register">{t.register}</Link>
+        <Link href="/connect">{t.connectWallet}</Link>
       </Button>
     </>
   );

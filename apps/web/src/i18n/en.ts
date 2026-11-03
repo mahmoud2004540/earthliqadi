@@ -11,6 +11,7 @@ export const en = {
   banner:
     'Pre-launch development build. No real funds, no live trading and no regulated services are offered.',
   nav: {
+    connectWallet: 'Connect wallet',
     markets: 'Markets',
     trade: 'Trade',
     fees: 'Fees',
@@ -47,7 +48,7 @@ export const en = {
     title: 'Professional trading, built on verifiable trust.',
     subtitle:
       'An independent exchange platform engineered around strict security, double-entry accounting and transparent operations — with a fast, professional trading experience on top.',
-    ctaPrimary: 'Create an account',
+    ctaPrimary: 'Connect wallet',
     ctaSecondary: 'Visit the Trust Center',
     pillars: [
       {
@@ -321,6 +322,25 @@ export const en = {
         'Perpetuals are leveraged and can lose your whole margin quickly. Paper only: simulated funds, prices may come from labelled simulated feeds.',
     },
   },
+  wallet: {
+    title: 'Connect your wallet',
+    intro:
+      'Sign in with an Ethereum wallet. No email, no password and no identity documents: your wallet address is your account.',
+    connect: 'Connect wallet',
+    waiting: 'Check your wallet…',
+    statement:
+      'Sign in to the exchange. This request does not trigger a blockchain transaction or cost any gas.',
+    noWallet:
+      'No browser wallet found. Install a wallet extension (for example MetaMask or Rabby) and reload this page.',
+    noAccount: 'The wallet did not share an account.',
+    rejected: 'The signature request was declined in your wallet.',
+    points: [
+      'Signing proves you control the address; it never moves funds.',
+      'Each request uses a one-time code that expires after 5 minutes.',
+      'Pre-launch: paper trading only; no real funds are accepted.',
+    ],
+    staff: 'Staff sign-in (email, password and authenticator)',
+  },
   admin: {
     title: 'Admin console',
     intro:
@@ -369,13 +389,15 @@ export const en = {
     done: 'Done.',
   },
   auth: {
+    customersUseWallet: 'Trading customers sign in with a wallet:',
+    connectWallet: 'Connect wallet',
     email: 'Email',
     password: 'Password',
     newPassword: 'New password',
     currentPassword: 'Current password',
     passwordHint: 'At least 12 characters. A passphrase is easiest to remember.',
     acceptTerms: 'I understand this is pre-launch software and accept the risk disclosures.',
-    loginTitle: 'Sign in',
+    loginTitle: 'Staff sign-in',
     loginSubmit: 'Sign in',
     registerTitle: 'Create your account',
     registerSubmit: 'Create account',
@@ -431,6 +453,8 @@ export const en = {
     supportTab: 'Support',
     inboxTab: 'Inbox',
     adminConsole: 'Admin console',
+    signInMethod: 'Sign-in method',
+    walletSignature: 'Wallet signature',
     verification: {
       title: 'Identity verification',
       intro:

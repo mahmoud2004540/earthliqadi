@@ -6,7 +6,10 @@ export type AccountType = (typeof ACCOUNT_TYPES)[number];
 
 export interface CurrentUserDto {
   id: string;
-  email: string;
+  /** Null for wallet accounts (ADR-0013). */
+  email: string | null;
+  /** EIP-55 address for Sign-In with Ethereum accounts. */
+  walletAddress: string | null;
   emailVerified: boolean;
   status: UserStatus;
   accountType: AccountType;

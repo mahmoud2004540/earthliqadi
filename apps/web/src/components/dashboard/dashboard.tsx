@@ -10,14 +10,14 @@ import { Card, CardDescription, CardTitle } from '@/components/ui/card';
 import type { Dictionary } from '@/i18n';
 import { ApiError, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { InboxPanel, SupportPanel, VerificationPanel } from './account-panels';
+import { InboxPanel, SupportPanel } from './account-panels';
 import { SecurityPanel } from './security-panel';
 import { WalletPanel } from './wallet-panel';
 
 export function Dashboard({ t }: { t: Dictionary }) {
   const router = useRouter();
   const [user, setUser] = useState<CurrentUserDto | null>(null);
-  type Tab = 'overview' | 'wallet' | 'verification' | 'support' | 'inbox' | 'security';
+  type Tab = 'overview' | 'wallet' | 'support' | 'inbox' | 'security';
   const [tab, setTab] = useState<Tab>('overview');
 
   const [version, setVersion] = useState(0);
@@ -56,7 +56,7 @@ export function Dashboard({ t }: { t: Dictionary }) {
           <p className="mt-1 text-sm text-muted">
             {d.welcome}{' '}
             <span className="text-foreground" dir="ltr">
-              {user.email}
+              {user.email ?? user.walletAddress}
             </span>
           </p>
         </div>
@@ -77,42 +77,35 @@ export function Dashboard({ t }: { t: Dictionary }) {
       </div>
 
       <div role="tablist" className="mt-8 flex gap-1 overflow-x-auto border-b border-border">
-        {(['overview', 'wallet', 'verification', 'support', 'inbox', 'security'] as const).map(
-          (key) => (
-            <button
-              key={key}
-              role="tab"
-              aria-selected={tab === key}
-              onClick={() => setTab(key)}
-              className={cn(
-                '-mb-px whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium',
-                tab === key
-                  ? 'border-primary text-foreground'
-                  : 'border-transparent text-muted hover:text-foreground',
-              )}
-            >
+        {(['overview', 'wallet', 'support', 'inbox', 'security'] as const).map((key) => (
+          <button
+            key={key}
+            role="tab"
+            aria-selected={tab === key}
+            onClick={() => setTab(key)}
+            className={cn(
+              '-mb-px whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium',
+              tab === key
+                ? 'border-primary text-foreground'
+                : 'border-transparent text-muted hover:text-foreground',
+            )}
+          >
+            {
               {
-                {
-                  overview: d.overview,
-                  wallet: d.balancesTitle,
-                  verification: d.verificationTab,
-                  support: d.supportTab,
-                  inbox: d.inboxTab,
-                  security: d.securityTab,
-                }[key]
-              }
-            </button>
-          ),
-        )}
+                overview: d.overview,
+                wallet: d.balancesTitle,
+                support: d.supportTab,
+                inbox: d.inboxTab,
+                security: d.securityTab,
+              }[key]
+            }
+          </button>
+        ))}
       </div>
 
       {tab === 'wallet' ? (
         <div className="mt-8">
           <WalletPanel t={t} />
-        </div>
-      ) : tab === 'verification' ? (
-        <div className="mt-8">
-          <VerificationPanel t={t} />
         </div>
       ) : tab === 'support' ? (
         <div className="mt-8">
@@ -127,11 +120,15 @@ export function Dashboard({ t }: { t: Dictionary }) {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Stat label={d.accountStatus} value={user.status.replace('_', ' ')} tone="positive" />
             <Stat label={d.accountType} value={user.accountType} />
-            <Stat
-              label={d.twoFactor}
-              value={user.mfaEnabled ? d.enabled : d.disabled}
-              tone={user.mfaEnabled ? 'positive' : 'warning'}
-            />
+            {user.walletAddress && !user.email ? (
+              <Stat label={d.signInMethod} value={d.walletSignature} tone="positive" />
+            ) : (
+              <Stat
+                label={d.twoFactor}
+                value={user.mfaEnabled ? d.enabled : d.disabled}
+                tone={user.mfaEnabled ? 'positive' : 'warning'}
+              />
+            )}
             <Stat label={d.memberSince} value={dateFmt.format(new Date(user.createdAt))} />
           </div>
           <section>

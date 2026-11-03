@@ -134,7 +134,7 @@ describe('registration and email verification', () => {
       where: { email },
       include: { roles: { include: { role: true } } },
     });
-    expect(user.passwordHash.startsWith('$argon2id$')).toBe(true);
+    expect(user.passwordHash!.startsWith('$argon2id$')).toBe(true);
     expect(user.passwordHash).not.toContain(PASSWORD);
     expect(user.status).toBe('PENDING_VERIFICATION');
     expect(user.roles.map((r) => r.role.key)).toEqual(['user']);

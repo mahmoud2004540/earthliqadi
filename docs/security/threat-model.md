@@ -109,6 +109,17 @@ introduce withdrawals (8) and trading (3–6).
 | Support data leakage between users              | Ownership checks return 404; append-only messages                                                          | e2e         |
 | Metrics leaking internals                       | Disabled without token; bearer with constant-time compare; blocked at the edge; bounded labels             | e2e         |
 
+## Wallet sign-in controls (ADR-0013)
+
+| Threat                                   | Control                                                                                   | Verified by |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------- | ----------- |
+| Replay of a captured signature           | Single-use Redis nonce, consumed on success; Issued At ≤ 10 min; Expiration Time honoured | e2e         |
+| Phishing site relaying a signature       | Domain and URI bound to `WEB_ORIGIN`; mismatches refused                                  | unit + e2e  |
+| Forged or malleable signatures           | secp256k1 recovery (`@noble`), high-s rejected, signer must equal the message address     | unit + e2e  |
+| Address typos / checksum confusion       | EIP-55 checksums enforced for mixed-case addresses; stored lower-case                     | unit        |
+| Account takeover by reassigning a wallet | Wallet address immutable (trigger); unique                                                | e2e         |
+| Wallet accounts gaining staff powers     | No password/authenticator for wallet accounts → staff permissions refused (MFA required)  | e2e         |
+
 ## Known limitations (must be resolved before any production use)
 
 1. **No production email transport.** Staging and production intentionally refuse to boot.

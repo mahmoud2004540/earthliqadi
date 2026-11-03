@@ -1,6 +1,6 @@
 # Architecture overview
 
-> Status: **Phases 0–7 implemented** (foundation, identity, access control, double-entry ledger, spot matching engine and settlement, market data and trading terminal, paper trading and simulation tooling, paper-only perpetual futures, and the back office: staff MFA, maker-checker, KYC workflow, support, notifications, monitoring; ADR-0012).
+> Status: **Phases 0–7 implemented** (foundation, identity, access control, double-entry ledger, spot matching engine and settlement, market data and trading terminal, paper trading and simulation tooling, paper-only perpetual futures, and the back office: staff MFA, maker-checker, KYC workflow, support, notifications, monitoring; ADR-0012); customers sign in with a wallet and no KYC (ADR-0013).
 > Nothing in this repository handles real money. See [roadmap](roadmap.md).
 
 ## 1. Goals that drive the architecture

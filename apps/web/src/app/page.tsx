@@ -24,7 +24,7 @@ export default function HomePage() {
           <p className="mt-6 max-w-2xl text-lg leading-relaxed text-muted">{t.home.subtitle}</p>
           <div className="mt-10 flex flex-wrap gap-3">
             <Button asChild size="lg">
-              <Link href={'/register'}>{t.home.ctaPrimary}</Link>
+              <Link href={'/connect'}>{t.home.ctaPrimary}</Link>
             </Button>
             <Button asChild size="lg" variant="outline">
               <Link href={'/trust'}>{t.home.ctaSecondary}</Link>

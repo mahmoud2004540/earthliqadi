@@ -4,6 +4,7 @@ import {
   emailOnlySchema,
   loginMfaSchema,
   loginSchema,
+  walletLoginSchema,
   registerSchema,
   resetPasswordSchema,
   verifyEmailSchema,
@@ -35,6 +36,29 @@ export class AuthController {
     private readonly csrf: CsrfService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
+
+  /** Sign-In with Ethereum, step 1: a single-use nonce and the expected domain/URI. */
+  @Public()
+  @AuthRateLimit()
+  @Get('wallet/nonce')
+  async walletNonce(@Res({ passthrough: true }) res: Response) {
+    res.setHeader('Cache-Control', 'no-store');
+    return this.auth.walletNonce();
+  }
+
+  /** Step 2: the EIP-4361 message and its personal_sign signature. Creates the account on first use. */
+  @Public()
+  @AuthRateLimit()
+  @Post('wallet/login')
+  @HttpCode(HttpStatus.OK)
+  @ApiZodBody(walletLoginSchema)
+  async walletLogin(
+    @Body(new ZodValidationPipe(walletLoginSchema)) body: z.infer<typeof walletLoginSchema>,
+    @ReqContext() ctx: RequestContext,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<LoginResultDto> {
+    return this.finish(await this.auth.walletLogin(body, ctx), res);
+  }
 
   @Public()
   @Get('csrf')

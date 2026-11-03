@@ -210,6 +210,17 @@ Staff permissions require MFA on the account (`403 MFA_REQUIRED` otherwise).
 maker-checker (`insurance_fund.seed`). Real-asset orders return
 `403 KYC_REQUIRED` when `KYC_REQUIRED_FOR_REAL_TRADING=true`.
 
+## Wallet sign-in (ADR-0013)
+
+| Method | Path                    | Auth   | Description                                                                                                           |
+| ------ | ----------------------- | ------ | --------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/v1/auth/wallet/nonce` | public | `{nonce, domain, uri, expiresInSeconds}`: single-use, 5 minutes                                                       |
+| POST   | `/v1/auth/wallet/login` | public | `{message, signature}`: EIP-4361 message + `personal_sign`; creates the account on first use; sets the session cookie |
+
+- `CurrentUserDto` gains `walletAddress` (EIP-55); `email` is null for wallet
+  accounts.
+- KYC endpoints answer `404` unless `KYC_ENABLED=true`.
+
 ## Example (curl through the edge)
 
 ```bash

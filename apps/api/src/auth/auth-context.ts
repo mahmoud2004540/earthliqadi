@@ -6,7 +6,8 @@ export interface AuthContext {
   sessionId: string;
   user: {
     id: string;
-    email: string;
+    email: string | null;
+    walletAddress: string | null;
     status: UserStatus;
     accountType: AccountType;
     emailVerifiedAt: Date | null;

@@ -106,9 +106,9 @@ export function LoginForm({ t }: { t: AuthText }) {
         </Button>
         {!challengeId && (
           <p className="text-center text-sm text-muted">
-            {t.noAccount}{' '}
-            <Link href={'/register'} className="text-primary hover:underline">
-              {t.registerSubmit}
+            {t.customersUseWallet}{' '}
+            <Link href={'/connect'} className="text-primary hover:underline">
+              {t.connectWallet}
             </Link>
           </p>
         )}

@@ -1,3 +1,4 @@
+import { accountLabel } from '../auth/account-label';
 import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma, type KycCase } from '@prisma/client';
 import type {
@@ -48,11 +49,17 @@ export class KycService {
     this.box = new SecretBox(config.PII_ENCRYPTION_KEY ?? config.MFA_ENCRYPTION_KEY);
   }
 
+  /** The whole module answers 404 unless an operator enabled it (ADR-0013). */
+  assertEnabled(): void {
+    if (!this.config.KYC_ENABLED) throw AppError.notFound('Identity verification is not enabled');
+  }
+
   private aad(caseId: string): string {
     return `kyc:${caseId}`;
   }
 
   async status(userId: string): Promise<KycStatusDto> {
+    this.assertEnabled();
     const [user, latest] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { kycLevel: true } }),
       this.prisma.kycCase.findFirst({ where: { userId }, orderBy: { submittedAt: 'desc' } }),
@@ -76,6 +83,7 @@ export class KycService {
     profile: KycSubmitInput,
     ctx: RequestContext,
   ): Promise<KycStatusDto> {
+    this.assertEnabled();
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     if (user.kycLevel >= 1) throw conflict('Your identity is already verified');
     const open = await this.prisma.kycCase.findFirst({
@@ -137,13 +145,13 @@ export class KycService {
   }
 
   private reviewDto(
-    c: KycCase & { user: { email: string } },
+    c: KycCase & { user: { email: string | null; walletAddress: string | null } },
     profile?: KycSubmitInput,
   ): KycReviewDto {
     return {
       id: c.id,
       userId: c.userId,
-      email: c.user.email,
+      email: accountLabel(c.user),
       status: c.status.toLowerCase() as KycCaseStatusDto,
       level: c.level,
       countryCode: c.countryCode,
@@ -154,9 +162,10 @@ export class KycService {
   }
 
   async queue(status: 'pending' | 'all', limit: number): Promise<KycReviewDto[]> {
+    this.assertEnabled();
     const rows = await this.prisma.kycCase.findMany({
       where: status === 'pending' ? { status: 'PENDING' } : {},
-      include: { user: { select: { email: true } } },
+      include: { user: { select: { email: true, walletAddress: true } } },
       orderBy: { submittedAt: 'asc' },
       take: limit,
     });
@@ -164,9 +173,10 @@ export class KycService {
   }
 
   async reviewCase(caseId: string, reviewerId: string, ctx: RequestContext): Promise<KycReviewDto> {
+    this.assertEnabled();
     const c = await this.prisma.kycCase.findUnique({
       where: { id: caseId },
-      include: { user: { select: { email: true } } },
+      include: { user: { select: { email: true, walletAddress: true } } },
     });
     if (!c) throw AppError.notFound('Case not found');
     if (c.userId === reviewerId) throw AppError.forbidden('You cannot review your own case');
@@ -192,6 +202,7 @@ export class KycService {
     note: string,
     ctx: RequestContext,
   ): Promise<KycReviewDto> {
+    this.assertEnabled();
     const c = await this.prisma.kycCase.findUnique({ where: { id: caseId } });
     if (!c) throw AppError.notFound('Case not found');
     if (c.userId === reviewerId) throw AppError.forbidden('You cannot review your own case');
@@ -254,7 +265,7 @@ export class KycService {
     this.logger.log({ caseId, decision }, 'KYC decision recorded');
     const fresh = await this.prisma.kycCase.findUniqueOrThrow({
       where: { id: caseId },
-      include: { user: { select: { email: true } } },
+      include: { user: { select: { email: true, walletAddress: true } } },
     });
     return this.reviewDto(fresh);
   }

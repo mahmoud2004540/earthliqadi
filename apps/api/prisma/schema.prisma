@@ -45,8 +45,11 @@ enum AuditOutcome {
 model User {
   id              String      @id @default(uuid()) @db.Uuid
   /// Normalised (trimmed, lower-cased) email.
-  email           String      @unique @db.VarChar(254)
-  passwordHash    String      @map("password_hash")
+  email           String?     @unique @db.VarChar(254)
+  /// Null for wallet-only accounts (ADR-0013).
+  passwordHash    String?     @map("password_hash")
+  /// Lower-case Ethereum address for Sign-In with Ethereum accounts. Immutable.
+  walletAddress   String?     @unique @map("wallet_address") @db.Char(42)
   status          UserStatus  @default(PENDING_VERIFICATION)
   accountType     AccountType @default(INDIVIDUAL) @map("account_type")
   emailVerifiedAt DateTime?   @map("email_verified_at") @db.Timestamptz(3)

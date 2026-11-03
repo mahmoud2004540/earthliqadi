@@ -3,19 +3,19 @@
 Phases are sequential. A phase is complete only when its acceptance criteria,
 tests, security review and documentation are done.
 
-| Phase | Scope                                                      | Status       |
-| ----- | ---------------------------------------------------------- | ------------ |
-| 0     | Architecture and repository foundation                     | **Complete** |
-| 1     | Frontend, backend, authentication, database, Docker, CI    | **Complete** |
-| 2     | Financial ledger and accounting                            | **Complete** |
-| 3     | Spot matching engine (Rust)                                | **Complete** |
-| 4     | Market data and professional trading terminal              | **Complete** |
-| 5     | Spot paper trading and simulation                          | **Complete** |
-| 6     | Perpetual futures and risk simulation (paper only)         | **Complete** |
-| 7     | Admin, compliance and monitoring                           | **Complete** |
-| 8     | Custody and liquidity integrations                         | Next         |
-| 9     | Security audits and regulatory readiness                   | Planned      |
-| 10    | Controlled production launch, after all required approvals | Planned      |
+| Phase | Scope                                                          | Status       |
+| ----- | -------------------------------------------------------------- | ------------ |
+| 0     | Architecture and repository foundation                         | **Complete** |
+| 1     | Frontend, backend, authentication, database, Docker, CI        | **Complete** |
+| 2     | Financial ledger and accounting                                | **Complete** |
+| 3     | Spot matching engine (Rust)                                    | **Complete** |
+| 4     | Market data and professional trading terminal                  | **Complete** |
+| 5     | Spot paper trading and simulation                              | **Complete** |
+| 6     | Perpetual futures and risk simulation (paper only)             | **Complete** |
+| 7     | Admin, compliance and monitoring                               | **Complete** |
+| 8     | Non-custodial vault, deposits/withdrawals (testnet), liquidity | Next         |
+| 9     | Security audits and regulatory readiness                       | Planned      |
+| 10    | Controlled production launch, after all required approvals     | Planned      |
 
 ## Phase 0 + 1 acceptance criteria (Sprint 1)
 
@@ -105,27 +105,29 @@ tests, security review and documentation are done.
 - [x] Prometheus metrics endpoint (token, edge-blocked), alert rules and runbooks
 - [x] Tests: guard unit tests; 12 integration tests (MFA, four eyes, DB backstops, KYC encryption/screening/gate, support, metrics); browser e2e (KYC + support reviewed in the admin console, customer denied)
 
-## Sprint 8 plan: Phase 8, custody and liquidity integrations (testnet only)
+## Interim change (ADR-0013): wallet sign-in, no KYC
 
-**Testnets and sandboxes only.** No real funds until Phases 9–10 and
-authorisation.
+- [x] Sign-In with Ethereum (EIP-4361): single-use nonces, domain/URI binding, signature recovery (audited `@noble`), EIP-55, automatic account creation
+- [x] KYC module off by default (404); no verification tab; staff keep email + password + MFA
+- [x] Tests: SIWE unit tests (incl. a published key vector), integration (replay, foreign domain, forged signature, DB identity rules), browser e2e with an injected EIP-1193 test wallet
 
-1. **ADR:** custody architecture (hot/warm/cold separation, signing service
-   boundary, HSM/MPC options, address management), deposit and withdrawal
-   state machines, confirmation policies per chain, travel-rule hooks.
-2. **Deposits (testnet):** address allocation per user and asset, chain
-   watchers (one chain first, e.g. a Bitcoin or Ethereum testnet), a
-   confirmation policy, crediting through the ledger (`DEPOSIT` entries,
-   idempotent per transaction id and output), reorg handling.
-3. **Withdrawals (testnet):** request, then limits and KYC level, then
-   address allow-list (optional) and cooling-off, then maker-checker review
-   above a threshold, then signing through an isolated signer, then
-   broadcast and tracking. Ledger holds at request; finalisation on
+## Sprint 8 plan: Phase 8, non-custodial vault (testnet only)
+
+**Testnets only. No real funds until Phases 9–10 and legal review.**
+
+1. **ADR:** vault contract design (Solidity, one EVM testnet such as
+   Sepolia), deposit/withdrawal flows, operator-signed state commitments,
+   escape hatch (forced withdrawal if the operator stalls), upgrade and
+   admin-key policy (timelock + multisig), threat model.
+2. **Contract + tests:** Foundry tests including fuzzing and invariant
+   tests (Σ user claims ≤ vault balance), forced-withdrawal path, pause
+   rules.
+3. **Indexer:** watches deposits (confirmations, reorg handling), credits
+   the ledger idempotently per log; reconciliation ledger ↔ contract.
+4. **Withdrawals:** user signs an EIP-712 withdrawal; risk checks (margin,
+   open orders); batched settlement on-chain; ledger finalisation on
    confirmation.
-4. **Proof of reserves (design + testnet):** liabilities snapshot (Merkle
-   tree of user balances, `is_paper = false` only) and on-chain asset
-   attestation; publish in the Trust Center only when real and audited.
-5. **External price feeds** for perpetual indices (signed or multi-source),
-   replacing simulated sources where available.
-6. **Liquidity:** market-maker API keys with scoped permissions and rate
-   limits (API key auth, HMAC signing, IP allow-lists).
+5. **Wallet-address screening interface** (sanctions analytics provider
+   boundary; no provider claimed) and GeoIP-based restriction hooks.
+6. **External price feeds** for perpetual indices; market-maker API keys
+   (EIP-712 or HMAC signed requests).

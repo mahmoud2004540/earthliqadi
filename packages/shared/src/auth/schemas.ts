@@ -48,6 +48,12 @@ export const loginSchema = z.object({
 });
 export type LoginInput = z.input<typeof loginSchema>;
 
+/** Sign-In with Ethereum (EIP-4361) message and its personal_sign signature (ADR-0013). */
+export const walletLoginSchema = z.object({
+  message: z.string().min(50).max(2048),
+  signature: z.string().regex(/^0x[0-9a-fA-F]{130}$/, 'Invalid signature'),
+});
+
 export const loginMfaSchema = z.object({
   challengeId: opaqueTokenSchema,
   code: totpCodeSchema,

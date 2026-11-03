@@ -1,3 +1,4 @@
+import { toChecksumAddress } from './siwe';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import type { User } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
@@ -68,7 +69,11 @@ export class MfaService {
       context: ctx,
     });
     return {
-      otpauthUri: totpUri({ secret, issuer: this.config.BRAND_NAME, account: user.email }),
+      otpauthUri: totpUri({
+        secret,
+        issuer: this.config.BRAND_NAME,
+        account: user.email ?? toChecksumAddress(user.walletAddress!),
+      }),
       secret: base32Encode(secret),
     };
   }
@@ -120,12 +125,13 @@ export class MfaService {
         tx,
       );
     });
-    await this.mail.send({
-      to: user.email,
-      kind: 'security_notice',
-      subject: 'Two-factor authentication enabled',
-      text: 'Two-factor authentication was enabled on your account. If this was not you, contact support immediately.',
-    });
+    if (user.email)
+      await this.mail.send({
+        to: user.email,
+        kind: 'security_notice',
+        subject: 'Two-factor authentication enabled',
+        text: 'Two-factor authentication was enabled on your account. If this was not you, contact support immediately.',
+      });
   }
 
   async disable(
@@ -179,12 +185,13 @@ export class MfaService {
         tx,
       );
     });
-    await this.mail.send({
-      to: user.email,
-      kind: 'security_notice',
-      subject: 'Two-factor authentication disabled',
-      text: 'Two-factor authentication was disabled on your account and other sessions were signed out. If this was not you, contact support immediately.',
-    });
+    if (user.email)
+      await this.mail.send({
+        to: user.email,
+        kind: 'security_notice',
+        subject: 'Two-factor authentication disabled',
+        text: 'Two-factor authentication was disabled on your account and other sessions were signed out. If this was not you, contact support immediately.',
+      });
   }
 
   /**
@@ -213,6 +220,13 @@ export class MfaService {
     ctx: RequestContext,
     action: string,
   ): Promise<void> {
+    if (user.passwordHash === null) {
+      throw new AppError(
+        HttpStatus.CONFLICT,
+        'CONFLICT',
+        'Wallet accounts are protected by the wallet key; authenticator setup is for staff email accounts',
+      );
+    }
     if (await this.passwords.verify(user.passwordHash, password)) return;
     await this.audit.recordSafe({
       action,

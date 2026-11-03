@@ -134,7 +134,13 @@ export const apiEnvSchema = z
           .filter(Boolean),
       )
       .pipe(z.array(z.string().regex(/^[A-Z]{2}$/))),
-    /** Real (non-paper) trading requires KYC level ≥ 1 when true. */
+    /**
+     * Identity verification module (ADR-0013: off by default; customers sign in
+     * with a wallet and are never asked for identity documents). The module
+     * stays available for jurisdictions where an operator must enable it.
+     */
+    KYC_ENABLED: booleanString.default(false),
+    /** Real (non-paper) trading requires KYC level ≥ 1 when true (needs KYC_ENABLED). */
     KYC_REQUIRED_FOR_REAL_TRADING: booleanString.default(false),
     /** 32-byte base64 key for identity data at rest. Falls back to MFA_ENCRYPTION_KEY only in local/ci. */
     PII_ENCRYPTION_KEY: z.string().optional(),
@@ -142,6 +148,13 @@ export const apiEnvSchema = z
     METRICS_TOKEN: z.string().min(32).optional(),
   })
   .superRefine((env, ctx) => {
+    if (env.KYC_REQUIRED_FOR_REAL_TRADING && !env.KYC_ENABLED) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['KYC_REQUIRED_FOR_REAL_TRADING'],
+        message: 'requires KYC_ENABLED=true',
+      });
+    }
     const strict = env.DEPLOY_ENV === 'staging' || env.DEPLOY_ENV === 'production';
     if (!strict) return;
 
@@ -163,13 +176,6 @@ export const apiEnvSchema = z
       ctx.addIssue({
         code: 'custom',
         path: ['STAFF_MFA_REQUIRED'],
-        message: 'must be true outside local/ci',
-      });
-    }
-    if (!env.KYC_REQUIRED_FOR_REAL_TRADING) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['KYC_REQUIRED_FOR_REAL_TRADING'],
         message: 'must be true outside local/ci',
       });
     }

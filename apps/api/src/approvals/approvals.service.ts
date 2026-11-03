@@ -1,3 +1,4 @@
+import { accountLabel } from '../auth/account-label';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { Prisma, type ApprovalRequest } from '@prisma/client';
 import {
@@ -142,9 +143,14 @@ export class ApprovalsService {
       where: status === 'pending' ? { status: 'PENDING' } : {},
       orderBy: { requestedAt: 'desc' },
       take: limit,
-      include: { requestedBy: { select: { email: true } }, decidedBy: { select: { email: true } } },
+      include: {
+        requestedBy: { select: { email: true, walletAddress: true } },
+        decidedBy: { select: { email: true, walletAddress: true } },
+      },
     });
-    return rows.map((r) => this.toDto(r, r.requestedBy.email, r.decidedBy?.email ?? null));
+    return rows.map((r) =>
+      this.toDto(r, accountLabel(r.requestedBy), r.decidedBy ? accountLabel(r.decidedBy) : null),
+    );
   }
 
   private async expireStale(): Promise<void> {

@@ -1,3 +1,4 @@
+import { accountLabel } from '../auth/account-label';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import type { SupportMessage, SupportTicket } from '@prisma/client';
 import type { AnnouncementDto, TicketDto } from '@platform/shared';
@@ -9,7 +10,10 @@ import { NotificationsService } from '../notifications/notifications.service';
 
 const MAX_OPEN_TICKETS = 10;
 
-type TicketRow = SupportTicket & { messages?: SupportMessage[]; user?: { email: string } };
+type TicketRow = SupportTicket & {
+  messages?: SupportMessage[];
+  user?: { email: string | null; walletAddress: string | null };
+};
 
 /** Support tickets (messages are append-only) and announcements (ADR-0012). */
 @Injectable()
@@ -27,7 +31,7 @@ export class SupportService {
       status: t.status.toLowerCase() as TicketDto['status'],
       createdAt: t.createdAt.toISOString(),
       updatedAt: t.updatedAt.toISOString(),
-      ...(t.user ? { userEmail: t.user.email } : {}),
+      ...(t.user ? { userEmail: accountLabel(t.user) } : {}),
       ...(t.messages
         ? {
             messages: t.messages.map((m) => ({
@@ -72,7 +76,10 @@ export class SupportService {
   private async load(id: string): Promise<TicketRow> {
     const t = await this.prisma.supportTicket.findUnique({
       where: { id },
-      include: { messages: { orderBy: { createdAt: 'asc' } }, user: { select: { email: true } } },
+      include: {
+        messages: { orderBy: { createdAt: 'asc' } },
+        user: { select: { email: true, walletAddress: true } },
+      },
     });
     if (!t) throw AppError.notFound('Ticket not found');
     return t;
@@ -150,7 +157,7 @@ export class SupportService {
   async queue(status: 'open' | 'all', limit: number): Promise<TicketDto[]> {
     const rows = await this.prisma.supportTicket.findMany({
       where: status === 'open' ? { status: { not: 'CLOSED' } } : {},
-      include: { user: { select: { email: true } } },
+      include: { user: { select: { email: true, walletAddress: true } } },
       orderBy: { updatedAt: 'asc' },
       take: limit,
     });

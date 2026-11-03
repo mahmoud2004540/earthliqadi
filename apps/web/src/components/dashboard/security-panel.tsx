@@ -17,8 +17,12 @@ export function SecurityPanel({ user, t, onChange }: Props) {
   return (
     <div className="mt-8 space-y-6">
       <SessionsCard t={t} />
-      <MfaCard user={user} t={t} onChange={onChange} />
-      <PasswordCard t={t} />
+      {user.email !== null && (
+        <>
+          <MfaCard user={user} t={t} onChange={onChange} />
+          <PasswordCard t={t} />
+        </>
+      )}
     </div>
   );
 }

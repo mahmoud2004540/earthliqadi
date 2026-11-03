@@ -1,3 +1,4 @@
+import { verifySiwe } from './siwe';
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { Prisma, type TokenPurpose, type User } from '@prisma/client';
 import type { LoginResultDto } from '@platform/shared';
@@ -66,7 +67,7 @@ export class AuthService {
         context: ctx,
       });
       await this.mail.send({
-        to: existing.email,
+        to: existing.email!,
         kind: 'security_notice',
         subject: 'Registration attempt on your account',
         text:
@@ -151,6 +152,94 @@ export class AuthService {
     await this.sendVerificationEmail(user, token);
   }
 
+  // ---------------------------------------------------------- wallet sign-in
+
+  /** Issues a single-use SIWE nonce (5 minutes). */
+  async walletNonce(): Promise<{
+    nonce: string;
+    domain: string;
+    uri: string;
+    expiresInSeconds: number;
+  }> {
+    const nonce = randomToken(16)
+      .replace(/[^A-Za-z0-9]/g, '')
+      .slice(0, 24)
+      .padEnd(16, '0');
+    await this.redis.set(`siwe:nonce:${nonce}`, '1', 'EX', 300);
+    const origin = new URL(this.config.WEB_ORIGIN);
+    return { nonce, domain: origin.host, uri: origin.origin, expiresInSeconds: 300 };
+  }
+
+  /**
+   * Sign-In with Ethereum (EIP-4361, ADR-0013). The signature proves control of
+   * the address; the account is created on first sign-in. No email, password
+   * or identity documents are involved.
+   */
+  async walletLogin(
+    input: { message: string; signature: string },
+    ctx: RequestContext,
+  ): Promise<LoginOutcome> {
+    const origin = new URL(this.config.WEB_ORIGIN);
+    const result = verifySiwe(input.message, input.signature, {
+      domain: origin.host,
+      origin: origin.origin,
+      now: new Date(),
+      maxAgeMs: 10 * 60_000,
+    });
+    const fail = async (reason: string): Promise<never> => {
+      await this.audit.recordSafe({
+        action: 'auth.login',
+        outcome: 'FAILURE',
+        actorType: 'ANONYMOUS',
+        context: ctx,
+        metadata: { method: 'wallet', reason },
+      });
+      throw new AppError(HttpStatus.UNAUTHORIZED, 'INVALID_CREDENTIALS', 'Wallet sign-in failed');
+    };
+    if (!result.ok) return fail(result.reason);
+    // Single use: a captured message + signature cannot be replayed.
+    const consumed = await this.redis.getdel(`siwe:nonce:${result.message.nonce}`);
+    if (consumed === null) return fail('unknown_or_used_nonce');
+
+    let user = await this.prisma.user.findUnique({ where: { walletAddress: result.address } });
+    if (!user) {
+      try {
+        user = await this.prisma.$transaction(async (tx) => {
+          const created = await tx.user.create({
+            data: { walletAddress: result.address, status: 'ACTIVE' },
+          });
+          await this.rbac.assignDefaultRole(created.id, tx);
+          await this.audit.record(
+            {
+              action: 'auth.wallet_account.created',
+              outcome: 'SUCCESS',
+              actorType: 'USER',
+              actorUserId: created.id,
+              targetType: 'user',
+              targetId: created.id,
+              context: ctx,
+              metadata: { chainId: result.message.chainId },
+            },
+            tx,
+          );
+          return created;
+        });
+      } catch (err) {
+        // Two first sign-ins raced: the other one created the account.
+        if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002'))
+          throw err;
+        user = await this.prisma.user.findUniqueOrThrow({
+          where: { walletAddress: result.address },
+        });
+      }
+    }
+    if (user.status !== 'ACTIVE') {
+      await this.auditLoginFailure(user.id, ctx, `status_${user.status.toLowerCase()}`);
+      throw new AppError(HttpStatus.FORBIDDEN, 'ACCOUNT_NOT_ACTIVE', 'This account is not active');
+    }
+    return this.completeLogin(user.id, ctx, 'wallet');
+  }
+
   // ---------------------------------------------------------------- login
 
   async login(
@@ -179,7 +268,12 @@ export class AuthService {
       );
     }
 
-    const valid = await this.passwords.verify(user.passwordHash, input.password);
+    // Accounts without a password (wallet accounts that also have an email) cannot use it.
+    const hash = user.passwordHash;
+    const valid =
+      hash === null
+        ? (await this.passwords.verifyAgainstDummy(input.password), false)
+        : await this.passwords.verify(hash, input.password);
     if (!valid) {
       await this.registerFailedAttempt(user.id);
       await this.auditLoginFailure(user.id, ctx, 'bad_password');
@@ -189,7 +283,7 @@ export class AuthService {
     this.assertLoginAllowed(user);
 
     const updates: Prisma.UserUpdateInput = { failedLoginCount: 0, lockedUntil: null };
-    if (this.passwords.needsRehash(user.passwordHash)) {
+    if (hash !== null && this.passwords.needsRehash(hash)) {
       updates.passwordHash = await this.passwords.hash(input.password);
     }
     await this.prisma.user.update({ where: { id: user.id }, data: updates });
@@ -319,7 +413,7 @@ export class AuthService {
       return t;
     });
     await this.mail.send({
-      to: user.email,
+      to: user.email!,
       kind: 'password_reset',
       subject: 'Reset your password',
       text:
@@ -369,6 +463,12 @@ export class AuthService {
     ctx: RequestContext,
   ): Promise<void> {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: params.userId } });
+    if (user.passwordHash === null)
+      throw new AppError(
+        HttpStatus.CONFLICT,
+        'CONFLICT',
+        'This account signs in with a wallet and has no password',
+      );
     if (!(await this.passwords.verify(user.passwordHash, params.currentPassword))) {
       await this.audit.recordSafe({
         action: 'auth.password.change',
@@ -552,7 +652,7 @@ export class AuthService {
 
   private sendVerificationEmail(user: User, token: string): Promise<void> {
     return this.mail.send({
-      to: user.email,
+      to: user.email!,
       kind: 'email_verification',
       subject: 'Verify your email address',
       text:
@@ -561,7 +661,8 @@ export class AuthService {
     });
   }
 
-  private sendPasswordChangedNotice(email: string): Promise<void> {
+  private async sendPasswordChangedNotice(email: string | null): Promise<void> {
+    if (email === null) return;
     return this.mail.send({
       to: email,
       kind: 'security_notice',

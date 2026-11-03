@@ -117,6 +117,19 @@ not described as implemented in the docs should be treated as absent.
 - After `docker compose up --force-recreate api`, restart `edge`: nginx
   caches the API container's IP address.
 
+### Wallet sign-in and no-KYC model (ADR-0013)
+
+- **Legal review is required before any real funds.** The platform does not
+  verify identities. Operating with real money needs a non-custodial design
+  (Phase 8), jurisdiction-specific legal advice, geo-restrictions and wallet
+  sanctions screening (Phase 9). None of these exist yet.
+- No geo-restriction is enforced (needs a trusted GeoIP signal at the edge).
+- Ethereum (EIP-4361) only; no Solana or other chains, and no
+  smart-contract wallet signatures (ERC-1271) yet.
+- There is no account recovery for wallet accounts by design.
+- Support and notifications work in-app for every account; wallet users get
+  no email notifications (they have no email).
+
 ## Environment notes
 
 - `pnpm dev` (Next.js proxy) lets clients spoof their IP via `X-Forwarded-For`.

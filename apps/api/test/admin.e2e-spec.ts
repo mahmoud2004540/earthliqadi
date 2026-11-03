@@ -265,6 +265,16 @@ describe('maker-checker approvals', () => {
 });
 
 describe('identity verification (KYC)', () => {
+  it('is switched off by default (ADR-0013): every KYC endpoint answers 404', async () => {
+    await withEnv({ KYC_ENABLED: 'false' }, async (off) => {
+      const user = await personOn(off);
+      const officer = await personOn(off, 'compliance_officer');
+      expect((await user.client.get('/v1/me/verification')).status).toBe(404);
+      expect((await user.client.post('/v1/me/verification', KYC)).status).toBe(404);
+      expect((await officer.client.get('/v1/admin/kyc')).status).toBe(404);
+    });
+  });
+
   it('encrypts the profile, screens it, and lets a different officer decide', async () => {
     const user = await person();
     const officer = await person('compliance_officer');

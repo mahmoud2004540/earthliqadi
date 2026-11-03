@@ -11,6 +11,7 @@ const TOUCH_INTERVAL_MS = 60_000;
 const sessionUserSelect = {
   id: true,
   email: true,
+  walletAddress: true,
   status: true,
   accountType: true,
   emailVerifiedAt: true,
