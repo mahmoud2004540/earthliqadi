@@ -12,6 +12,7 @@ import { ApiError, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { InboxPanel, SupportPanel } from './account-panels';
 import { SecurityPanel } from './security-panel';
+import { VaultPanel } from './vault-panel';
 import { WalletPanel } from './wallet-panel';
 
 export function Dashboard({ t }: { t: Dictionary }) {
@@ -106,6 +107,9 @@ export function Dashboard({ t }: { t: Dictionary }) {
       {tab === 'wallet' ? (
         <div className="mt-8">
           <WalletPanel t={t} />
+          <div className="mt-6">
+            <VaultPanel t={t} walletAddress={user.walletAddress} />
+          </div>
         </div>
       ) : tab === 'support' ? (
         <div className="mt-8">

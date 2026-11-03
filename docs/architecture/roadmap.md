@@ -111,23 +111,31 @@ tests, security review and documentation are done.
 - [x] KYC module off by default (404); no verification tab; staff keep email + password + MFA
 - [x] Tests: SIWE unit tests (incl. a published key vector), integration (replay, foreign domain, forged signature, DB identity rules), browser e2e with an injected EIP-1193 test wallet
 
-## Sprint 8 plan: Phase 8, non-custodial vault (testnet only)
+## Phase 8 acceptance criteria (Sprint 8)
 
-**Testnets only. No real funds until Phases 9–10 and legal review.**
+- [x] ADR for the vault, withdrawals, state commitments and the escape hatch ([ADR-0014](../decisions/0014-non-custodial-vault.md))
+- [x] `ExchangeVault` + `TestToken` (Solidity 0.8.28): deposits, EIP-712 operator-signed withdrawals, sequential state roots, freeze + Merkle escape + late-deposit escape, reentrancy guard, high-s rejection, no admin keys
+- [x] Foundry suite: unit, fuzz (1000 runs), invariant (vault = Σ in − Σ out); CI job from the pinned official image
+- [x] Indexer (confirmations, idempotent per event, invariant halts), withdrawal holds and chain-time expiry, state committer with stored leaves and user proofs, custody reconciliation vs. on-chain
+- [x] Local chain (Anvil) in Compose; deploy CLI; local faucet; mainnets refused; raw operator key refused outside local/ci
+- [x] UI: vault panel (test tokens, deposit, withdraw from the wallet, proof download)
+- [x] Tests: Merkle property tests; live-chain integration test of the full cycle, including freeze and escape with exact payouts; browser e2e with an injected wallet
 
-1. **ADR:** vault contract design (Solidity, one EVM testnet such as
-   Sepolia), deposit/withdrawal flows, operator-signed state commitments,
-   escape hatch (forced withdrawal if the operator stalls), upgrade and
-   admin-key policy (timelock + multisig), threat model.
-2. **Contract + tests:** Foundry tests including fuzzing and invariant
-   tests (Σ user claims ≤ vault balance), forced-withdrawal path, pause
-   rules.
-3. **Indexer:** watches deposits (confirmations, reorg handling), credits
-   the ledger idempotently per log; reconciliation ledger ↔ contract.
-4. **Withdrawals:** user signs an EIP-712 withdrawal; risk checks (margin,
-   open orders); batched settlement on-chain; ledger finalisation on
-   confirmation.
-5. **Wallet-address screening interface** (sanctions analytics provider
-   boundary; no provider claimed) and GeoIP-based restriction hooks.
-6. **External price feeds** for perpetual indices; market-maker API keys
-   (EIP-712 or HMAC signed requests).
+## Sprint 9 plan: Phase 9, security audits and regulatory readiness
+
+1. **External reviews (to be commissioned; none claimed):** smart-contract
+   audit of `ExchangeVault`; penetration test of the web, API and admin
+   surfaces; review of ADR-0006/0007/0011/0014.
+2. **Key management:** signing service for the operator key (HSM/KMS,
+   separate host, policy limits, audit), multisig + timelock for future
+   contract versions, key rotation runbooks.
+3. **Admin hardening:** separate admin origin, IP allow-lists, step-up
+   re-authentication for sensitive actions, staff SSO.
+4. **Compliance readiness (with counsel):** jurisdiction analysis for the
+   ADR-0013 model; geo-restriction via a trusted GeoIP signal; wallet
+   sanctions screening provider boundary; terms of use and risk disclosures
+   reviewed by lawyers; GDPR export/deletion.
+5. **Operational readiness:** deployed Prometheus/Alertmanager/Grafana with
+   routing; backups and restore drills; incident response exercises; load
+   tests on dedicated infrastructure.
+6. **Supply chain:** SBOM, image signing, dependency pinning policy review.

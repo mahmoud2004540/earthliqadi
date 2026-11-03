@@ -23,6 +23,7 @@ function Amount({ value, className }: { value: string; className?: string }) {
 export function WalletPanel({ t }: { t: Dictionary }) {
   const d = t.dashboard;
   const [balances, setBalances] = useState<BalanceDto[] | null>(null);
+  const [showZero, setShowZero] = useState(false);
   const [items, setItems] = useState<LedgerHistoryItemDto[]>([]);
   const [nextBefore, setNextBefore] = useState<string | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -70,6 +71,14 @@ export function WalletPanel({ t }: { t: Dictionary }) {
       <Card>
         <CardTitle>{d.balancesTitle}</CardTitle>
         <CardDescription>{d.balancesIntro}</CardDescription>
+        <label className="mt-3 flex items-center gap-2 text-xs text-muted">
+          <input
+            type="checkbox"
+            checked={showZero}
+            onChange={(e) => setShowZero(e.target.checked)}
+          />
+          {d.showZero}
+        </label>
         {balances === null ? (
           <p className="mt-4 text-sm text-muted">{d.loading}</p>
         ) : balances.length === 0 ? (
@@ -87,31 +96,33 @@ export function WalletPanel({ t }: { t: Dictionary }) {
                 </tr>
               </thead>
               <tbody>
-                {balances.map((b) => (
-                  <tr key={b.asset} className="border-b border-border/60 last:border-0">
-                    <td className="py-3">
-                      <div className="flex items-baseline gap-2">
-                        <span className="font-medium" dir="ltr">
-                          {b.asset}
-                        </span>
-                        <span className="text-xs text-muted">{b.name}</span>
-                        {b.paper && <Badge tone="warning">{t.terminal.paper}</Badge>}
-                      </div>
-                    </td>
-                    <td className="py-3 text-end">
-                      <Amount value={b.available} />
-                    </td>
-                    <td className="py-3 text-end">
-                      <Amount value={b.locked} className="text-muted" />
-                    </td>
-                    <td className="py-3 text-end">
-                      <Amount value={b.margin} className="text-muted" />
-                    </td>
-                    <td className="py-3 text-end">
-                      <Amount value={b.total} className="font-semibold" />
-                    </td>
-                  </tr>
-                ))}
+                {balances
+                  .filter((b) => showZero || !/^0(\.0+)?$/.test(b.total))
+                  .map((b) => (
+                    <tr key={b.asset} className="border-b border-border/60 last:border-0">
+                      <td className="py-3">
+                        <div className="flex items-baseline gap-2">
+                          <span className="font-medium" dir="ltr">
+                            {b.asset}
+                          </span>
+                          <span className="text-xs text-muted">{b.name}</span>
+                          {b.paper && <Badge tone="warning">{t.terminal.paper}</Badge>}
+                        </div>
+                      </td>
+                      <td className="py-3 text-end">
+                        <Amount value={b.available} />
+                      </td>
+                      <td className="py-3 text-end">
+                        <Amount value={b.locked} className="text-muted" />
+                      </td>
+                      <td className="py-3 text-end">
+                        <Amount value={b.margin} className="text-muted" />
+                      </td>
+                      <td className="py-3 text-end">
+                        <Amount value={b.total} className="font-semibold" />
+                      </td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
           </div>
@@ -134,7 +145,9 @@ export function WalletPanel({ t }: { t: Dictionary }) {
                       ? d.bucketLocked
                       : item.bucket === 'margin'
                         ? d.bucketMargin
-                        : d.bucketAvailable}
+                        : item.bucket === 'withdrawing'
+                          ? d.bucketWithdrawing
+                          : d.bucketAvailable}
                   </p>
                 </div>
                 <Amount

@@ -13,7 +13,8 @@
     "prisma:migrate:dev": "sh -c 'set -a; [ -f ../../.env ] && . ../../.env; set +a; prisma migrate dev'",
     "prisma:migrate:deploy": "sh -c 'set -a; [ -f ../../.env ] && . ../../.env; set +a; prisma migrate deploy'",
     "cli:grant-role": "node --env-file-if-exists=../../.env dist/cli/grant-role.js",
-    "cli:ledger": "node --env-file-if-exists=../../.env dist/cli/ledger.js"
+    "cli:ledger": "node --env-file-if-exists=../../.env dist/cli/ledger.js",
+    "cli:chain": "node --env-file-if-exists=../../.env dist/cli/chain.js"
   },
   "dependencies": {
     "@nestjs/common": "11.2.8",
@@ -36,6 +37,7 @@
     "prisma": "6.19.3",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",
+    "viem": "2.57.6",
     "ws": "8.22.1",
     "zod": "4.6.7"
   },

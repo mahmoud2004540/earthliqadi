@@ -85,6 +85,7 @@ export class MetricsController {
       metrics.httpDuration.render(),
       metrics.settlementFailures.render(),
       metrics.riskTickFailures.render(),
+      metrics.chainFailures.render(),
       gauge(
         'exchange_engine_backlog_commands',
         'Commands enqueued but not yet processed by the engine',

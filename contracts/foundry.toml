@@ -1,0 +1,28 @@
+[profile.default]
+src = "src"
+test = "test"
+script = "script"
+out = "out"
+libs = []
+solc_version = "0.8.28"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 10000
+
+[fuzz]
+runs = 1000
+
+[invariant]
+runs = 64
+depth = 64
+fail_on_revert = false
+
+[lint]
+# Public immutables are part of the ABI (e.g. ERC-20 `decimals`, `operator`);
+# the cheatcode handle is conventionally `vm`.
+# Hashing stays in plain Solidity for reviewability (gas is not a concern on testnet).
+exclude_lints = [
+  "screaming-snake-case-immutable",
+  "screaming-snake-case-const",
+  "asm-keccak256",
+]

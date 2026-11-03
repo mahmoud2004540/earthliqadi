@@ -29,6 +29,10 @@ export const ACCOUNT_SPECS: Record<LedgerAccountType, AccountSpec> = {
   PERP_CLEARING: { normalSide: 'DEBIT', allowNegative: true, userOwned: false },
   INSURANCE_FUND: { normalSide: 'CREDIT', allowNegative: false, userOwned: false },
   PERP_FUNDING_POOL: { normalSide: 'CREDIT', allowNegative: false, userOwned: false },
+  // Vault (ADR-0014): mirrors tokens held on-chain; grows with deposits.
+  VAULT_CUSTODY: { normalSide: 'DEBIT', allowNegative: false, userOwned: false },
+  // Funds reserved for a signed withdrawal until it executes or expires.
+  USER_WITHDRAWING: { normalSide: 'CREDIT', allowNegative: false, userOwned: true },
 };
 
 export interface PostingRequest {

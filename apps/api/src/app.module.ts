@@ -28,6 +28,7 @@ import { ComplianceModule } from './compliance/compliance.module';
 import { MonitoringModule } from './monitoring/monitoring.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SupportModule } from './support/support.module';
+import { ChainModule } from './chain/chain.module';
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9-]{8,64}$/;
 
@@ -94,6 +95,7 @@ export class AppModule {
         ComplianceModule,
         SupportModule,
         MonitoringModule,
+        ChainModule,
       ],
       controllers: [HealthController],
       providers: [

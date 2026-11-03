@@ -85,6 +85,8 @@ model User {
   supportTickets     SupportTicket[]
   supportMessages    SupportMessage[]
   announcements      Announcement[]
+  chainDeposits      ChainDeposit[]
+  withdrawals        Withdrawal[]
 
   @@map("users")
 }
@@ -226,6 +228,10 @@ enum LedgerAccountType {
   INSURANCE_FUND
   /// Perpetuals: funding is collected into and paid out of this pool.
   PERP_FUNDING_POOL
+  /// Mirror of tokens held by the on-chain vault (ADR-0014). Debit-normal.
+  VAULT_CUSTODY
+  /// User funds reserved for a signed, not yet executed vault withdrawal.
+  USER_WITHDRAWING
 }
 
 enum PostingDirection {
@@ -243,6 +249,10 @@ enum JournalEntryType {
   MARGIN_TRANSFER
   FUNDING
   INSURANCE_FUND_SEED
+  CHAIN_DEPOSIT
+  WITHDRAWAL_HOLD
+  WITHDRAWAL_FINAL
+  WITHDRAWAL_RELEASE
 }
 
 enum ReconciliationStatus {
@@ -257,25 +267,29 @@ enum ReconciliationTrigger {
 }
 
 model Asset {
-  id           String      @id @default(uuid()) @db.Uuid
+  id                String      @id @default(uuid()) @db.Uuid
   /// Upper-case ticker-like code, unique (e.g. BTC). Not a listing claim.
-  code         String      @unique @db.VarChar(16)
-  name         String      @db.VarChar(64)
+  code              String      @unique @db.VarChar(16)
+  name              String      @db.VarChar(64)
   /// Number of decimal places of the minor unit (BTC = 8, ETH = 18).
-  scale        Int
-  status       AssetStatus @default(ACTIVE)
+  scale             Int
+  status            AssetStatus @default(ACTIVE)
   /// Paper (simulated) asset: may never share a journal entry or market with real assets (ADR-0010). Immutable.
-  isPaper      Boolean     @default(false) @map("is_paper")
+  isPaper           Boolean     @default(false) @map("is_paper")
   /// Paper assets only: amount (minor units) granted per faucet request.
-  faucetAmount Decimal?    @map("faucet_amount") @db.Decimal(38, 0)
-  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  faucetAmount      Decimal?    @map("faucet_amount") @db.Decimal(38, 0)
+  /// Lower-case ERC-20 address held by the vault (real assets only; ADR-0014). Immutable.
+  chainTokenAddress String?     @unique @map("chain_token_address") @db.Char(42)
+  createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  accounts     LedgerAccount[]
-  postings     Posting[]
-  baseMarkets  Market[]        @relation("MarketBase")
-  quoteMarkets Market[]        @relation("MarketQuote")
-  heldByOrders Order[]
+  accounts      LedgerAccount[]
+  postings      Posting[]
+  baseMarkets   Market[]        @relation("MarketBase")
+  quoteMarkets  Market[]        @relation("MarketQuote")
+  heldByOrders  Order[]
+  chainDeposits ChainDeposit[]
+  withdrawals   Withdrawal[]
 
   @@map("assets")
 }
@@ -774,4 +788,121 @@ model Announcement {
 
   @@index([publishedAt])
   @@map("announcements")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 8: non-custodial vault on a test chain (ADR-0014)
+// ---------------------------------------------------------------------------
+
+enum WithdrawalStatus {
+  SIGNED
+  EXECUTED
+  EXPIRED
+}
+
+enum VaultStateStatus {
+  PENDING
+  COMMITTED
+}
+
+model ChainDeployment {
+  chainId         Int      @id @map("chain_id")
+  vaultAddress    String   @map("vault_address") @db.Char(42)
+  operatorAddress String   @map("operator_address") @db.Char(42)
+  deployBlock     BigInt   @map("deploy_block")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@map("chain_deployments")
+}
+
+model ChainCursor {
+  chainId       Int       @id @map("chain_id")
+  lastBlock     BigInt    @map("last_block")
+  lastBlockHash String?   @map("last_block_hash") @db.Char(66)
+  lastBlockTime DateTime? @map("last_block_time") @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("chain_cursors")
+}
+
+model ChainDeposit {
+  chainId        Int      @map("chain_id")
+  vaultAddress   String   @map("vault_address") @db.Char(42)
+  depositId      BigInt   @map("deposit_id")
+  txHash         String   @map("tx_hash") @db.Char(66)
+  logIndex       Int      @map("log_index")
+  blockNumber    BigInt   @map("block_number")
+  blockHash      String   @map("block_hash") @db.Char(66)
+  walletAddress  String   @map("wallet_address") @db.Char(42)
+  assetId        String   @map("asset_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  amount         Decimal  @db.Decimal(38, 0)
+  journalEntryId BigInt   @map("journal_entry_id")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@id([chainId, vaultAddress, depositId])
+  @@unique([chainId, txHash, logIndex], map: "chain_deposits_tx_log_key")
+  @@index([userId])
+  @@map("chain_deposits")
+}
+
+model Withdrawal {
+  /// bytes32 id used on-chain (0x + 64 hex).
+  id            String           @id @db.Char(66)
+  chainId       Int              @map("chain_id")
+  vaultAddress  String           @map("vault_address") @db.Char(42)
+  userId        String           @map("user_id") @db.Uuid
+  assetId       String           @map("asset_id") @db.Uuid
+  walletAddress String           @map("wallet_address") @db.Char(42)
+  amount        Decimal          @db.Decimal(38, 0)
+  afterState    BigInt           @map("after_state")
+  expiry        DateTime         @db.Timestamptz(3)
+  signature     String           @db.Char(132)
+  status        WithdrawalStatus @default(SIGNED)
+  txHash        String?          @map("tx_hash") @db.Char(66)
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  finalisedAt   DateTime?        @map("finalised_at") @db.Timestamptz(3)
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@index([status, expiry])
+  @@map("withdrawals")
+}
+
+model VaultState {
+  chainId       Int              @map("chain_id")
+  vaultAddress  String           @map("vault_address") @db.Char(42)
+  index         BigInt
+  root          String           @db.Char(66)
+  lastDepositId BigInt           @map("last_deposit_id")
+  leafCount     Int              @map("leaf_count")
+  status        VaultStateStatus @default(PENDING)
+  txHash        String?          @map("tx_hash") @db.Char(66)
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  committedAt   DateTime?        @map("committed_at") @db.Timestamptz(3)
+
+  leaves VaultStateLeaf[]
+
+  @@id([chainId, vaultAddress, index])
+  @@map("vault_states")
+}
+
+/// Append-only.
+model VaultStateLeaf {
+  chainId       Int     @map("chain_id")
+  vaultAddress  String  @map("vault_address") @db.Char(42)
+  index         BigInt
+  walletAddress String  @map("wallet_address") @db.Char(42)
+  tokenAddress  String  @map("token_address") @db.Char(42)
+  balance       Decimal @db.Decimal(78, 0)
+
+  state VaultState @relation(fields: [chainId, vaultAddress, index], references: [chainId, vaultAddress, index], onDelete: Restrict, map: "vault_state_leaves_state_fkey")
+
+  @@id([chainId, vaultAddress, index, walletAddress, tokenAddress])
+  @@map("vault_state_leaves")
 }

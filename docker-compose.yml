@@ -20,6 +20,11 @@ x-api-env: &api-env
   KYC_REQUIRED_FOR_REAL_TRADING: ${KYC_REQUIRED_FOR_REAL_TRADING:-false}
   RESTRICTED_COUNTRIES: ${RESTRICTED_COUNTRIES:-}
   METRICS_TOKEN: ${METRICS_TOKEN:-}
+  CHAIN_RPC_URL: ${CHAIN_RPC_URL:-http://chain:8545}
+  CHAIN_OPERATOR_KEY: ${CHAIN_OPERATOR_KEY:-}
+  CHAIN_CONFIRMATIONS: ${CHAIN_CONFIRMATIONS:-2}
+  CHAIN_FAUCET_ENABLED: ${CHAIN_FAUCET_ENABLED:-false}
+  VAULT_STATE_INTERVAL_SECONDS: ${VAULT_STATE_INTERVAL_SECONDS:-300}
   MAIL_TRANSPORT: ${MAIL_TRANSPORT:-log}
   SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
   LEDGER_RECONCILIATION_INTERVAL_SECONDS: ${LEDGER_RECONCILIATION_INTERVAL_SECONDS:-300}
@@ -107,6 +112,23 @@ services:
 
   # Deterministic matching engine (ADR-0007). Single active instance (advisory
   # lock); a second replica would wait as a hot standby. Not published.
+  # Local test chain (ADR-0014). Testnet-equivalent; state persisted in a volume.
+  chain:
+    image: ghcr.io/foundry-rs/foundry@sha256:043752653d5be351c71709091b3db97c4421c907eb40ea294195e7f532aadf46
+    user: '0'
+    entrypoint:
+      - anvil
+      - --host=0.0.0.0
+      - --chain-id=31337
+      - --block-time=1
+      - --state=/data/anvil-state.json
+      - --silent
+    ports:
+      - '127.0.0.1:8545:8545' # loopback only
+    volumes:
+      - chain-data:/data
+    restart: unless-stopped
+
   engine:
     build:
       context: .
@@ -144,3 +166,4 @@ services:
 volumes:
   postgres-data:
   redis-data:
+  chain-data:

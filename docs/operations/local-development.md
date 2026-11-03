@@ -125,6 +125,19 @@ The risk engine (index/mark, funding, liquidation) runs every
 `PERP_RISK_POLL_MS` (0 disables it). Seed the paper insurance fund with
 `POST /api/v1/admin/perp/insurance-fund {"asset":"PUSD","amount":"10000"}`.
 
+## Vault on the local chain (ADR-0014)
+
+```bash
+docker compose up -d chain                                  # Anvil, chain id 31337
+docker compose exec api node dist/cli/chain.js deploy       # TUSD + TBTC test tokens and the vault
+docker compose exec api node dist/cli/chain.js custody      # ledger vs on-chain
+(cd contracts && ./forge.sh test)                           # contract tests (Foundry image)
+```
+
+Sign in with a wallet, open **Dashboard → Balances**, use **Get test tokens
+& gas**, then deposit/withdraw. MetaMask: add network `http://localhost:8545`
+(chain id 31337); the panel offers to add it.
+
 ## Quality checks
 
 ```bash

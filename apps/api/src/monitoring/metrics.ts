@@ -95,4 +95,8 @@ export const metrics = {
     'exchange_perp_risk_tick_failures_total',
     'Failed perpetual risk ticks',
   ),
+  chainFailures: new Counter(
+    'exchange_chain_job_failures_total',
+    'Failed vault indexer / state-commit runs',
+  ),
 };

@@ -144,6 +144,24 @@ export const apiEnvSchema = z
     KYC_REQUIRED_FOR_REAL_TRADING: booleanString.default(false),
     /** 32-byte base64 key for identity data at rest. Falls back to MFA_ENCRYPTION_KEY only in local/ci. */
     PII_ENCRYPTION_KEY: z.string().optional(),
+    /**
+     * Vault integration (ADR-0014). Unset CHAIN_RPC_URL disables it. Testnets and
+     * local chains only: mainnet chain ids are refused by the chain module.
+     */
+    CHAIN_RPC_URL: z.url().optional(),
+    /** Operator key (signs withdrawals, commits state). Local/ci only; a signing service is required elsewhere. */
+    CHAIN_OPERATOR_KEY: z
+      .string()
+      .regex(/^0x[0-9a-fA-F]{64}$/)
+      .optional(),
+    CHAIN_CONFIRMATIONS: z.coerce.number().int().min(0).max(100).default(2),
+    /** Milliseconds between indexer ticks; 0 disables the indexer. */
+    CHAIN_POLL_MS: z.coerce.number().int().min(0).max(600_000).default(2000),
+    /** Seconds between balance commitments to the vault; 0 disables the committer. */
+    VAULT_STATE_INTERVAL_SECONDS: z.coerce.number().int().min(0).max(86_400).default(300),
+    VAULT_WITHDRAWAL_TTL_SECONDS: z.coerce.number().int().min(60).max(86_400).default(3600),
+    /** Local chain only: gas + test tokens for a connected wallet. */
+    CHAIN_FAUCET_ENABLED: booleanString.default(false),
     /** Bearer token for GET /metrics (Prometheus). Unset = endpoint disabled. */
     METRICS_TOKEN: z.string().min(32).optional(),
   })
@@ -164,6 +182,16 @@ export const apiEnvSchema = z
         path: ['NODE_ENV'],
         message: `must be "production" when DEPLOY_ENV=${env.DEPLOY_ENV}`,
       });
+    }
+    if (env.CHAIN_OPERATOR_KEY) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['CHAIN_OPERATOR_KEY'],
+        message: 'raw operator keys are local/ci only; use a signing service (HSM/KMS) elsewhere',
+      });
+    }
+    if (env.CHAIN_FAUCET_ENABLED) {
+      ctx.addIssue({ code: 'custom', path: ['CHAIN_FAUCET_ENABLED'], message: 'local/ci only' });
     }
     if (!env.PII_ENCRYPTION_KEY) {
       ctx.addIssue({

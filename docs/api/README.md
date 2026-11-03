@@ -221,6 +221,21 @@ maker-checker (`insurance_fund.seed`). Real-asset orders return
   accounts.
 - KYC endpoints answer `404` unless `KYC_ENABLED=true`.
 
+## Vault (Phase 8, testnet / local chain only)
+
+| Method | Path                      | Auth | Permission          | Description                                                                                                          |
+| ------ | ------------------------- | ---- | ------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/v1/vault/config`        |      | public              | `{enabled, chainId, vault, tokens[], freezeDelaySeconds, faucet}`                                                    |
+| POST   | `/v1/vault/withdrawals`   | ✔    | `trading:trade`     | `{asset, amount}`: holds the amount and returns the EIP-712 withdrawal + signature (`call`) for the wallet to submit |
+| GET    | `/v1/vault/withdrawals`   | ✔    | `account:self:read` | Own withdrawals (`signed` / `executed` / `expired`)                                                                  |
+| GET    | `/v1/vault/proof`         | ✔    | `account:self:read` | Latest committed state index, root, and the user's leaves with Merkle proofs                                         |
+| POST   | `/v1/vault/faucet`        | ✔    | `trading:trade`     | Local chain only: test ETH for gas + test tokens                                                                     |
+| GET    | `/v1/admin/vault/custody` | ✔    | `ledger:read`       | Ledger `VAULT_CUSTODY` vs on-chain vault balances at the indexed block                                               |
+
+Deposits have no endpoint: users call `deposit(token, amount)` on the vault
+from their wallet, and the indexer credits them after `CHAIN_CONFIRMATIONS`.
+Vault-backed markets accept orders from wallet accounts only.
+
 ## Example (curl through the edge)
 
 ```bash

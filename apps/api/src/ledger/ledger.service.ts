@@ -815,7 +815,9 @@ export class LedgerService {
             ? ('locked' as const)
             : p.account.type === 'USER_MARGIN'
               ? ('margin' as const)
-              : ('available' as const),
+              : p.account.type === 'USER_WITHDRAWING'
+                ? ('withdrawing' as const)
+                : ('available' as const),
         change: `${delta < 0n ? '-' : '+'}${formatted}`,
         createdAt: p.createdAt.toISOString(),
       };

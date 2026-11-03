@@ -120,6 +120,19 @@ introduce withdrawals (8) and trading (3–6).
 | Account takeover by reassigning a wallet | Wallet address immutable (trigger); unique                                                | e2e         |
 | Wallet accounts gaining staff powers     | No password/authenticator for wallet accounts → staff permissions refused (MFA required)  | e2e         |
 
+## Vault controls (Phase 8, testnet)
+
+| Threat                                       | Control                                                                                                    | Verified by          |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | -------------------- |
+| Operator stealing deposits                   | Funds only leave via a withdrawal paid to `user` itself; no admin/upgrade functions                        | Foundry unit + fuzz  |
+| Signature replay / malleability / forgery    | Single-use ids, expiry, EIP-712 domain (chain + vault), high-s rejected, signer must be the operator       | Foundry unit + fuzz  |
+| Operator disappears                          | Freeze after `freezeDelay` without commits; Merkle escape + late-deposit escape, no operator needed        | Foundry + live chain |
+| Double counting at escape                    | Withdrawals keyed by snapshot index; escape subtracts the latest and next index; state lock in the backend | Foundry + live chain |
+| Ledger crediting fake or duplicate deposits  | Only confirmed vault events; idempotent keys; custody vs on-chain reconciliation                           | live chain           |
+| Unknown on-chain withdrawal (key compromise) | Indexer raises `ChainInvariantError` and halts; alert                                                      | code review          |
+| Running against mainnet by mistake           | Chain id allow-list (testnets/local only); raw key refused outside local/ci                                | code + config tests  |
+| Reentrancy / non-standard tokens             | Reentrancy guard; balance-delta crediting; checked low-level transfers                                     | Foundry              |
+
 ## Known limitations (must be resolved before any production use)
 
 1. **No production email transport.** Staging and production intentionally refuse to boot.

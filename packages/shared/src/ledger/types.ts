@@ -14,6 +14,10 @@ export const JOURNAL_ENTRY_TYPES = [
   'MARGIN_TRANSFER',
   'FUNDING',
   'INSURANCE_FUND_SEED',
+  'CHAIN_DEPOSIT',
+  'WITHDRAWAL_HOLD',
+  'WITHDRAWAL_FINAL',
+  'WITHDRAWAL_RELEASE',
 ] as const;
 export type JournalEntryType = (typeof JOURNAL_ENTRY_TYPES)[number];
 
@@ -49,7 +53,7 @@ export interface LedgerHistoryItemDto {
   entryType: JournalEntryType;
   asset: string;
   /** Which of the user's balances changed. */
-  bucket: 'available' | 'locked' | 'margin';
+  bucket: 'available' | 'locked' | 'margin' | 'withdrawing';
   /** Signed change from the user's perspective, e.g. "+1.50000000" or "-0.25000000". */
   change: string;
   createdAt: string;

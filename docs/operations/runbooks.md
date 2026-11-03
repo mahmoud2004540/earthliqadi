@@ -89,3 +89,16 @@ A reminder that a market has been halted for 30 minutes. Either resume it
 
 Identity verifications are waiting. Staff the review queue. Never approve
 in bulk.
+
+## Vault indexer halted (ChainInvariantError)
+
+The indexer found an on-chain withdrawal the ledger never signed, or one that
+does not match. Treat it as a **possible operator-key compromise**: rotate the
+signer, halt vault-backed markets, compare `chain custody` with the vault, and
+escalate. Never edit chain records by hand.
+
+## Vault custody mismatch
+
+`chain custody` shows ledger ≠ on-chain at the indexed block. Check for a
+reorg or an RPC returning stale data, re-run the indexer, and halt vault-backed
+markets if the difference persists.

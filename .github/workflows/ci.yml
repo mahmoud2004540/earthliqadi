@@ -56,8 +56,26 @@ jobs:
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
 
+  contracts:
+    name: Vault contracts (Foundry fmt, build, unit/fuzz/invariant tests)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: forge fmt --check / build / test (pinned official image)
+        working-directory: contracts
+        run: |
+          docker run --rm -v "$PWD":/work -w /work --entrypoint forge ghcr.io/foundry-rs/foundry@sha256:043752653d5be351c71709091b3db97c4421c907eb40ea294195e7f532aadf46 fmt --check
+          docker run --rm --user 0 -v "$PWD":/work -w /work --entrypoint forge ghcr.io/foundry-rs/foundry@sha256:043752653d5be351c71709091b3db97c4421c907eb40ea294195e7f532aadf46 build --sizes
+          docker run --rm --user 0 -v "$PWD":/work -w /work --entrypoint forge ghcr.io/foundry-rs/foundry@sha256:043752653d5be351c71709091b3db97c4421c907eb40ea294195e7f532aadf46 test -vv
+      - name: Committed API artifacts match the contracts
+        run: |
+          node contracts/export-artifacts.mjs
+          npx --yes prettier@3.9.10 --write apps/api/src/chain/artifacts >/dev/null
+          git diff --exit-code apps/api/src/chain/artifacts
+
   integration:
-    name: API integration tests (PostgreSQL + Redis)
+    name: API integration tests (PostgreSQL + Redis + local chain)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
@@ -80,6 +98,9 @@ jobs:
     env:
       TEST_DATABASE_URL: postgresql://exchange:ci-only-password@localhost:5432/exchange_test
       TEST_REDIS_URL: redis://localhost:6379/1
+      TEST_CHAIN_RPC_URL: http://localhost:8545
+      # The vault suite must run in CI (it skips locally when no chain is up).
+      TEST_CHAIN_REQUIRED: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -97,6 +118,8 @@ jobs:
             services/matching-engine/target
           key: cargo-int-${{ runner.os }}-${{ hashFiles('services/matching-engine/Cargo.lock') }}
       - run: pnpm install --frozen-lockfile
+      - name: Start the local test chain (Anvil)
+        run: docker run -d --name anvil -p 8545:8545 --entrypoint anvil ghcr.io/foundry-rs/foundry@sha256:043752653d5be351c71709091b3db97c4421c907eb40ea294195e7f532aadf46 --host 0.0.0.0 --chain-id 31337 --block-time 1
       - run: pnpm test:integration
 
   build:

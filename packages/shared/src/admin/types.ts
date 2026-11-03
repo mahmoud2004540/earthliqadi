@@ -210,3 +210,60 @@ export interface SystemHealthDto {
   queues: { approvalsPending: number; kycPending: number; ticketsOpen: number };
   positionsLiquidating: number;
 }
+
+// ------------------------------------------------------------- vault (ADR-0014)
+
+export const withdrawalRequestSchema = z.object({
+  asset: assetCodeSchema,
+  amount: amountStringSchema,
+});
+
+export interface VaultConfigDto {
+  enabled: boolean;
+  chainId: number | null;
+  vault: string | null;
+  tokens: { asset: string; address: string; decimals: number }[];
+  freezeDelaySeconds: number | null;
+  /** Always true: only testnets and local chains are supported. */
+  testnet: boolean;
+  /** Local chain only. */
+  faucet?: boolean;
+}
+
+export interface WithdrawalDto {
+  id: string;
+  asset: string;
+  amount: string;
+  status: 'signed' | 'executed' | 'expired';
+  createdAt: string;
+  expiresAt: string;
+  txHash: string | null;
+  /** Everything the wallet needs to call ExchangeVault.withdraw(w, signature). */
+  call: {
+    chainId: number;
+    vault: string;
+    withdrawal: {
+      id: string;
+      user: string;
+      token: string;
+      amount: string;
+      afterState: string;
+      expiry: string;
+    };
+    signature: string;
+  };
+}
+
+export interface VaultProofDto {
+  stateIndex: string | null;
+  root: string | null;
+  lastDepositId: string | null;
+  entries: {
+    asset: string;
+    token: string;
+    /** Minor units (as committed on-chain). */
+    balance: string;
+    balanceFormatted: string;
+    proof: string[];
+  }[];
+}

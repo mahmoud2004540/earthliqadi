@@ -5,3 +5,6 @@ coverage
 pnpm-lock.yaml
 apps/api/prisma/migrations/**/*.sql
 services/**/target
+
+contracts/out
+contracts/cache

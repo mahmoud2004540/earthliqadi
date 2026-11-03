@@ -5,7 +5,7 @@ not described as implemented in the docs should be treated as absent.
 
 ## Not implemented (by design, later phases)
 
-- Real deposits, withdrawals and custody (Phase 8). Balances can only be funded with **simulated** test deposits in local/CI.
+- Real-asset deposits and withdrawals: only **test tokens on a local/test chain** exist (Phase 8); no real asset is supported.
 - API keys, IP allow-lists, institutional accounts beyond a schema enum, VIP fees,
   FIX (Phase 4+)
 - Deployed monitoring stack: Prometheus/Alertmanager/Grafana are not running
@@ -129,6 +129,20 @@ not described as implemented in the docs should be treated as absent.
 - There is no account recovery for wallet accounts by design.
 - Support and notifications work in-app for every account; wallet users get
   no email notifications (they have no email).
+
+### Vault (Sprint 8, testnet only)
+
+- **The contract is not audited.** Testnets and the local chain only.
+- The operator key is a raw key from the environment (local/ci only). A
+  signing service is required elsewhere (Phase 9).
+- The operator is trusted for liveness and for correct roots. A wrong root
+  could understate balances; users should keep their latest proof.
+- Reorgs deeper than `CHAIN_CONFIRMATIONS` are not handled (local chain has
+  none). Public testnets need a higher confirmation setting and a reorg plan.
+- One EVM chain at a time; ERC-20 test tokens only (no native ETH).
+- After an Anvil reset, the stored deployment no longer exists on-chain:
+  redeploy with `chain deploy --suffix X` (asset codes stay linked to their
+  original token permanently).
 
 ## Environment notes
 

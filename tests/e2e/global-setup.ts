@@ -16,6 +16,7 @@ export default async function globalSetup(): Promise<void> {
   const [paperBase, paperQuote] = [`PB${run}`, `PQ${run}`];
   process.env.E2E_PAPER_MARKET = `${paperBase}-${paperQuote}`;
   process.env.E2E_PERP_MARKET = `${paperBase}-${paperQuote}-PERP`;
+  process.env.E2E_VAULT_USD = `TUSD${run}`;
   const baseURL = process.env.E2E_BASE_URL ?? 'http://localhost:3000';
   compose(
     'exec',
@@ -151,4 +152,6 @@ export default async function globalSetup(): Promise<void> {
       throw new Error(`perp market creation failed: ${perp.status()} ${await perp.text()}`);
   }
   await api.dispose();
+  // A fresh vault + test tokens on the local chain for this run (ADR-0014).
+  cli('dist/cli/chain.js', 'deploy', '--suffix', run, '--freeze-delay', '604800');
 }

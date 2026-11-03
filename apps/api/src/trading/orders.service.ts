@@ -159,6 +159,19 @@ export class OrdersService {
     }
     if (market.status !== 'ACTIVE')
       throw new AppError(HttpStatus.CONFLICT, 'CONFLICT', `Market ${market.symbol} is halted`);
+    if (market.baseAsset.chainTokenAddress || market.quoteAsset.chainTokenAddress) {
+      const { walletAddress } = await this.prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { walletAddress: true },
+      });
+      if (!walletAddress) {
+        throw new AppError(
+          HttpStatus.FORBIDDEN,
+          'FORBIDDEN',
+          'Vault-backed markets are for wallet accounts (balances must be claimable on-chain)',
+        );
+      }
+    }
     if (this.config.KYC_REQUIRED_FOR_REAL_TRADING && !market.isPaper) {
       const { kycLevel } = await this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
