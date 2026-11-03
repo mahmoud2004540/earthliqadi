@@ -1,0 +1,32 @@
+[package]
+name = "matching-engine"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Deterministic price-time-priority spot matching engine (pre-launch, development only)"
+publish = false
+license = "UNLICENSED"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "engine-server"
+path = "src/bin/engine-server.rs"
+
+[dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+sha2 = "=0.11.1"
+tokio = { version = "=1.54.1", features = ["rt", "macros", "time", "sync", "signal"] }
+tokio-postgres = "=0.7.18"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+proptest = "=1.12.0"
+
+[profile.release]
+debug = false
+lto = "thin"
+codegen-units = 1
+panic = "abort"

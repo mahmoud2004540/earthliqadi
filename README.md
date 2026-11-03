@@ -5,9 +5,9 @@ The final brand has not been chosen. The display name comes from configuration
 (`BRAND_NAME`, `NEXT_PUBLIC_BRAND_NAME`) and never appears in business logic or
 database identifiers.
 
-> **Status: pre-launch engineering (Phases 0–2 complete).**
-> There is no trading, no custody, no real deposits and no real money anywhere in
-> this repository. Balances can only be funded with simulated test deposits in
+> **Status: pre-launch engineering (Phases 0–3 complete).**
+> Matching and settlement work end to end on **simulated** funds only. There is
+> no custody, no real deposits and no real money anywhere in this repository. Balances can only be funded with simulated test deposits in
 > local/CI environments. The platform is not licensed, audited or insured, and it offers no
 > regulated services. See [known issues](docs/operations/known-issues.md).
 
@@ -28,6 +28,12 @@ database identifiers.
   immutability, non-negative balances), idempotent posting, holds/releases,
   reversals, scheduled reconciliation, and a balances and history dashboard.
   See [ADR-0006](docs/decisions/0006-double-entry-ledger.md).
+- **Matching engine** (Phase 3): a deterministic Rust engine
+  (`services/matching-engine`) with price-time priority, limit, market, stop,
+  IOC, FOK and post-only orders, and self-trade prevention. Verified replay on
+  startup. A durable PostgreSQL command/event log, and settlement into the
+  ledger (one balanced entry per fill, fees). REST order API; the trading UI
+  comes in Phase 4. See [ADR-0007](docs/decisions/0007-matching-engine.md).
 - **Shared packages:** zod schemas and the RBAC catalogue (`packages/shared`),
   and environment validation (`packages/config`).
 - **Infrastructure:** Dockerfiles, a Compose stack with an nginx edge proxy, a CI
@@ -65,7 +71,7 @@ apps/web            Next.js customer app
 packages/shared     Shared schemas, RBAC catalogue, types, locales
 packages/config     Environment validation
 infrastructure/     Dockerfiles, edge proxy, (planned) monitoring
-services/           (planned) Rust matching engine, market data, risk engine
+services/           Rust matching engine; (planned) market data, risk engine
 docs/               Architecture, ADRs, security, API, operations
 tests/              (reserved) cross-service integration and browser e2e suites
 ```
@@ -78,7 +84,8 @@ tests/              (reserved) cross-service integration and browser e2e suites
   [0003 sessions](docs/decisions/0003-server-side-sessions.md) ·
   [0004 edge proxy](docs/decisions/0004-edge-proxy-topology.md) ·
   [0005 shared validation](docs/decisions/0005-shared-zod-validation.md) ·
-  [0006 ledger](docs/decisions/0006-double-entry-ledger.md)
+  [0006 ledger](docs/decisions/0006-double-entry-ledger.md) ·
+  [0007 matching engine](docs/decisions/0007-matching-engine.md)
 - Security: [controls & threat model](docs/security/threat-model.md) ·
   [dependency policy](docs/security/dependency-policy.md) ·
   [incident response (draft)](docs/security/incident-response.md)

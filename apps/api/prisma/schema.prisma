@@ -71,6 +71,7 @@ model User {
   roles          UserRole[]          @relation("UserRoles")
   grantedRoles   UserRole[]          @relation("RoleGrants")
   ledgerAccounts LedgerAccount[]
+  orders         Order[]
 
   @@map("users")
 }
@@ -214,6 +215,7 @@ enum JournalEntryType {
   BALANCE_HOLD
   BALANCE_RELEASE
   REVERSAL
+  TRADE
 }
 
 enum ReconciliationStatus {
@@ -238,8 +240,11 @@ model Asset {
   createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  accounts LedgerAccount[]
-  postings Posting[]
+  accounts     LedgerAccount[]
+  postings     Posting[]
+  baseMarkets  Market[]        @relation("MarketBase")
+  quoteMarkets Market[]        @relation("MarketQuote")
+  heldByOrders Order[]
 
   @@map("assets")
 }
@@ -325,4 +330,177 @@ model LedgerReconciliationRun {
 
   @@index([startedAt])
   @@map("ledger_reconciliation_runs")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3: markets, orders, engine log and settlement (ADR-0007)
+// Prices are integer ticks, quantities integer lots. Money stays in the ledger.
+// ---------------------------------------------------------------------------
+
+enum MarketStatus {
+  ACTIVE
+  HALTED
+}
+
+enum OrderSide {
+  BUY
+  SELL
+}
+
+enum OrderType {
+  LIMIT
+  MARKET
+  STOP_LIMIT
+  STOP_MARKET
+}
+
+enum TimeInForce {
+  GTC
+  IOC
+  FOK
+  POST_ONLY
+}
+
+enum OrderStatus {
+  PENDING_NEW
+  PENDING_TRIGGER
+  OPEN
+  PARTIALLY_FILLED
+  FILLED
+  CANCELLED
+  REJECTED
+}
+
+model Market {
+  id              String       @id @default(uuid()) @db.Uuid
+  /// e.g. BTC-USDT
+  symbol          String       @unique @db.VarChar(40)
+  baseAssetId     String       @map("base_asset_id") @db.Uuid
+  quoteAssetId    String       @map("quote_asset_id") @db.Uuid
+  /// Quote minor units per one whole base unit, per price tick.
+  tickSize        Decimal      @map("tick_size") @db.Decimal(38, 0)
+  /// Base minor units per quantity lot.
+  lotSize         Decimal      @map("lot_size") @db.Decimal(38, 0)
+  minQuantityLots BigInt       @default(1) @map("min_quantity_lots")
+  makerFeeBps     Int          @map("maker_fee_bps")
+  takerFeeBps     Int          @map("taker_fee_bps")
+  status          MarketStatus @default(ACTIVE)
+  /// Gap-free per-market command counter (row lock orders commits; ADR-0007).
+  nextCommandSeq  BigInt       @default(0) @map("next_command_seq")
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  baseAsset  Asset   @relation("MarketBase", fields: [baseAssetId], references: [id], onDelete: Restrict)
+  quoteAsset Asset   @relation("MarketQuote", fields: [quoteAssetId], references: [id], onDelete: Restrict)
+  orders     Order[]
+  trades     Trade[]
+
+  @@map("markets")
+}
+
+model Order {
+  id                String      @id @default(uuid()) @db.Uuid
+  userId            String      @map("user_id") @db.Uuid
+  marketId          String      @map("market_id") @db.Uuid
+  /// Client-supplied idempotency key, unique per user.
+  clientOrderId     String      @map("client_order_id") @db.VarChar(64)
+  side              OrderSide
+  type              OrderType
+  timeInForce       TimeInForce @map("time_in_force")
+  priceTicks        BigInt?     @map("price_ticks")
+  stopPriceTicks    BigInt?     @map("stop_price_ticks")
+  quantityLots      BigInt      @map("quantity_lots")
+  filledLots        BigInt      @default(0) @map("filled_lots")
+  status            OrderStatus @default(PENDING_NEW)
+  holdAssetId       String      @map("hold_asset_id") @db.Uuid
+  /// Funds held when the order was placed (minor units of the hold asset).
+  holdAmount        Decimal     @map("hold_amount") @db.Decimal(38, 0)
+  /// Portion of the hold not yet consumed by fills or released.
+  lockedRemaining   Decimal     @map("locked_remaining") @db.Decimal(38, 0)
+  rejectReason      String?     @map("reject_reason") @db.VarChar(48)
+  cancelReason      String?     @map("cancel_reason") @db.VarChar(48)
+  cancelRequestedAt DateTime?   @map("cancel_requested_at") @db.Timestamptz(3)
+  createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user      User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  market    Market @relation(fields: [marketId], references: [id], onDelete: Restrict)
+  holdAsset Asset  @relation(fields: [holdAssetId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, clientOrderId])
+  @@index([userId, createdAt])
+  @@index([marketId, status])
+  @@map("orders")
+}
+
+/// Immutable record of every fill (written by settlement).
+model Trade {
+  id             String    @id @default(uuid()) @db.Uuid
+  marketId       String    @map("market_id") @db.Uuid
+  eventSeq       BigInt    @map("event_seq")
+  makerOrderId   String    @map("maker_order_id") @db.Uuid
+  takerOrderId   String    @map("taker_order_id") @db.Uuid
+  buyerUserId    String    @map("buyer_user_id") @db.Uuid
+  sellerUserId   String    @map("seller_user_id") @db.Uuid
+  takerSide      OrderSide @map("taker_side")
+  priceTicks     BigInt    @map("price_ticks")
+  quantityLots   BigInt    @map("quantity_lots")
+  baseAmount     Decimal   @map("base_amount") @db.Decimal(38, 0)
+  quoteAmount    Decimal   @map("quote_amount") @db.Decimal(38, 0)
+  buyerFee       Decimal   @map("buyer_fee") @db.Decimal(38, 0)
+  sellerFee      Decimal   @map("seller_fee") @db.Decimal(38, 0)
+  journalEntryId BigInt    @map("journal_entry_id")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  market Market @relation(fields: [marketId], references: [id], onDelete: Restrict)
+
+  @@unique([marketId, eventSeq])
+  @@index([buyerUserId, createdAt])
+  @@index([sellerUserId, createdAt])
+  @@map("trades")
+}
+
+/// Durable, gap-free, immutable command log (written by the API).
+model EngineCommand {
+  marketId  String   @map("market_id") @db.Uuid
+  seq       BigInt
+  kind      String   @db.VarChar(16)
+  payload   Json
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@id([marketId, seq])
+  @@map("engine_commands")
+}
+
+/// Immutable event log (written only by the matching engine).
+model EngineEvent {
+  marketId   String   @map("market_id") @db.Uuid
+  seq        BigInt
+  commandSeq BigInt   @map("command_seq")
+  type       String   @db.VarChar(32)
+  payload    Json
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@id([marketId, seq])
+  @@map("engine_events")
+}
+
+/// Engine offsets and state hash per market (written only by the engine).
+model EngineMarketState {
+  marketId       String   @id @map("market_id") @db.Uuid
+  lastCommandSeq BigInt   @map("last_command_seq")
+  lastEventSeq   BigInt   @map("last_event_seq")
+  stateHash      String   @map("state_hash") @db.Char(64)
+  updatedAt      DateTime @map("updated_at") @db.Timestamptz(3)
+
+  @@map("engine_market_state")
+}
+
+/// Settlement offset per market (written by the API settlement worker).
+model SettlementState {
+  marketId     String   @id @map("market_id") @db.Uuid
+  lastEventSeq BigInt   @default(0) @map("last_event_seq")
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("settlement_state")
 }

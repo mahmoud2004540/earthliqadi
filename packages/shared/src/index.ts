@@ -5,3 +5,4 @@ export * from './i18n/locales';
 export * from './api/errors';
 export * from './money/amount';
 export * from './ledger/types';
+export * from './trading/types';

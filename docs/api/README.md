@@ -69,6 +69,38 @@ balances**. Holds and releases are internal service calls for the order system
 (Phase 3). Staff adjustments need maker-checker approval (Phase 7). Error codes
 specific to the ledger: `INSUFFICIENT_FUNDS` (422) and `IDEMPOTENCY_CONFLICT` (409).
 
+## Trading endpoints (Phase 3)
+
+Prices are quote per one whole base unit and quantities are base units, both as
+decimal strings on the market grid (`tickSize`, `lotSize`). Orders are
+**asynchronous**: `POST /v1/orders` returns `202` once funds are held and the
+order is queued; poll `GET /v1/orders/:id` for status (`pending_new` → `open` →
+`partially_filled` → `filled`, or `cancelled` / `rejected`). WebSocket updates
+arrive in Phase 4.
+
+| Method | Path                               | Auth | Permission          | Description                                                                |
+| ------ | ---------------------------------- | ---- | ------------------- | -------------------------------------------------------------------------- |
+| GET    | `/v1/markets`                      | —    | —                   | Market definitions (no prices or volumes)                                  |
+| POST   | `/v1/orders`                       | ✔    | `trading:trade`     | Place an order (202; 200 when replaying the same `clientOrderId`)          |
+| GET    | `/v1/orders`                       | ✔    | `account:self:read` | `?status=open\|closed\|all&market=&limit=`                                 |
+| GET    | `/v1/orders/:id`                   | ✔    | `account:self:read` | One of your orders                                                         |
+| DELETE | `/v1/orders/:id`                   | ✔    | `trading:trade`     | Request cancellation (202); allowed while a market is halted               |
+| PATCH  | `/v1/orders/:id`                   | ✔    | `trading:trade`     | `{remainingQuantity}`: reduce in place, keeping time priority (202)        |
+| GET    | `/v1/me/trades`                    | ✔    | `account:self:read` | Your fills (side, maker/taker, price, quantity, fee, fee asset)            |
+| POST   | `/v1/admin/markets`                | ✔    | `markets:configure` | `{base, quote, tickSize, lotSize, minQuantity?, makerFeeBps, takerFeeBps}` |
+| PATCH  | `/v1/admin/markets/:symbol/status` | ✔    | `markets:configure` | `{status: ACTIVE\|HALTED}`; halting blocks new orders                      |
+| GET    | `/v1/admin/engine/status`          | ✔    | `reports:read`      | Per market: commands enqueued/processed, events emitted/settled, hash      |
+
+Order fields: `market`, `clientOrderId` (idempotency key, unique per user),
+`side` (`buy`/`sell`), `type` (`limit`/`market`/`stop_limit`/`stop_market`),
+`timeInForce` (`gtc`/`ioc`/`fok`/`post_only`; market types default to and
+require `ioc`/`fok`), `price` (required for limit types and as the **protection
+price** for market and stop-market buys), `stopPrice` (stop types only), and
+`quantity`.
+
+Holds: buys hold `price × quantity` in quote; sells hold `quantity` in base.
+Fees (basis points, rounded down) are taken from the asset you receive.
+
 ## Example (curl through the edge)
 
 ```bash

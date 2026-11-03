@@ -20,6 +20,7 @@ import { RedisThrottlerStorage } from './infrastructure/throttler/redis-throttle
 import { LedgerModule } from './ledger/ledger.module';
 import { MailModule } from './mail/mail.module';
 import { RbacModule } from './rbac/rbac.module';
+import { TradingModule } from './trading/trading.module';
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9-]{8,64}$/;
 
@@ -78,6 +79,7 @@ export class AppModule {
         AccountModule,
         AdminModule,
         LedgerModule,
+        TradingModule,
       ],
       controllers: [HealthController],
       providers: [

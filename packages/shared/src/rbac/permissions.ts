@@ -26,6 +26,7 @@ export const PERMISSIONS = {
   LEDGER_READ: 'ledger:read',
   LEDGER_RECONCILE: 'ledger:reconcile',
   ASSETS_CONFIGURE: 'assets:configure',
+  TRADING_TRADE: 'trading:trade',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -49,6 +50,7 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   'ledger:read': 'Read ledger accounts, journal entries and reconciliation results',
   'ledger:reconcile': 'Run a ledger reconciliation',
   'assets:configure': 'Create and enable/disable assets (listing decisions)',
+  'trading:trade': 'Place, amend and cancel own orders',
 };
 
 export const ROLES = {
@@ -78,7 +80,7 @@ export const SYSTEM_ROLES: readonly RoleDefinition[] = [
     key: 'user',
     name: 'Customer',
     description: 'Default role for every registered customer',
-    permissions: [P.ACCOUNT_SELF_READ, P.ACCOUNT_SELF_MANAGE],
+    permissions: [P.ACCOUNT_SELF_READ, P.ACCOUNT_SELF_MANAGE, P.TRADING_TRADE],
     staff: false,
   },
   {

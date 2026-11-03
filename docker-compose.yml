@@ -17,6 +17,7 @@ x-api-env: &api-env
   MAIL_TRANSPORT: ${MAIL_TRANSPORT:-log}
   SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
   LEDGER_RECONCILIATION_INTERVAL_SECONDS: ${LEDGER_RECONCILIATION_INTERVAL_SECONDS:-300}
+  SETTLEMENT_POLL_MS: ${SETTLEMENT_POLL_MS:-250}
 
 services:
   postgres:
@@ -88,6 +89,24 @@ services:
     image: exchange-platform/web:dev
     read_only: true
     tmpfs: [/tmp, /app/apps/web/.next/cache]
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
+    restart: unless-stopped
+
+  # Deterministic matching engine (ADR-0007). Single active instance (advisory
+  # lock); a second replica would wait as a hot standby. Not published.
+  engine:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/engine.Dockerfile
+    image: exchange-platform/engine:dev
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      ENGINE_POLL_MS: ${ENGINE_POLL_MS:-200}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    read_only: true
     security_opt: ['no-new-privileges:true']
     cap_drop: [ALL]
     restart: unless-stopped

@@ -104,6 +104,8 @@ export const apiEnvSchema = z
     SWAGGER_ENABLED: booleanString.default(false),
 
     /** Seconds between scheduled ledger reconciliations; 0 disables the scheduler. */
+    /** Milliseconds between settlement polls of engine events; 0 disables the poller. */
+    SETTLEMENT_POLL_MS: z.coerce.number().int().min(0).max(60_000).default(250),
     LEDGER_RECONCILIATION_INTERVAL_SECONDS: z.coerce.number().int().min(0).max(86400).default(300),
 
     /** Display name used as the TOTP issuer and in emails. Temporary until the brand is final. */

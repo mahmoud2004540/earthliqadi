@@ -9,6 +9,7 @@ export const JOURNAL_ENTRY_TYPES = [
   'BALANCE_HOLD',
   'BALANCE_RELEASE',
   'REVERSAL',
+  'TRADE',
 ] as const;
 export type JournalEntryType = (typeof JOURNAL_ENTRY_TYPES)[number];
 

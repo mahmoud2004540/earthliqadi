@@ -61,6 +61,24 @@ account. It is refused unless `DEPLOY_ENV` is `local` or `ci`, and it is
 audited. Reconciliation also runs every `LEDGER_RECONCILIATION_INTERVAL_SECONDS`
 (0 disables it).
 
+## Matching engine and trading (local)
+
+With Docker Compose the `engine` service runs automatically. In pnpm mode, run
+the engine yourself (Rust toolchain from `services/matching-engine/rust-toolchain.toml`):
+
+```bash
+DATABASE_URL=postgresql://exchange:dev-only-postgres-password@localhost:5432/exchange_dev \
+  cargo run --manifest-path services/matching-engine/Cargo.toml --bin engine-server
+```
+
+Create a market (as a user with `markets:configure`, e.g. the `risk_officer`
+role) with `POST /v1/admin/markets`, fund test users with `ledger sim-deposit`,
+then place orders with `POST /v1/orders`. `GET /v1/admin/engine/status` shows
+engine backlog and settlement lag.
+
+`pnpm test:integration` builds the engine (`cargo build`) and spawns it against
+the test database. It needs a Rust toolchain.
+
 ## Quality checks
 
 ```bash

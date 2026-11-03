@@ -7,7 +7,7 @@ import { loadAppConfig } from '../src/config/app-config';
 import { MailService, type MailMessage } from '../src/mail/mail.service';
 
 export async function bootApp(): Promise<INestApplication> {
-  Logger.overrideLogger(false);
+  if (!process.env.TEST_LOGS) Logger.overrideLogger(false); // TEST_LOGS=1 shows server logs
   const app = await createApp(loadAppConfig());
   await app.init();
   return app;

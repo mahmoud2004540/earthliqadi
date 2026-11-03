@@ -210,7 +210,7 @@ describe('login and sessions', () => {
       status: 'ACTIVE',
       mfaEnabled: false,
       roles: ['user'],
-      permissions: ['account:self:manage', 'account:self:read'],
+      permissions: ['account:self:manage', 'account:self:read', 'trading:trade'],
     });
     expect(res.body).not.toHaveProperty('passwordHash');
   });

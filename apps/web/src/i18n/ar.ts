@@ -327,6 +327,7 @@ export const ar: Dictionary = {
       BALANCE_HOLD: 'حجز أموال',
       BALANCE_RELEASE: 'تحرير أموال',
       REVERSAL: 'تصحيح (قيد عكسي)',
+      TRADE: 'صفقة',
     },
     bucketAvailable: 'المتاح',
     bucketLocked: 'المحجوز',

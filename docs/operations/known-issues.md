@@ -1,4 +1,4 @@
-# Known issues and incomplete features (Sprints 1–2)
+# Known issues and incomplete features (Sprints 1–3)
 
 This is the honest list of what does **not** exist yet or is limited. Anything
 not described as implemented in the docs should be treated as absent.
@@ -6,7 +6,7 @@ not described as implemented in the docs should be treated as absent.
 ## Not implemented (by design, later phases)
 
 - Real deposits, withdrawals and custody (Phase 8). Balances can only be funded with **simulated** test deposits in local/CI.
-- Matching engine, order entry, market data, trading terminal and charts (Phases 3–5)
+- Market data feeds, WebSocket API, trading terminal and charts (Phase 4). Orders work through the REST API only; there is no trading UI yet.
 - Perpetual futures, risk engine, liquidation, insurance fund and ADL (Phase 6)
 - Admin application, KYC/AML workflows, support tickets, notifications and
   announcements (Phase 7)
@@ -42,6 +42,24 @@ not described as implemented in the docs should be treated as absent.
 - Reconciliation scans the whole ledger each run. This is fine at development scale; it needs an incremental/checkpointed design later.
 - Hot accounts (one row per asset for simulated custody now, fee revenue later) serialise writers. Sharding or batching is planned with the matching engine (ADR to follow).
 - The dashboard shows balances at full asset scale without fiat valuation. No prices exist yet, by design.
+
+### Trading (Sprint 3)
+
+- Engine startup replays the full command history per market; snapshot loading
+  (already implemented and tested in the library) will be wired in when logs grow.
+- Some engine operations are O(n): cancel within a price level, scanning pending
+  stops, and the set of known order ids (which grows without bound). This is
+  acceptable at development scale and noted for optimisation.
+- The PostgreSQL transport adds milliseconds of latency; it has not been load-tested yet (Sprint 4).
+- No order expiry (GTD), iceberg orders or trailing stops.
+- A market buy needs an explicit protection price, because there is no
+  reference price yet.
+- If settlement hits an invariant violation, that market's settlement stops
+  (logged as `SETTLEMENT_HALTED`) and needs manual investigation. There is no
+  automated paging yet.
+- **Engine container image not built in the development sandbox:** Docker Hub
+  rate-limited the Rust and Debian base images. The engine binary is built and
+  tested natively (and spawned by the integration tests); CI builds the image.
 
 ## Environment notes
 

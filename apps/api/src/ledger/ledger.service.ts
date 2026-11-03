@@ -37,6 +37,11 @@ export interface LedgerActor {
   requestId?: string | null;
 }
 
+export interface PostOptions {
+  audit?: Omit<AuditEvent, 'actorType' | 'actorUserId'>;
+  metadata?: Record<string, unknown>;
+}
+
 export interface PostResult {
   entry: JournalEntry;
   /** True when an identical request with the same idempotency key was already posted. */
@@ -177,6 +182,7 @@ export class LedgerService {
     assetId: string,
     type: LedgerAccountType,
     ownerUserId: string | null,
+    client: Prisma.TransactionClient = this.prisma,
   ): Promise<LedgerAccount> {
     const spec = ACCOUNT_SPECS[type];
     if (spec.userOwned !== (ownerUserId !== null)) {
@@ -185,12 +191,12 @@ export class LedgerService {
       );
     }
     const ownerKey = ownerUserId ?? SYSTEM_OWNER;
-    await this.prisma.$executeRaw`
+    await client.$executeRaw`
       INSERT INTO "ledger_accounts" ("id", "asset_id", "type", "owner_user_id", "owner_key", "normal_side", "allow_negative", "updated_at")
       VALUES (${randomUUID()}::uuid, ${assetId}::uuid, ${type}::"LedgerAccountType", ${ownerUserId}::uuid, ${ownerKey},
               ${spec.normalSide}::"PostingDirection", ${spec.allowNegative}, now())
       ON CONFLICT ("asset_id", "type", "owner_key") DO NOTHING`;
-    return this.prisma.ledgerAccount.findUniqueOrThrow({
+    return client.ledgerAccount.findUniqueOrThrow({
       where: { assetId_type_ownerKey: { assetId, type, ownerKey } },
     });
   }
@@ -205,10 +211,7 @@ export class LedgerService {
   async post(
     req: EntryRequest,
     actor: LedgerActor,
-    options: {
-      audit?: Omit<AuditEvent, 'actorType' | 'actorUserId'>;
-      metadata?: Record<string, unknown>;
-    } = {},
+    options: PostOptions = {},
   ): Promise<PostResult> {
     const postings = validateEntryRequest(req);
     const fingerprint = fingerprintOf(req);
@@ -220,67 +223,7 @@ export class LedgerService {
 
     try {
       const entry = await this.prisma.$transaction(
-        async (tx) => {
-          const accountIds = postings.map((p) => p.accountId);
-          // Lock in id order: every writer uses the same order, so no deadlocks.
-          const rows = await tx.$queryRaw<LockedAccountRow[]>`
-            SELECT "id", "asset_id", "normal_side", "allow_negative", "balance"::text AS "balance"
-              FROM "ledger_accounts"
-             WHERE "id" = ANY(${accountIds}::uuid[])
-             ORDER BY "id"
-               FOR UPDATE`;
-          if (rows.length !== accountIds.length)
-            throw AppError.notFound('Ledger account not found');
-          const byId = new Map(rows.map((r) => [r.id, r]));
-
-          const withAssets = postings.map((p) => ({
-            ...p,
-            assetId: byId.get(p.accountId)!.asset_id,
-          }));
-          assertBalancedPerAsset(withAssets);
-
-          for (const p of postings) {
-            const row = byId.get(p.accountId)!;
-            const next =
-              toMinorUnits(row.balance) + balanceDelta(row.normal_side, p.direction, p.amount);
-            if (!row.allow_negative && next < 0n) throw insufficientFunds();
-          }
-
-          const created = await tx.journalEntry.create({
-            data: {
-              type: req.type,
-              idempotencyKey: req.idempotencyKey,
-              fingerprint,
-              description: req.description,
-              reversesEntryId: req.reversesEntryId ?? null,
-              actorType: actor.actorType,
-              actorUserId: actor.actorUserId ?? null,
-              requestId: actor.requestId ?? null,
-              metadata: (options.metadata ?? {}) as Prisma.InputJsonValue,
-            },
-          });
-          await tx.posting.createMany({
-            data: withAssets.map((p) => ({
-              entryId: created.id,
-              accountId: p.accountId,
-              assetId: p.assetId,
-              direction: p.direction,
-              amount: p.amount.toString(),
-            })),
-          });
-          if (options.audit) {
-            await this.audit.record(
-              {
-                ...options.audit,
-                actorType: actor.actorType,
-                actorUserId: actor.actorUserId ?? null,
-                metadata: { ...options.audit.metadata, entryId: created.id.toString() },
-              },
-              tx,
-            );
-          }
-          return created;
-        },
+        (tx) => this.writeEntry(tx, req, postings, fingerprint, actor, options),
         { timeout: 15_000 },
       );
       return { entry, replayed: false };
@@ -292,14 +235,107 @@ export class LedgerService {
         });
         return this.replay(winner, fingerprint);
       }
-      if (isUniqueViolationOn(err, 'reverses_entry_id')) {
-        throw new AppError(HttpStatus.CONFLICT, 'CONFLICT', 'This entry has already been reversed');
-      }
-      // Database backstop for non-negative balances (should be pre-empted above).
-      if (prismaErrorText(err).includes('ledger_accounts_non_negative_chk'))
-        throw insufficientFunds();
-      throw err;
+      throw this.mapPostError(err);
     }
+  }
+
+  /**
+   * Posts inside a transaction owned by the caller (e.g. hold funds and enqueue
+   * an engine command atomically). Replays are detected within the same
+   * transaction; any failure aborts the caller's transaction.
+   */
+  async postWithin(
+    tx: Prisma.TransactionClient,
+    req: EntryRequest,
+    actor: LedgerActor,
+    options: PostOptions = {},
+  ): Promise<PostResult> {
+    const postings = validateEntryRequest(req);
+    const fingerprint = fingerprintOf(req);
+    const existing = await tx.journalEntry.findUnique({
+      where: { idempotencyKey: req.idempotencyKey },
+    });
+    if (existing) return this.replay(existing, fingerprint);
+    try {
+      const entry = await this.writeEntry(tx, req, postings, fingerprint, actor, options);
+      return { entry, replayed: false };
+    } catch (err) {
+      throw this.mapPostError(err);
+    }
+  }
+
+  private mapPostError(err: unknown): unknown {
+    if (isUniqueViolationOn(err, 'reverses_entry_id')) {
+      return new AppError(HttpStatus.CONFLICT, 'CONFLICT', 'This entry has already been reversed');
+    }
+    // Database backstop for non-negative balances (should be pre-empted by the pre-check).
+    if (prismaErrorText(err).includes('ledger_accounts_non_negative_chk'))
+      return insufficientFunds();
+    return err;
+  }
+
+  private async writeEntry(
+    tx: Prisma.TransactionClient,
+    req: EntryRequest,
+    postings: PostingRequest[],
+    fingerprint: string,
+    actor: LedgerActor,
+    options: PostOptions,
+  ): Promise<JournalEntry> {
+    const accountIds = postings.map((p) => p.accountId);
+    // Lock in id order: every writer uses the same order, so no deadlocks.
+    const rows = await tx.$queryRaw<LockedAccountRow[]>`
+      SELECT "id", "asset_id", "normal_side", "allow_negative", "balance"::text AS "balance"
+        FROM "ledger_accounts"
+       WHERE "id" = ANY(${accountIds}::uuid[])
+       ORDER BY "id"
+         FOR UPDATE`;
+    if (rows.length !== accountIds.length) throw AppError.notFound('Ledger account not found');
+    const byId = new Map(rows.map((r) => [r.id, r]));
+
+    const withAssets = postings.map((p) => ({ ...p, assetId: byId.get(p.accountId)!.asset_id }));
+    assertBalancedPerAsset(withAssets);
+
+    for (const p of postings) {
+      const row = byId.get(p.accountId)!;
+      const next = toMinorUnits(row.balance) + balanceDelta(row.normal_side, p.direction, p.amount);
+      if (!row.allow_negative && next < 0n) throw insufficientFunds();
+    }
+
+    const created = await tx.journalEntry.create({
+      data: {
+        type: req.type,
+        idempotencyKey: req.idempotencyKey,
+        fingerprint,
+        description: req.description,
+        reversesEntryId: req.reversesEntryId ?? null,
+        actorType: actor.actorType,
+        actorUserId: actor.actorUserId ?? null,
+        requestId: actor.requestId ?? null,
+        metadata: (options.metadata ?? {}) as Prisma.InputJsonValue,
+      },
+    });
+    await tx.posting.createMany({
+      data: withAssets.map((p) => ({
+        entryId: created.id,
+        accountId: p.accountId,
+        assetId: p.assetId,
+        direction: p.direction,
+        amount: p.amount.toString(),
+      })),
+    });
+    if (options.audit) {
+      await this.audit.record(
+        {
+          ...options.audit,
+          actorType: actor.actorType,
+          actorUserId: actor.actorUserId ?? null,
+          metadata: { ...options.audit.metadata, entryId: created.id.toString() },
+        },
+        tx,
+      );
+    }
+    return created;
   }
 
   private replay(entry: JournalEntry, fingerprint: string): PostResult {

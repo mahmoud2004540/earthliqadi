@@ -1,6 +1,6 @@
 # Architecture overview
 
-> Status: **Phases 0–2 implemented** (foundation, identity, access control, double-entry ledger).
+> Status: **Phases 0–3 implemented** (foundation, identity, access control, double-entry ledger, spot matching engine and settlement).
 > Nothing in this repository handles real money. See [roadmap](roadmap.md).
 
 ## 1. Goals that drive the architecture
@@ -84,6 +84,7 @@ Modules:
 | `account` | `/v1/me`: profile, sessions (list/revoke), password change, TOTP enrolment                    |
 | `rbac`    | Syncs the permission/role catalogue at boot; resolves permissions; audited grants             |
 | `audit`   | Append-only audit writes, transactional with the change they describe                         |
+| `trading` | Markets, order entry (hold + command atomically), settlement worker, trades, engine status    |
 | `ledger`  | Assets, double-entry posting, holds/releases, reversals, reconciliation, balances/history API |
 | `admin`   | Permission-gated read endpoints (users, audit log). The UI comes in Phase 7.                  |
 | `health`  | `/health/live` (process), `/health/ready` (DB + Redis)                                        |
@@ -107,13 +108,20 @@ Ledger (Phase 2, [ADR-0006](../decisions/0006-double-entry-ledger.md)): `assets`
   immutable journal and postings; balances that change only through postings;
   non-negative balances (`CHECK`); immutable asset code and scale.
 
-Orders, markets and fills arrive with Phase 3.
+Trading (Phase 3, [ADR-0007](../decisions/0007-matching-engine.md)): `markets`,
+`orders`, `trades`, `engine_commands`, `engine_events`, `engine_market_state`,
+`settlement_state`.
+
+- The command log is gap-free per market: a trigger checks each command against
+  the market counter. The command and event logs and `trades` are immutable.
+  Market units (tick/lot sizes and assets) are immutable.
+- Order holds and engine commands are written in one transaction. Settlement
+  posts one balanced `TRADE` entry per fill.
 
 ## 6. Planned components (not implemented)
 
 | Component        | Phase | Notes                                                                                              |
 | ---------------- | ----- | -------------------------------------------------------------------------------------------------- |
-| Matching engine  | 3     | Rust, single-threaded per market, deterministic, price-time priority, event-sourced input log      |
 | Market data      | 4     | Sequenced WebSocket feeds, snapshots + deltas, stale-data detection; last/mark/index kept separate |
 | Paper trading    | 5     | Simulated balances in a separate ledger namespace; never mixed with real balances                  |
 | Risk engine      | 6     | Mark price from index + funding basis; liquidation never uses last price alone                     |

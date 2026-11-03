@@ -1,4 +1,4 @@
-# Security controls and threat model (Phases 1–2)
+# Security controls and threat model (Phases 1–3)
 
 Scope: identity, sessions, access control, the HTTP surface and the ledger.
 Withdrawal fraud and market manipulation are modelled with the phases that
@@ -45,6 +45,21 @@ introduce withdrawals (8) and trading (3–6).
 | Minting funds outside development        | Simulated deposits refused unless `DEPLOY_ENV` is `local`/`ci`; no HTTP endpoint for postings            | e2e                          |
 | Asset redefinition                       | Asset code and scale immutable (trigger)                                                                 | e2e                          |
 
+## Trading controls (Phase 3)
+
+| Threat                                      | Control                                                                                                                    | Verified by        |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| Unfunded orders                             | Hold and engine command written in one transaction; insufficient funds → nothing enqueued                                  | e2e                |
+| Lost or reordered commands                  | Per-market counter row lock gives gap-free, commit-ordered sequences; DB trigger checks seq = counter; engine refuses gaps | e2e + engine tests |
+| Double settlement                           | Idempotency key per fill/release; settlement offset in the same transaction; contiguity check                              | e2e                |
+| Silent engine divergence / tampered offsets | SHA-256 chain over commands and events; startup replay must reproduce the stored hash or the engine refuses to start       | e2e (tamper)       |
+| Two engines processing at once              | Session advisory lock (standby); optimistic offset update                                                                  | design             |
+| Self-trading / wash trades by one account   | Self-trade prevention (taker cancelled); settlement rejects buyer = seller; DB CHECK on trades                             | engine + e2e       |
+| Settling more than was held                 | Per-order `locked_remaining` tracked; trade above buyer limit or overdraw of the hold halts settlement                     | e2e                |
+| Inconsistent order states                   | Explicit state machine; illegal transitions halt settlement                                                                | unit               |
+| Trading during incidents                    | Market halt (new orders blocked, cancels allowed), audited                                                                 | e2e                |
+| Rewriting trading history                   | Command/event logs and trades immutable; market units immutable                                                            | e2e                |
+
 ## Known limitations (must be resolved before any production use)
 
 1. **No production email transport.** Staging and production intentionally refuse to boot.
@@ -73,7 +88,13 @@ introduce withdrawals (8) and trading (3–6).
     session flag the posting trigger uses). Reconciliation detects this, but
     production needs separate DB roles: the application role must not own the
     tables or be able to alter triggers, and DBA access must be audited.
-14. **Reconciliation alerts are logs and audit entries only.** Paging and on-call
+14. **Engine DB connection is unencrypted (`NoTls`)** and the engine uses the
+    application's DB role. Production needs TLS and a dedicated role limited to
+    reading commands and writing events and offsets.
+15. **No per-user order rate limits or order-count caps yet** (only per-IP HTTP
+    limits). Abuse protection for order entry is planned with the WebSocket
+    API (Phase 4).
+16. **Reconciliation alerts are logs and audit entries only.** Paging and on-call
     routing arrive with monitoring (Phase 7). Full-scan reconciliation will need
     an incremental design as volume grows.
 

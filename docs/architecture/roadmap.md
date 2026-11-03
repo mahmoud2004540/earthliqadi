@@ -8,8 +8,8 @@ tests, security review and documentation are done.
 | 0     | Architecture and repository foundation                     | **Complete** |
 | 1     | Frontend, backend, authentication, database, Docker, CI    | **Complete** |
 | 2     | Financial ledger and accounting                            | **Complete** |
-| 3     | Spot matching engine (Rust)                                | Next         |
-| 4     | Market data and professional trading terminal              | Planned      |
+| 3     | Spot matching engine (Rust)                                | **Complete** |
+| 4     | Market data and professional trading terminal              | Next         |
 | 5     | Spot paper trading and simulation                          | Planned      |
 | 6     | Perpetual futures and risk simulation                      | Planned      |
 | 7     | Admin, compliance and monitoring                           | Planned      |
@@ -49,27 +49,35 @@ tests, security review and documentation are done.
 - [x] Simulated deposits for development only, refused outside `local`/`ci`
 - [x] Tests: property-based, concurrency, idempotency races, DB invariants, reconciliation tamper detection
 
-## Sprint 3 plan: Phase 3, spot matching engine
+## Phase 3 acceptance criteria (Sprint 3)
 
-**Goal:** a deterministic, independently testable matching engine. It never
-touches balances; the ledger settles its output.
+- [x] ADR for engine boundaries, protocol, transport, units, matching rules, state machine, fees, recovery ([ADR-0007](../decisions/0007-matching-engine.md))
+- [x] Market registry (tick/lot sizes in minor units, divisibility enforced, immutable units, fees, halt/resume), audited
+- [x] Rust engine: price-time priority; limit, market (protection price), stop-limit and stop-market; GTC/IOC/FOK/post-only; partial fills; cancel; quantity reduction keeping priority; self-trade prevention
+- [x] Determinism: no clocks or randomness in the library; SHA-256 chain over commands and events; startup replay verification (refuses to run on mismatch)
+- [x] Durable, gap-free command log written atomically with the fund hold; immutable event log; exactly-once offsets
+- [x] Settlement: one balanced multi-asset `TRADE` entry per fill, fees to `FEE_REVENUE`, releases on cancel/fill/reduce, order state machine enforced
+- [x] Order API (place, cancel, reduce, list, get, my trades), idempotent `clientOrderId`; admin markets API and engine/settlement status
+- [x] Tests: 14 engine scenario tests and property tests (no crossed book, conservation, no self-trade, maker price, deterministic replay, snapshot equivalence); end-to-end tests that spawn the real engine binary (settlement exactness, fees, partial fills, stops, halts, 40 concurrent orders with conservation and reconciliation, restart recovery, tamper refusal)
 
-1. **ADR:** engine boundaries; the command/event protocol (an append-only input
-   log with sequence numbers); recovery by snapshot plus replay; how the
-   API ↔ engine transport starts (in-process queue vs TCP vs Redpanda; the
-   simplest option that is durable and measured).
-2. **Market registry:** symbol, base/quote asset, tick size, lot size, min/max
-   notional, and status (configured via `markets:configure`, audited).
-3. **Rust crate `services/matching-engine`:** order book per market,
-   price-time priority, limit, market and stop (trigger) orders,
-   partial fills, cancel, amend (price change = cancel/replace; size reduce in
-   place), self-trade prevention, and fixed-point integer prices and quantities.
-4. **Order state machine:** `NEW → OPEN → PARTIALLY_FILLED → FILLED | CANCELLED | REJECTED | EXPIRED`,
-   with every transition an event.
-5. **Settlement:** the API holds funds before an order is accepted; each fill
-   becomes one balanced multi-asset journal entry (base and quote legs plus fee),
-   with idempotency key `fill:<market>:<sequence>`; releases on cancel.
-6. **Tests:** deterministic replay (same input log ⇒ byte-identical events),
-   property tests (no crossed book, conservation of quantity, price-time order),
-   fuzzing of the command parser, and a ledger settlement integration test.
-7. **Out of scope:** market data fan-out and trading UI (Phase 4), perpetuals (Phase 6).
+## Sprint 4 plan: Phase 4, market data and trading terminal
+
+1. **ADR:** the market data pipeline. Order book snapshots plus sequenced deltas
+   are derived from `engine_events`. Trades and OHLCV candles are aggregated
+   from `trades`. A WebSocket gateway handles subscriptions and sequence numbers,
+   and clients resync on gaps. Stale data is detected through engine/settlement
+   lag. Last, mark and index prices are kept separate; only last exists for spot.
+2. **Read models:** a level-2 book projection per market, rebuilt from events and
+   cross-checked with the engine state; 1m/5m/1h/1d candles; 24h statistics.
+   Nothing synthetic: an empty market shows as empty.
+3. **WebSocket API:** authenticated private channels (orders, fills, balances)
+   and public channels (book, trades, candles, ticker), with rate limits,
+   heartbeats, and reconnect with snapshot plus replay from sequence.
+4. **Trading terminal (web, EN/AR):** market selector, TradingView Lightweight
+   Charts, order book and depth, recent trades, order form (limit, market with
+   protection, stop), open orders, history, balances. Stale-data warnings.
+5. **Tests:** projection-equals-engine property tests, WebSocket gap/resync
+   tests, Playwright end-to-end tests in CI against the Compose stack.
+6. **Load measurement:** baseline throughput and latency of order entry →
+   settlement on the PostgreSQL transport. This feeds the ADR-0007 transport
+   decision.

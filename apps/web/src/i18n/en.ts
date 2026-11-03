@@ -336,6 +336,7 @@ export const en = {
       BALANCE_HOLD: 'Funds reserved',
       BALANCE_RELEASE: 'Funds released',
       REVERSAL: 'Correction (reversal)',
+      TRADE: 'Trade',
     },
     bucketAvailable: 'available',
     bucketLocked: 'locked',

@@ -8,7 +8,7 @@
     "start": "node --env-file-if-exists=../../.env dist/main.js",
     "typecheck": "prisma generate && tsc -p tsconfig.json --noEmit",
     "test": "jest --config jest.config.ts",
-    "test:integration": "jest --config jest.integration.config.ts --runInBand",
+    "test:integration": "cargo build --quiet --manifest-path ../../services/matching-engine/Cargo.toml && jest --config jest.integration.config.ts --runInBand",
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "sh -c 'set -a; [ -f ../../.env ] && . ../../.env; set +a; prisma migrate dev'",
     "prisma:migrate:deploy": "sh -c 'set -a; [ -f ../../.env ] && . ../../.env; set +a; prisma migrate deploy'",

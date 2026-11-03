@@ -43,7 +43,11 @@ describe('RBAC catalogue', () => {
   });
 
   it('gives customers only self-service permissions', () => {
-    expect(permissionsForRoles(['user'])).toEqual(['account:self:manage', 'account:self:read']);
+    expect(permissionsForRoles(['user'])).toEqual([
+      'account:self:manage',
+      'account:self:read',
+      'trading:trade',
+    ]);
   });
 
   it('ignores unknown role keys', () => {
