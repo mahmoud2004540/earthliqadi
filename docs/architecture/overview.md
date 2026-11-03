@@ -1,6 +1,6 @@
 # Architecture overview
 
-> Status: **Phases 0–3 implemented** (foundation, identity, access control, double-entry ledger, spot matching engine and settlement).
+> Status: **Phases 0–4 implemented** (foundation, identity, access control, double-entry ledger, spot matching engine and settlement, market data and trading terminal).
 > Nothing in this repository handles real money. See [roadmap](roadmap.md).
 
 ## 1. Goals that drive the architecture
@@ -78,17 +78,18 @@ Global request pipeline, in order:
 
 Modules:
 
-| Module    | Responsibility                                                                                |
-| --------- | --------------------------------------------------------------------------------------------- |
-| `auth`    | Registration, email verification, login, MFA challenge, logout, password reset                |
-| `account` | `/v1/me`: profile, sessions (list/revoke), password change, TOTP enrolment                    |
-| `rbac`    | Syncs the permission/role catalogue at boot; resolves permissions; audited grants             |
-| `audit`   | Append-only audit writes, transactional with the change they describe                         |
-| `trading` | Markets, order entry (hold + command atomically), settlement worker, trades, engine status    |
-| `ledger`  | Assets, double-entry posting, holds/releases, reversals, reconciliation, balances/history API |
-| `admin`   | Permission-gated read endpoints (users, audit log). The UI comes in Phase 7.                  |
-| `health`  | `/health/live` (process), `/health/ready` (DB + Redis)                                        |
-| `mail`    | Development transports only (`log`, `memory`); production is refused at boot                  |
+| Module        | Responsibility                                                                                |
+| ------------- | --------------------------------------------------------------------------------------------- |
+| `auth`        | Registration, email verification, login, MFA challenge, logout, password reset                |
+| `account`     | `/v1/me`: profile, sessions (list/revoke), password change, TOTP enrolment                    |
+| `rbac`        | Syncs the permission/role catalogue at boot; resolves permissions; audited grants             |
+| `audit`       | Append-only audit writes, transactional with the change they describe                         |
+| `market-data` | Book/trades/candles/ticker read models from settled state; WebSocket gateway (`/ws`)          |
+| `trading`     | Markets, order entry (hold + command atomically), settlement worker, trades, engine status    |
+| `ledger`      | Assets, double-entry posting, holds/releases, reversals, reconciliation, balances/history API |
+| `admin`       | Permission-gated read endpoints (users, audit log). The UI comes in Phase 7.                  |
+| `health`      | `/health/live` (process), `/health/ready` (DB + Redis)                                        |
+| `mail`        | Development transports only (`log`, `memory`); production is refused at boot                  |
 
 ## 5. Data model
 
@@ -120,13 +121,12 @@ Trading (Phase 3, [ADR-0007](../decisions/0007-matching-engine.md)): `markets`,
 
 ## 6. Planned components (not implemented)
 
-| Component        | Phase | Notes                                                                                              |
-| ---------------- | ----- | -------------------------------------------------------------------------------------------------- |
-| Market data      | 4     | Sequenced WebSocket feeds, snapshots + deltas, stale-data detection; last/mark/index kept separate |
-| Paper trading    | 5     | Simulated balances in a separate ledger namespace; never mixed with real balances                  |
-| Risk engine      | 6     | Mark price from index + funding basis; liquidation never uses last price alone                     |
-| Admin app        | 7     | Separate deployment and origin; staff MFA mandatory                                                |
-| Custody adapters | 8     | Provider abstraction; no in-house key custody; testnets only during development                    |
+| Component        | Phase | Notes                                                                             |
+| ---------------- | ----- | --------------------------------------------------------------------------------- |
+| Paper trading    | 5     | Simulated balances in a separate ledger namespace; never mixed with real balances |
+| Risk engine      | 6     | Mark price from index + funding basis; liquidation never uses last price alone    |
+| Admin app        | 7     | Separate deployment and origin; staff MFA mandatory                               |
+| Custody adapters | 8     | Provider abstraction; no in-house key custody; testnets only during development   |
 
 An event bus (Kafka/Redpanda) will be introduced only when a measured workload
 needs it. Until then, transactional outbox tables in PostgreSQL are the plan for

@@ -9,8 +9,8 @@ tests, security review and documentation are done.
 | 1     | Frontend, backend, authentication, database, Docker, CI    | **Complete** |
 | 2     | Financial ledger and accounting                            | **Complete** |
 | 3     | Spot matching engine (Rust)                                | **Complete** |
-| 4     | Market data and professional trading terminal              | Next         |
-| 5     | Spot paper trading and simulation                          | Planned      |
+| 4     | Market data and professional trading terminal              | **Complete** |
+| 5     | Spot paper trading and simulation                          | Next         |
 | 6     | Perpetual futures and risk simulation                      | Planned      |
 | 7     | Admin, compliance and monitoring                           | Planned      |
 | 8     | Custody and liquidity integrations                         | Planned      |
@@ -60,24 +60,28 @@ tests, security review and documentation are done.
 - [x] Order API (place, cancel, reduce, list, get, my trades), idempotent `clientOrderId`; admin markets API and engine/settlement status
 - [x] Tests: 14 engine scenario tests and property tests (no crossed book, conservation, no self-trade, maker price, deterministic replay, snapshot equivalence); end-to-end tests that spawn the real engine binary (settlement exactness, fees, partial fills, stops, halts, 40 concurrent orders with conservation and reconciliation, restart recovery, tamper refusal)
 
-## Sprint 4 plan: Phase 4, market data and trading terminal
+## Phase 4 acceptance criteria (Sprint 4)
 
-1. **ADR:** the market data pipeline. Order book snapshots plus sequenced deltas
-   are derived from `engine_events`. Trades and OHLCV candles are aggregated
-   from `trades`. A WebSocket gateway handles subscriptions and sequence numbers,
-   and clients resync on gaps. Stale data is detected through engine/settlement
-   lag. Last, mark and index prices are kept separate; only last exists for spot.
-2. **Read models:** a level-2 book projection per market, rebuilt from events and
-   cross-checked with the engine state; 1m/5m/1h/1d candles; 24h statistics.
-   Nothing synthetic: an empty market shows as empty.
-3. **WebSocket API:** authenticated private channels (orders, fills, balances)
-   and public channels (book, trades, candles, ticker), with rate limits,
-   heartbeats, and reconnect with snapshot plus replay from sequence.
-4. **Trading terminal (web):** market selector, TradingView Lightweight
-   Charts, order book and depth, recent trades, order form (limit, market with
-   protection, stop), open orders, history, balances. Stale-data warnings.
-5. **Tests:** projection-equals-engine property tests, WebSocket gap/resync
-   tests, Playwright end-to-end tests in CI against the Compose stack.
-6. **Load measurement:** baseline throughput and latency of order entry →
-   settlement on the PostgreSQL transport. This feeds the ADR-0007 transport
-   decision.
+- [x] ADR for market data sourcing, freshness, the WebSocket protocol and its security ([ADR-0009](../decisions/0009-market-data.md))
+- [x] Order book, trades, OHLCV candles (1m–1d) and 24h ticker derived only from settled state; snapshots tagged with the settlement sequence; fill time from the engine event
+- [x] Freshness states (`live` / `delayed` / `halted`), pushed even when the sequence is stuck
+- [x] WebSocket gateway: public and private channels, origin check, session re-validation, connection/subscription/message limits, heartbeat; REST mirrors
+- [x] Trading terminal: market selector, candlestick chart, order book with depth, recent trades, order form (limit/market/stop, protection price, exact totals), open orders/history/my trades, stale and halt warnings; markets page with real statistics
+- [x] Playwright browser end-to-end tests against the Compose stack, in CI
+- [x] First load measurement with bottleneck analysis ([performance](../operations/performance.md))
+
+## Sprint 5 plan: Phase 5, spot paper trading and simulation
+
+1. **ADR:** paper trading as a separate ledger namespace, so simulated balances
+   can never mix with real ones (distinct account types and assets, or a
+   separate schema), and how simulation markets mirror real market rules.
+2. **Replay/simulation harness:** deterministic replay of recorded command logs
+   through the engine. This allows "what-if" testing of rule changes and
+   regression testing of the engine with production-like flows.
+3. **Settlement throughput:** settle multiple fills per ledger transaction, or
+   pipeline settlement per market, guided by the measurements in
+   `docs/operations/performance.md`. Target: settlement keeps pace with order entry.
+4. **Order entry abuse controls:** per-user order rate limits and open-order caps.
+5. **Faucet UX for paper trading:** rate-limited, clearly labelled simulated funds.
+6. **Tests:** isolation property (no posting can touch both namespaces) and
+   replay determinism across engine versions.

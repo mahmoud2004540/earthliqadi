@@ -1,4 +1,4 @@
-# Known issues and incomplete features (Sprints 1–3)
+# Known issues and incomplete features (Sprints 1–4)
 
 This is the honest list of what does **not** exist yet or is limited. Anything
 not described as implemented in the docs should be treated as absent.
@@ -6,7 +6,6 @@ not described as implemented in the docs should be treated as absent.
 ## Not implemented (by design, later phases)
 
 - Real deposits, withdrawals and custody (Phase 8). Balances can only be funded with **simulated** test deposits in local/CI.
-- Market data feeds, WebSocket API, trading terminal and charts (Phase 4). Orders work through the REST API only; there is no trading UI yet.
 - Perpetual futures, risk engine, liquidation, insurance fund and ADL (Phase 6)
 - Admin application, KYC/AML workflows, support tickets, notifications and
   announcements (Phase 7)
@@ -22,8 +21,6 @@ not described as implemented in the docs should be treated as absent.
   Staging and production refuse to boot until a real provider is integrated.
 - **MFA:** TOTP only. No recovery codes, no WebAuthn, no QR code rendering (the
   setup key is shown as text and the `otpauth://` URI is returned by the API).
-- **Site header** is session-agnostic: it shows "Sign in" even when signed in.
-  The dashboard has its own sign-out button.
 - **Account deletion and data export** (GDPR rights) are not implemented.
 - **Legal pages** contain placeholders stating that the documents are unpublished.
 - **Session list** shows raw user-agent strings; there is no device naming or
@@ -60,6 +57,19 @@ not described as implemented in the docs should be treated as absent.
 - **Engine container image not built in the development sandbox:** Docker Hub
   rate-limited the Rust and Debian base images. The engine binary is built and
   tested natively (and spawned by the integration tests); CI builds the image.
+
+### Market data and terminal (Sprint 4)
+
+- **Settlement throughput is the current bottleneck** under load (see
+  `performance.md`); during bursts the book can lag matching by seconds and is
+  then flagged `delayed`.
+- Book updates are full snapshots (depth ≤ 50), not deltas. Candles are computed
+  per request; no materialised candle table yet.
+- No mark or index price for spot (not needed until perpetuals in Phase 6).
+- No mobile-optimised terminal layout yet (the panels stack on narrow screens but
+  the experience is desktop-first).
+- The private WebSocket channel carries order updates only. Balances are
+  refreshed over REST when an order update arrives.
 
 ## Environment notes
 

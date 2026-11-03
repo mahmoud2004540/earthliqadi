@@ -19,6 +19,7 @@ import { REDIS, RedisModule } from './infrastructure/redis/redis.module';
 import { RedisThrottlerStorage } from './infrastructure/throttler/redis-throttler.storage';
 import { LedgerModule } from './ledger/ledger.module';
 import { MailModule } from './mail/mail.module';
+import { MarketDataModule } from './market-data/market-data.module';
 import { RbacModule } from './rbac/rbac.module';
 import { TradingModule } from './trading/trading.module';
 
@@ -80,6 +81,7 @@ export class AppModule {
         AdminModule,
         LedgerModule,
         TradingModule,
+        MarketDataModule,
       ],
       controllers: [HealthController],
       providers: [

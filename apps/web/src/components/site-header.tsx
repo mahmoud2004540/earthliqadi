@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { Dictionary } from '@/i18n';
 import { brandName } from '@/lib/utils';
-import { Button } from './ui/button';
+import { HeaderAuth } from './header-auth';
 
 export function SiteHeader({ t }: { t: Dictionary }) {
   const links = [
@@ -36,12 +36,7 @@ export function SiteHeader({ t }: { t: Dictionary }) {
           ))}
         </nav>
         <div className="ms-auto flex items-center gap-2">
-          <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
-            <Link href={'/login'}>{t.nav.login}</Link>
-          </Button>
-          <Button asChild size="sm">
-            <Link href={'/register'}>{t.nav.register}</Link>
-          </Button>
+          <HeaderAuth t={t.nav} />
         </div>
       </div>
       <nav

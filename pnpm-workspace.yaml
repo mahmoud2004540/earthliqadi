@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - packages/*
+  - tests/e2e
 
 # Only these packages may run install scripts (native builds / engine downloads).
 onlyBuiltDependencies:

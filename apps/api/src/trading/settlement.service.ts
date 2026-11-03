@@ -9,7 +9,11 @@ import type { EngineEvent, Order, Prisma } from '@prisma/client';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { PrismaService } from '../infrastructure/prisma/prisma.service';
 import { toMinorUnits } from '../ledger/ledger-domain';
-import { LedgerService, type LedgerActor } from '../ledger/ledger.service';
+import {
+  LedgerService,
+  type LedgerActor,
+  type TransactionalAccounts,
+} from '../ledger/ledger.service';
 import { unitsOf, type MarketWithAssets } from './markets.service';
 import { baseAmount, feeFor, quoteAmount } from './order-math';
 import { isTerminal, nextStatus } from './order-state';
@@ -66,7 +70,11 @@ export class SettlementService {
   ) {}
 
   /** Settles all pending events for all markets. Returns the number of events processed. */
-  async processPending(batchSize = 200): Promise<number> {
+  /**
+   * Batches are kept small (50 events) so a settlement transaction holds user
+   * account locks only briefly; large batches measurably blocked order entry.
+   */
+  async processPending(batchSize = 50): Promise<number> {
     const markets = await this.prisma.market.findMany({
       include: { baseAsset: true, quoteAsset: true },
     });
@@ -82,8 +90,11 @@ export class SettlementService {
   }
 
   async processMarket(market: MarketWithAssets, batchSize: number): Promise<number> {
-    return this.prisma.$transaction(
+    let accounts: TransactionalAccounts | null = null;
+    const processed = await this.prisma.$transaction(
       async (tx) => {
+        accounts = this.ledger.transactionalAccounts(tx);
+        const acc = accounts;
         await tx.$executeRaw`
           INSERT INTO "settlement_state" ("market_id", "last_event_seq", "updated_at")
           VALUES (${market.id}::uuid, 0, now()) ON CONFLICT ("market_id") DO NOTHING`;
@@ -103,7 +114,7 @@ export class SettlementService {
               `Event gap in ${market.symbol}: expected ${last + 1n}, got ${event.seq}`,
             );
           }
-          await this.apply(tx, market, event);
+          await this.apply(tx, acc, market, event);
           last = event.seq;
         }
         if (events.length > 0) {
@@ -116,10 +127,13 @@ export class SettlementService {
       },
       { timeout: 60_000 },
     );
+    (accounts as TransactionalAccounts | null)?.commit(); // only after a successful commit
+    return processed;
   }
 
   private async apply(
     tx: Prisma.TransactionClient,
+    acc: TransactionalAccounts,
     market: MarketWithAssets,
     event: EngineEvent,
   ): Promise<void> {
@@ -145,6 +159,7 @@ export class SettlementService {
         const order = await this.order(tx, e.order_id);
         await this.close(
           tx,
+          acc,
           order,
           nextStatus(order.status, 'rejected'),
           { rejectReason: e.reason },
@@ -158,7 +173,7 @@ export class SettlementService {
         return;
       }
       case 'trade':
-        await this.settleTrade(tx, market, event, e);
+        await this.settleTrade(tx, acc, market, event, e);
         return;
       case 'filled': {
         const order = await this.order(tx, e.order_id);
@@ -167,7 +182,7 @@ export class SettlementService {
             `Order ${order.id} reported filled with ${order.filledLots}/${order.quantityLots}`,
           );
         }
-        await this.close(tx, order, nextStatus(order.status, 'filled'), {}, event);
+        await this.close(tx, acc, order, nextStatus(order.status, 'filled'), {}, event);
         return;
       }
       case 'cancelled': {
@@ -177,6 +192,7 @@ export class SettlementService {
         }
         await this.close(
           tx,
+          acc,
           order,
           nextStatus(order.status, 'cancelled'),
           { cancelReason: e.reason },
@@ -185,7 +201,7 @@ export class SettlementService {
         return;
       }
       case 'reduced':
-        await this.settleReduce(tx, market, event, e);
+        await this.settleReduce(tx, acc, market, event, e);
         return;
       case 'command_rejected':
         this.logger.debug({ orderId: e.order_id, reason: e.reason }, 'Engine rejected a command');
@@ -199,6 +215,7 @@ export class SettlementService {
 
   private async settleTrade(
     tx: Prisma.TransactionClient,
+    acc: TransactionalAccounts,
     market: MarketWithAssets,
     event: EngineEvent,
     e: Extract<EnginePayload, { type: 'trade' }>,
@@ -233,28 +250,28 @@ export class SettlementService {
       );
     }
 
-    const acc = (assetId: string, type: 'USER_AVAILABLE' | 'USER_LOCKED', userId: string) =>
-      this.ledger.ensureAccount(assetId, type, userId, tx);
+    const userAcc = (assetId: string, type: 'USER_AVAILABLE' | 'USER_LOCKED', userId: string) =>
+      acc.id(assetId, type, userId);
     const [buyerQuoteLocked, sellerQuoteAvail, sellerBaseLocked, buyerBaseAvail] =
       await Promise.all([
-        acc(market.quoteAssetId, 'USER_LOCKED', buyer.userId),
-        acc(market.quoteAssetId, 'USER_AVAILABLE', seller.userId),
-        acc(market.baseAssetId, 'USER_LOCKED', seller.userId),
-        acc(market.baseAssetId, 'USER_AVAILABLE', buyer.userId),
+        userAcc(market.quoteAssetId, 'USER_LOCKED', buyer.userId),
+        userAcc(market.quoteAssetId, 'USER_AVAILABLE', seller.userId),
+        userAcc(market.baseAssetId, 'USER_LOCKED', seller.userId),
+        userAcc(market.baseAssetId, 'USER_AVAILABLE', buyer.userId),
       ]);
     const postings = [
-      { accountId: buyerQuoteLocked.id, direction: 'DEBIT' as const, amount: quote },
-      { accountId: sellerQuoteAvail.id, direction: 'CREDIT' as const, amount: quote - sellerFee },
-      { accountId: sellerBaseLocked.id, direction: 'DEBIT' as const, amount: base },
-      { accountId: buyerBaseAvail.id, direction: 'CREDIT' as const, amount: base - buyerFee },
+      { accountId: buyerQuoteLocked, direction: 'DEBIT' as const, amount: quote },
+      { accountId: sellerQuoteAvail, direction: 'CREDIT' as const, amount: quote - sellerFee },
+      { accountId: sellerBaseLocked, direction: 'DEBIT' as const, amount: base },
+      { accountId: buyerBaseAvail, direction: 'CREDIT' as const, amount: base - buyerFee },
     ];
     if (sellerFee > 0n) {
-      const fee = await this.ledger.ensureAccount(market.quoteAssetId, 'FEE_REVENUE', null, tx);
-      postings.push({ accountId: fee.id, direction: 'CREDIT', amount: sellerFee });
+      const fee = await acc.id(market.quoteAssetId, 'FEE_REVENUE', null);
+      postings.push({ accountId: fee, direction: 'CREDIT', amount: sellerFee });
     }
     if (buyerFee > 0n) {
-      const fee = await this.ledger.ensureAccount(market.baseAssetId, 'FEE_REVENUE', null, tx);
-      postings.push({ accountId: fee.id, direction: 'CREDIT', amount: buyerFee });
+      const fee = await acc.id(market.baseAssetId, 'FEE_REVENUE', null);
+      postings.push({ accountId: fee, direction: 'CREDIT', amount: buyerFee });
     }
     const { entry } = await this.ledger.postWithin(
       tx,
@@ -284,6 +301,7 @@ export class SettlementService {
         buyerFee: buyerFee.toString(),
         sellerFee: sellerFee.toString(),
         journalEntryId: entry.id,
+        executedAt: event.createdAt,
       },
     });
 
@@ -313,6 +331,7 @@ export class SettlementService {
 
   private async settleReduce(
     tx: Prisma.TransactionClient,
+    acc: TransactionalAccounts,
     market: MarketWithAssets,
     event: EngineEvent,
     e: Extract<EnginePayload, { type: 'reduced' }>,
@@ -336,7 +355,7 @@ export class SettlementService {
     if (release > locked)
       throw new SettlementInvariantError(`Reduction releases more than held for ${order.id}`);
     if (release > 0n) {
-      await this.releaseFunds(tx, order, release, `order-reduce:${order.id}:${event.seq}`);
+      await this.releaseFunds(tx, acc, order, release, `order-reduce:${order.id}:${event.seq}`);
     }
     await tx.order.update({
       where: { id: order.id },
@@ -351,6 +370,7 @@ export class SettlementService {
   /** Terminal transition: releases whatever is still held for the order. */
   private async close(
     tx: Prisma.TransactionClient,
+    acc: TransactionalAccounts,
     order: Order,
     status: Order['status'],
     extra: { rejectReason?: string; cancelReason?: string },
@@ -360,7 +380,7 @@ export class SettlementService {
       throw new SettlementInvariantError(`close() called with non-terminal ${status}`);
     const locked = toMinorUnits(order.lockedRemaining);
     if (locked > 0n)
-      await this.releaseFunds(tx, order, locked, `order-release:${order.id}:${event.seq}`);
+      await this.releaseFunds(tx, acc, order, locked, `order-release:${order.id}:${event.seq}`);
     await tx.order.update({
       where: { id: order.id },
       data: { status, lockedRemaining: '0', ...extra },
@@ -369,22 +389,13 @@ export class SettlementService {
 
   private async releaseFunds(
     tx: Prisma.TransactionClient,
+    acc: TransactionalAccounts,
     order: Order,
     amount: bigint,
     key: string,
   ): Promise<void> {
-    const locked = await this.ledger.ensureAccount(
-      order.holdAssetId,
-      'USER_LOCKED',
-      order.userId,
-      tx,
-    );
-    const available = await this.ledger.ensureAccount(
-      order.holdAssetId,
-      'USER_AVAILABLE',
-      order.userId,
-      tx,
-    );
+    const locked = await acc.id(order.holdAssetId, 'USER_LOCKED', order.userId);
+    const available = await acc.id(order.holdAssetId, 'USER_AVAILABLE', order.userId);
     await this.ledger.postWithin(
       tx,
       {
@@ -392,8 +403,8 @@ export class SettlementService {
         idempotencyKey: key,
         description: `Release for order ${order.id}`,
         postings: [
-          { accountId: locked.id, direction: 'DEBIT', amount },
-          { accountId: available.id, direction: 'CREDIT', amount },
+          { accountId: locked, direction: 'DEBIT', amount },
+          { accountId: available, direction: 'CREDIT', amount },
         ],
       },
       SETTLEMENT_ACTOR,

@@ -5,3 +5,4 @@ export * from './api/errors';
 export * from './money/amount';
 export * from './ledger/types';
 export * from './trading/types';
+export * from './market-data/types';

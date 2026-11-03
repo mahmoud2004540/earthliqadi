@@ -1,4 +1,4 @@
-# Security controls and threat model (Phases 1–3)
+# Security controls and threat model (Phases 1–4)
 
 Scope: identity, sessions, access control, the HTTP surface and the ledger.
 Withdrawal fraud and market manipulation are modelled with the phases that
@@ -60,6 +60,18 @@ introduce withdrawals (8) and trading (3–6).
 | Trading during incidents                    | Market halt (new orders blocked, cancels allowed), audited                                                                 | e2e                |
 | Rewriting trading history                   | Command/event logs and trades immutable; market units immutable                                                            | e2e                |
 
+## Market data and WebSocket controls (Phase 4)
+
+| Threat                                           | Control                                                                                                                             | Verified by |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| Misleading data (phantom liquidity, fake volume) | Book, trades, candles and ticker derived only from settled orders/trades; nothing synthetic                                         | e2e         |
+| Silent staleness                                 | `delayed`/`halted` status pushed even without new events; terminal warning banners                                                  | e2e         |
+| Cross-site WebSocket hijacking                   | `Origin` must equal `WEB_ORIGIN` at the handshake                                                                                   | e2e         |
+| Private data leakage                             | Orders channel requires a session; only the user's own orders; revoked sessions disconnected (≤ 30 s)                               | e2e         |
+| Resource exhaustion                              | Per-IP connection cap, subscription cap, message rate limit, 4 KB frames, heartbeat termination                                     | e2e         |
+| Client IP spoofing on WebSockets                 | Same trusted-hop model as HTTP; the edge repeats `X-Forwarded-For` in the WS location (nginx header inheritance pitfall documented) | review      |
+| Float rounding in the UI                         | Totals and spreads computed with `bigint`; only the chart plots floats (visual only)                                                | unit + e2e  |
+
 ## Known limitations (must be resolved before any production use)
 
 1. **No production email transport.** Staging and production intentionally refuse to boot.
@@ -94,7 +106,9 @@ introduce withdrawals (8) and trading (3–6).
 15. **No per-user order rate limits or order-count caps yet** (only per-IP HTTP
     limits). Abuse protection for order entry is planned with the WebSocket
     API (Phase 4).
-16. **Reconciliation alerts are logs and audit entries only.** Paging and on-call
+16. **WebSocket limits are per API instance** (in-memory). Behind several instances,
+    per-IP caps multiply; a shared limiter (Redis) is needed for strict global caps.
+17. **Reconciliation alerts are logs and audit entries only.** Paging and on-call
     routing arrive with monitoring (Phase 7). Full-scan reconciliation will need
     an incremental design as volume grows.
 

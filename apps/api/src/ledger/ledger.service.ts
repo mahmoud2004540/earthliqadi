@@ -37,6 +37,12 @@ export interface LedgerActor {
   requestId?: string | null;
 }
 
+export interface TransactionalAccounts {
+  id(assetId: string, type: LedgerAccountType, ownerUserId: string | null): Promise<string>;
+  /** Call only after the transaction committed. */
+  commit(): void;
+}
+
 export interface PostOptions {
   audit?: Omit<AuditEvent, 'actorType' | 'actorUserId'>;
   metadata?: Record<string, unknown>;
@@ -199,6 +205,52 @@ export class LedgerService {
     return client.ledgerAccount.findUniqueOrThrow({
       where: { assetId_type_ownerKey: { assetId, type, ownerKey } },
     });
+  }
+
+  private readonly accountIdCache = new Map<string, string>();
+
+  /**
+   * Account id lookup with an in-process cache (hot path: order entry and
+   * settlement). Safe because accounts are never deleted and their identity is
+   * immutable (DB trigger). Creation always happens OUTSIDE any caller
+   * transaction, so a cached id can never refer to a rolled-back row; an unused
+   * empty account is harmless.
+   */
+  async accountId(
+    assetId: string,
+    type: LedgerAccountType,
+    ownerUserId: string | null,
+  ): Promise<string> {
+    const key = `${assetId}:${type}:${ownerUserId ?? SYSTEM_OWNER}`;
+    const cached = this.accountIdCache.get(key);
+    if (cached) return cached;
+    const account = await this.ensureAccount(assetId, type, ownerUserId);
+    this.accountIdCache.set(key, account.id);
+    return account.id;
+  }
+
+  /**
+   * Account resolution for code running INSIDE a transaction. Never call
+   * `accountId()` (which may use another pool connection) while holding a
+   * transaction: under load that starved the pool and deadlocked order entry
+   * against settlement (measured, Sprint 4). Missing accounts are created with
+   * the same transaction client and enter the shared cache only after commit.
+   */
+  transactionalAccounts(tx: Prisma.TransactionClient): TransactionalAccounts {
+    const pending = new Map<string, string>();
+    return {
+      id: async (assetId, type, ownerUserId) => {
+        const key = `${assetId}:${type}:${ownerUserId ?? SYSTEM_OWNER}`;
+        const hit = this.accountIdCache.get(key) ?? pending.get(key);
+        if (hit) return hit;
+        const account = await this.ensureAccount(assetId, type, ownerUserId, tx);
+        pending.set(key, account.id);
+        return account.id;
+      },
+      commit: () => {
+        for (const [key, id] of pending) this.accountIdCache.set(key, id);
+      },
+    };
   }
 
   // ------------------------------------------------------------------ posting

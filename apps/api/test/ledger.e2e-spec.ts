@@ -416,6 +416,58 @@ describe('database invariants (backstop for application bugs)', () => {
   });
 });
 
+describe('transaction-scoped account resolution', () => {
+  it('never needs a second pool connection while inside a transaction', async () => {
+    // Deterministic regression test for the Sprint 4 pool-starvation deadlock:
+    // with a pool of ONE connection, resolving a new account inside a transaction
+    // must use that transaction's connection (a second checkout would time out).
+    const { PrismaClient } = await import('@prisma/client');
+    const url = new URL(process.env.DATABASE_URL!);
+    url.searchParams.set('connection_limit', '1');
+    url.searchParams.set('pool_timeout', '2');
+    const single = new PrismaClient({ datasources: { db: { url: url.toString() } } });
+    try {
+      const scoped = new LedgerService(
+        single as unknown as PrismaService,
+        app.get(AuditService),
+        loadAppConfig(),
+      );
+      const userId = await newUser();
+      const code = await newAsset();
+      const asset = await scoped.requireAsset(code);
+      let resolved = '';
+      await single.$transaction(async (tx) => {
+        const accounts = scoped.transactionalAccounts(tx);
+        resolved = await accounts.id(asset.id, 'USER_AVAILABLE', userId);
+        expect(await accounts.id(asset.id, 'USER_AVAILABLE', userId)).toBe(resolved); // pending hit
+        accounts.commit();
+      });
+      expect(await prisma.ledgerAccount.findUnique({ where: { id: resolved } })).not.toBeNull();
+    } finally {
+      await single.$disconnect();
+    }
+  });
+
+  it('does not cache accounts created in a rolled-back transaction', async () => {
+    const userId = await newUser();
+    const code = await newAsset();
+    const asset = await ledger.requireAsset(code);
+    let createdId = '';
+    await expect(
+      prisma.$transaction(async (tx) => {
+        const accounts = ledger.transactionalAccounts(tx);
+        createdId = await accounts.id(asset.id, 'USER_LOCKED', userId);
+        throw new Error('rollback');
+      }),
+    ).rejects.toThrow('rollback');
+    expect(await prisma.ledgerAccount.findUnique({ where: { id: createdId } })).toBeNull();
+    // A later lookup creates a real account instead of returning the rolled-back id.
+    const real = await ledger.accountId(asset.id, 'USER_LOCKED', userId);
+    expect(real).not.toBe(createdId);
+    expect(await prisma.ledgerAccount.findUnique({ where: { id: real } })).not.toBeNull();
+  });
+});
+
 describe('reconciliation', () => {
   it('is OK after a random sequence of operations, and user funds equal simulated custody', async () => {
     const code = await newAsset(6);

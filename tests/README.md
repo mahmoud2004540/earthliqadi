@@ -12,4 +12,5 @@ Tests currently live next to the code they test:
 This top-level directory is reserved for cross-application suites:
 
 - `integration/`: multi-service tests (e.g. ledger ↔ matching engine, Phase 3+)
-- `e2e/`: browser tests (Playwright) against the Compose stack, to be added to CI
+- `e2e/`: Playwright browser tests against the Compose stack (`pnpm test:e2e`, CI job `e2e`). Each run creates its own market for isolation.
+- `load/order-flow.mjs`: order-flow load measurement (see `docs/operations/performance.md`)

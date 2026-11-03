@@ -128,6 +128,41 @@ jobs:
       - name: Validate compose file
         run: cp .env.example .env && docker compose config --quiet
 
+  e2e:
+    name: Browser end-to-end (Docker Compose stack + Playwright)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Start stack
+        run: cp .env.example .env && docker compose up --build -d
+      - name: Wait for edge, API readiness and engine
+        run: |
+          for i in $(seq 1 90); do
+            if curl -fsS http://localhost:3000/api/health/ready >/dev/null && curl -fsS http://localhost:3000/ >/dev/null \
+               && docker compose logs engine | grep -q '"engine ready"'; then exit 0; fi
+            sleep 2
+          done
+          docker compose ps; docker compose logs --tail 100; exit 1
+      - name: Install Chromium
+        run: pnpm --filter @platform/e2e exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: tests/e2e/playwright-report
+      - name: Stack logs on failure
+        if: failure()
+        run: docker compose logs --tail 300
+
   security:
     name: Dependency audit
     runs-on: ubuntu-24.04

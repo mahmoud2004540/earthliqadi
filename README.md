@@ -5,7 +5,7 @@ The final brand has not been chosen. The display name comes from configuration
 (`BRAND_NAME`, `NEXT_PUBLIC_BRAND_NAME`) and never appears in business logic or
 database identifiers.
 
-> **Status: pre-launch engineering (Phases 0–3 complete).**
+> **Status: pre-launch engineering (Phases 0–4 complete).**
 > Matching and settlement work end to end on **simulated** funds only. There is
 > no custody, no real deposits and no real money anywhere in this repository. Balances can only be funded with simulated test deposits in
 > local/CI environments. The platform is not licensed, audited or insured, and it offers no
@@ -34,6 +34,12 @@ database identifiers.
   startup. A durable PostgreSQL command/event log, and settlement into the
   ledger (one balanced entry per fill, fees). REST order API; the trading UI
   comes in Phase 4. See [ADR-0007](docs/decisions/0007-matching-engine.md).
+- **Market data & terminal** (Phase 4): order book, trades, candles and 24h
+  ticker derived only from settled state; WebSocket gateway with freshness
+  states; a trading terminal with TradingView Lightweight Charts; Playwright
+  end-to-end tests in CI; a load baseline. See
+  [ADR-0009](docs/decisions/0009-market-data.md) and
+  [performance](docs/operations/performance.md).
 - **Shared packages:** zod schemas and the RBAC catalogue (`packages/shared`),
   and environment validation (`packages/config`).
 - **Infrastructure:** Dockerfiles, a Compose stack with an nginx edge proxy, a CI
@@ -86,7 +92,8 @@ tests/              (reserved) cross-service integration and browser e2e suites
   [0005 shared validation](docs/decisions/0005-shared-zod-validation.md) ·
   [0006 ledger](docs/decisions/0006-double-entry-ledger.md) ·
   [0007 matching engine](docs/decisions/0007-matching-engine.md) ·
-  [0008 English-only UI](docs/decisions/0008-english-only-ui.md)
+  [0008 English-only UI](docs/decisions/0008-english-only-ui.md) ·
+  [0009 market data](docs/decisions/0009-market-data.md)
 - Security: [controls & threat model](docs/security/threat-model.md) ·
   [dependency policy](docs/security/dependency-policy.md) ·
   [incident response (draft)](docs/security/incident-response.md)

@@ -14,6 +14,8 @@ export default tseslint.config(
       '**/coverage/**',
       '**/next-env.d.ts',
       '**/*.config.{js,mjs,cjs}',
+      '**/playwright-report/**',
+      '**/test-results/**',
     ],
   },
   js.configs.recommended,
@@ -33,6 +35,12 @@ export default tseslint.config(
       'no-console': 'error',
       eqeqeq: ['error', 'always', { null: 'ignore' }],
     },
+  },
+  {
+    // Plain Node scripts (e.g. the load test) are linted without type information.
+    files: ['**/*.mjs'],
+    ...tseslint.configs.disableTypeChecked,
+    rules: { ...tseslint.configs.disableTypeChecked.rules, 'no-console': 'off' },
   },
   {
     // NestJS relies on runtime class references for dependency injection;

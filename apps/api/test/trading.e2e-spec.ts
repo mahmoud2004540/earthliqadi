@@ -528,6 +528,50 @@ describe('matching and settlement through the real engine', () => {
   });
 });
 
+describe('concurrency under load', () => {
+  it('does not starve the connection pool when order entry and settlement run concurrently', async () => {
+    // Smoke test for concurrent order entry + settlement. The deterministic
+    // regression test for the Sprint 4 pool-starvation bug lives in ledger.e2e-spec.ts.
+    const m = await newMarket({ makerFeeBps: 10, takerFeeBps: 20 });
+    const traders = await Promise.all(
+      Array.from({ length: 16 }, (_, i) =>
+        trader(
+          i % 2 === 0
+            ? [{ asset: m.base, amount: '10', scale: 8 }]
+            : [{ asset: m.quote, amount: '100000', scale: 6 }],
+        ),
+      ),
+    );
+    let settling = true;
+    const settler = (async () => {
+      while (settling) {
+        await settlement.processPending();
+        await sleep(5);
+      }
+    })();
+    const started = Date.now();
+    const results = await Promise.all(
+      Array.from({ length: 96 }, (_, i) => {
+        const t = traders[i % traders.length]!;
+        return place(t, {
+          market: m.symbol,
+          side: i % 2 === 0 ? 'sell' : 'buy',
+          type: 'limit',
+          price: '100',
+          quantity: '0.0001',
+        });
+      }),
+    );
+    expect(results.map((r) => r.status).filter((s) => s !== 202)).toEqual([]);
+    await until(() => settledUpTo(m.id));
+    settling = false;
+    await settler;
+    expect(Date.now() - started).toBeLessThan(30_000);
+    expect(await prisma.trade.count({ where: { marketId: m.id } })).toBe(48);
+    expect((await app.get(ReconciliationService).run('MANUAL')).status).toBe('OK');
+  });
+});
+
 describe('engine recovery', () => {
   it('replays and verifies state on restart, then continues processing', async () => {
     const m = await newMarket({ makerFeeBps: 0, takerFeeBps: 0 });

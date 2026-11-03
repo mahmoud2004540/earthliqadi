@@ -109,14 +109,13 @@ export class OrdersService {
 
     if (market.status !== 'ACTIVE')
       throw new AppError(HttpStatus.CONFLICT, 'CONFLICT', `Market ${market.symbol} is halted`);
-    const available = await this.ledger.ensureAccount(holdAsset.id, 'USER_AVAILABLE', userId);
-    const locked = await this.ledger.ensureAccount(holdAsset.id, 'USER_LOCKED', userId);
+    const available = await this.ledger.accountId(holdAsset.id, 'USER_AVAILABLE', userId);
+    const locked = await this.ledger.accountId(holdAsset.id, 'USER_LOCKED', userId);
     const orderId = randomUUID();
 
     try {
       const order = await this.prisma.$transaction(
         async (tx) => {
-          const seq = await this.nextCommandSeq(tx, market.id, true);
           const created = await tx.order.create({
             data: {
               id: orderId,
@@ -142,12 +141,16 @@ export class OrdersService {
               idempotencyKey: `order-hold:${orderId}`,
               description: `Hold for order ${orderId} on ${market.symbol}`,
               postings: [
-                { accountId: available.id, direction: 'DEBIT', amount: hold },
-                { accountId: locked.id, direction: 'CREDIT', amount: hold },
+                { accountId: available, direction: 'DEBIT', amount: hold },
+                { accountId: locked, direction: 'CREDIT', amount: hold },
               ],
             },
             { actorType: 'USER', actorUserId: userId, requestId: ctx.requestId },
           );
+          // Take the per-market sequence lock LAST: it is held until commit (keeping
+          // sequences gap-free and commit-ordered) but no longer serialises the
+          // order insert and fund hold of concurrent orders (measured: ADR-0007 notes).
+          const seq = await this.nextCommandSeq(tx, market.id, true);
           await this.enqueue(tx, market.id, seq, 'place', {
             type: 'place',
             order_id: orderId,

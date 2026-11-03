@@ -2,6 +2,8 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
   AmountError,
+  compareDecimal,
+  notional,
   MAX_MINOR_UNITS,
   formatAmount,
   formatAmountTrimmed,
@@ -80,5 +82,25 @@ describe('amount properties', () => {
         return a < b === fa < fb;
       }),
     );
+  });
+});
+
+describe('notional', () => {
+  it('computes exact quote totals', () => {
+    expect(notional('65000.01', '0.5', 8, 6)).toBe('32500.005');
+    expect(notional('0.1', '0.3', 8, 6)).toBe('0.03'); // no 0.30000000000000004
+    expect(notional('100', '0', 8, 6)).toBe('0');
+  });
+  it('returns null for invalid input', () => {
+    expect(notional('abc', '1', 8, 6)).toBeNull();
+    expect(notional('1', '0.000000001', 8, 6)).toBeNull();
+  });
+});
+
+describe('compareDecimal', () => {
+  it('compares exactly regardless of formatting', () => {
+    expect(compareDecimal('1.50', '1.5')).toBe(0);
+    expect(compareDecimal('0.1', '0.09')).toBe(1);
+    expect(compareDecimal('2', '10')).toBe(-1);
   });
 });

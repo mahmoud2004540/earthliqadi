@@ -13,3 +13,5 @@ coverage/
 playwright-report/
 test-results/
 *.rdb
+tests/e2e/playwright-report
+tests/e2e/test-results

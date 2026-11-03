@@ -101,6 +101,46 @@ price** for market and stop-market buys), `stopPrice` (stop types only), and
 Holds: buys hold `price × quantity` in quote; sells hold `quantity` in base.
 Fees (basis points, rounded down) are taken from the asset you receive.
 
+## Market data (Phase 4)
+
+Derived only from settled state ([ADR-0009](../decisions/0009-market-data.md)).
+Every snapshot carries `seq` (the settlement sequence) and a freshness `status`
+of `live`, `delayed` or `halted`.
+
+| Method | Path                          | Auth | Description                                                 |
+| ------ | ----------------------------- | ---- | ----------------------------------------------------------- |
+| GET    | `/v1/markets/tickers`         | —    | 24h ticker for every market                                 |
+| GET    | `/v1/markets/:symbol/ticker`  | —    | Last, 24h open/high/low/change/volume, best bid/ask, status |
+| GET    | `/v1/markets/:symbol/book`    | —    | L2 book `?depth=1..100` (`[price, quantity]` levels)        |
+| GET    | `/v1/markets/:symbol/trades`  | —    | Recent fills `?limit=` (price, quantity, taker side, time)  |
+| GET    | `/v1/markets/:symbol/candles` | —    | OHLCV `?interval=1m\|5m\|15m\|1h\|4h\|1d&limit=`            |
+
+### WebSocket `/ws` (through the edge: `/api/ws`)
+
+The `Origin` header must match the web origin.
+
+```jsonc
+// client → server
+{"op":"subscribe","channel":"book","market":"BTC-USDT"}
+{"op":"subscribe","channel":"candles","market":"BTC-USDT","interval":"1m"}
+{"op":"subscribe","channel":"orders","market":"BTC-USDT"}   // private: session cookie required
+{"op":"unsubscribe","channel":"book","market":"BTC-USDT"}
+{"op":"ping"}
+// server → client
+{"type":"book","data":{"market":"BTC-USDT","seq":"42","bids":[["99","1.5"]],"asks":[],"status":{"state":"live",...}}}
+{"type":"trades","market":"BTC-USDT","snapshot":false,"data":[{"seq":"43","price":"100","quantity":"0.5","takerSide":"buy","executedAt":"..."}]}
+{"type":"error","code":"UNAUTHENTICATED","message":"..."}
+```
+
+- The server sends a snapshot on subscribe, then a new snapshot whenever `seq`
+  advances or freshness changes. Trades are incremental after the first
+  snapshot.
+- Limits: 10 connections per IP, 50 subscriptions per connection, 20 messages
+  per second, 4 KB per message, heartbeat every 20 s. Private subscriptions are
+  closed (code `4401`) when the session ends.
+- After reconnecting, re-subscribe: the server answers with fresh snapshots
+  (there are no deltas to stitch).
+
 ## Example (curl through the edge)
 
 ```bash

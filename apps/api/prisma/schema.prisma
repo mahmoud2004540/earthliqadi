@@ -449,11 +449,14 @@ model Trade {
   buyerFee       Decimal   @map("buyer_fee") @db.Decimal(38, 0)
   sellerFee      Decimal   @map("seller_fee") @db.Decimal(38, 0)
   journalEntryId BigInt    @map("journal_entry_id")
+  /// When the engine produced the fill (engine event timestamp), used for candles.
+  executedAt     DateTime  @map("executed_at") @db.Timestamptz(3)
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
   market Market @relation(fields: [marketId], references: [id], onDelete: Restrict)
 
   @@unique([marketId, eventSeq])
+  @@index([marketId, executedAt])
   @@index([buyerUserId, createdAt])
   @@index([sellerUserId, createdAt])
   @@map("trades")

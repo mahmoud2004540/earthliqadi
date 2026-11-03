@@ -59,6 +59,35 @@ export function formatAmountTrimmed(minor: bigint, scale: number): string {
   return full.includes('.') ? full.replace(/\.?0+$/, '') : full;
 }
 
+/**
+ * Exact notional (quote amount) of `quantity` base units at `price` quote per
+ * base unit, as a decimal string at the quote scale. Returns null if either
+ * input is not a valid decimal for its asset. Rounds down only below the quote
+ * minor unit, which cannot happen for prices/quantities on a valid market grid.
+ */
+export function notional(
+  price: string,
+  quantity: string,
+  baseScale: number,
+  quoteScale: number,
+): string | null {
+  try {
+    const p = parseAmount(price, quoteScale);
+    const q = parseAmount(quantity, baseScale);
+    return formatAmountTrimmed((p * q) / 10n ** BigInt(baseScale), quoteScale);
+  } catch {
+    return null;
+  }
+}
+
+/** Compares two non-negative decimal strings exactly (-1, 0, 1). Invalid input throws AmountError. */
+export function compareDecimal(a: string, b: string): number {
+  const scale = Math.max(a.split('.')[1]?.length ?? 0, b.split('.')[1]?.length ?? 0, 0);
+  const x = parseAmount(a, Math.min(scale, MAX_ASSET_SCALE));
+  const y = parseAmount(b, Math.min(scale, MAX_ASSET_SCALE));
+  return x < y ? -1 : x > y ? 1 : 0;
+}
+
 /** Syntactic validation for API inputs; scale-aware parsing happens server-side. */
 export const amountStringSchema = z
   .string()

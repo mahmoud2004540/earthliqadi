@@ -103,6 +103,8 @@ export const apiEnvSchema = z
 
     SWAGGER_ENABLED: booleanString.default(false),
 
+    /** Milliseconds between market-data change checks for WebSocket pushes; 0 disables pushes. */
+    MARKET_DATA_POLL_MS: z.coerce.number().int().min(0).max(60_000).default(250),
     /** Seconds between scheduled ledger reconciliations; 0 disables the scheduler. */
     /** Milliseconds between settlement polls of engine events; 0 disables the poller. */
     SETTLEMENT_POLL_MS: z.coerce.number().int().min(0).max(60_000).default(250),
