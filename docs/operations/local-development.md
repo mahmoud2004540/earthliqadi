@@ -43,6 +43,24 @@ pnpm --filter @platform/api cli:grant-role -- --email you@example.test --role ad
 # Docker: docker compose exec api node dist/cli/grant-role.js --email … --role … --reason …
 ```
 
+## Test assets and simulated funds (local/CI only)
+
+No assets are seeded (listing an asset is a business decision). For local work:
+
+```bash
+# Docker:
+docker compose exec api node dist/cli/ledger.js create-asset --code BTC --name "Bitcoin (test asset)" --scale 8
+docker compose exec api node dist/cli/ledger.js sim-deposit --email you@example.test --asset BTC --amount 0.5
+docker compose exec api node dist/cli/ledger.js reconcile     # exit code 2 on mismatch
+# pnpm mode:
+pnpm --filter @platform/api build && pnpm --filter @platform/api cli:ledger -- reconcile
+```
+
+`sim-deposit` posts a `SIMULATED_DEPOSIT` against the `SIMULATED_CUSTODY`
+account. It is refused unless `DEPLOY_ENV` is `local` or `ci`, and it is
+audited. Reconciliation also runs every `LEDGER_RECONCILIATION_INTERVAL_SECONDS`
+(0 disables it).
+
 ## Quality checks
 
 ```bash

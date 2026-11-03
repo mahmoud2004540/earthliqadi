@@ -1,5 +1,5 @@
-// Phase 1 schema: identity, sessions, RBAC and audit.
-// Financial tables (ledger, balances, orders) are intentionally absent until Phase 2+.
+// Phase 1: identity, sessions, RBAC and audit. Phase 2: double-entry ledger.
+// Orders, markets and custody tables arrive in later phases.
 // Naming: models are PascalCase, tables/columns are snake_case via @@map/@map.
 
 generator client {
@@ -43,33 +43,34 @@ enum AuditOutcome {
 }
 
 model User {
-  id                 String      @id @default(uuid()) @db.Uuid
+  id              String      @id @default(uuid()) @db.Uuid
   /// Normalised (trimmed, lower-cased) email.
-  email              String      @unique @db.VarChar(254)
-  passwordHash       String      @map("password_hash")
-  status             UserStatus  @default(PENDING_VERIFICATION)
-  accountType        AccountType @default(INDIVIDUAL) @map("account_type")
-  locale             String      @default("en") @db.VarChar(8)
-  emailVerifiedAt    DateTime?   @map("email_verified_at") @db.Timestamptz(3)
+  email           String      @unique @db.VarChar(254)
+  passwordHash    String      @map("password_hash")
+  status          UserStatus  @default(PENDING_VERIFICATION)
+  accountType     AccountType @default(INDIVIDUAL) @map("account_type")
+  locale          String      @default("en") @db.VarChar(8)
+  emailVerifiedAt DateTime?   @map("email_verified_at") @db.Timestamptz(3)
 
   /// AES-256-GCM encrypted TOTP secret (iv|tag|ciphertext). Never returned by the API.
-  mfaTotpSecretEnc   Bytes?      @map("mfa_totp_secret_enc")
+  mfaTotpSecretEnc  Bytes?    @map("mfa_totp_secret_enc")
   /// Secret generated during enrolment, promoted to mfaTotpSecretEnc once confirmed.
-  mfaTotpPendingEnc  Bytes?      @map("mfa_totp_pending_enc")
-  mfaEnabledAt       DateTime?   @map("mfa_enabled_at") @db.Timestamptz(3)
+  mfaTotpPendingEnc Bytes?    @map("mfa_totp_pending_enc")
+  mfaEnabledAt      DateTime? @map("mfa_enabled_at") @db.Timestamptz(3)
   /// Last accepted TOTP time-step; prevents code replay.
-  mfaLastUsedStep    BigInt?     @map("mfa_last_used_step")
+  mfaLastUsedStep   BigInt?   @map("mfa_last_used_step")
 
-  failedLoginCount   Int         @default(0) @map("failed_login_count")
-  lockedUntil        DateTime?   @map("locked_until") @db.Timestamptz(3)
-  passwordChangedAt  DateTime    @default(now()) @map("password_changed_at") @db.Timestamptz(3)
-  createdAt          DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt          DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  failedLoginCount  Int       @default(0) @map("failed_login_count")
+  lockedUntil       DateTime? @map("locked_until") @db.Timestamptz(3)
+  passwordChangedAt DateTime  @default(now()) @map("password_changed_at") @db.Timestamptz(3)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  sessions           Session[]
-  tokens             VerificationToken[]
-  roles              UserRole[]  @relation("UserRoles")
-  grantedRoles       UserRole[]  @relation("RoleGrants")
+  sessions       Session[]
+  tokens         VerificationToken[]
+  roles          UserRole[]          @relation("UserRoles")
+  grantedRoles   UserRole[]          @relation("RoleGrants")
+  ledgerAccounts LedgerAccount[]
 
   @@map("users")
 }
@@ -111,13 +112,13 @@ model VerificationToken {
 }
 
 model Role {
-  id          String           @id @default(uuid()) @db.Uuid
-  key         String           @unique @db.VarChar(64)
-  name        String           @db.VarChar(128)
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique @db.VarChar(64)
+  name        String   @db.VarChar(128)
   description String
-  isStaff     Boolean          @default(false) @map("is_staff")
-  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  isStaff     Boolean  @default(false) @map("is_staff")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   permissions RolePermission[]
   users       UserRole[]
@@ -126,8 +127,8 @@ model Role {
 }
 
 model Permission {
-  id          String           @id @default(uuid()) @db.Uuid
-  key         String           @unique @db.VarChar(64)
+  id          String @id @default(uuid()) @db.Uuid
+  key         String @unique @db.VarChar(64)
   description String
 
   roles RolePermission[]
@@ -181,4 +182,147 @@ model AuditLog {
   @@index([action, occurredAt])
   @@index([targetType, targetId])
   @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: double-entry ledger (see docs/decisions/0006-double-entry-ledger.md)
+// Amounts are integer minor units in NUMERIC(38,0); never floating point.
+// Invariants (balanced entries, immutability, balance projection, non-negative
+// balances) are enforced by database triggers/constraints in the migration.
+// ---------------------------------------------------------------------------
+
+enum AssetStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum LedgerAccountType {
+  USER_AVAILABLE
+  USER_LOCKED
+  FEE_REVENUE
+  SUSPENSE
+  SIMULATED_CUSTODY
+}
+
+enum PostingDirection {
+  DEBIT
+  CREDIT
+}
+
+enum JournalEntryType {
+  SIMULATED_DEPOSIT
+  BALANCE_HOLD
+  BALANCE_RELEASE
+  REVERSAL
+}
+
+enum ReconciliationStatus {
+  OK
+  MISMATCH
+}
+
+enum ReconciliationTrigger {
+  SCHEDULED
+  MANUAL
+  CLI
+}
+
+model Asset {
+  id        String      @id @default(uuid()) @db.Uuid
+  /// Upper-case ticker-like code, unique (e.g. BTC). Not a listing claim.
+  code      String      @unique @db.VarChar(16)
+  name      String      @db.VarChar(64)
+  /// Number of decimal places of the minor unit (BTC = 8, ETH = 18).
+  scale     Int
+  status    AssetStatus @default(ACTIVE)
+  createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  accounts LedgerAccount[]
+  postings Posting[]
+
+  @@map("assets")
+}
+
+model LedgerAccount {
+  id            String            @id @default(uuid()) @db.Uuid
+  assetId       String            @map("asset_id") @db.Uuid
+  type          LedgerAccountType
+  ownerUserId   String?           @map("owner_user_id") @db.Uuid
+  /// owner_user_id as text, or 'system'. Makes (asset, type, owner) uniquely addressable.
+  ownerKey      String            @map("owner_key") @db.VarChar(36)
+  normalSide    PostingDirection  @map("normal_side")
+  allowNegative Boolean           @default(false) @map("allow_negative")
+  /// Projection maintained ONLY by the posting trigger. Minor units.
+  balance       Decimal           @default(0) @db.Decimal(38, 0)
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  asset    Asset     @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  owner    User?     @relation(fields: [ownerUserId], references: [id], onDelete: Restrict)
+  postings Posting[]
+
+  @@unique([assetId, type, ownerKey])
+  @@index([ownerUserId])
+  @@map("ledger_accounts")
+}
+
+/// Immutable. Corrections are new entries (reversals), never edits.
+model JournalEntry {
+  id              BigInt           @id @default(autoincrement())
+  type            JournalEntryType
+  idempotencyKey  String           @unique @map("idempotency_key") @db.VarChar(128)
+  /// SHA-256 of the canonical request; detects key reuse with a different payload.
+  fingerprint     String           @db.Char(64)
+  description     String           @db.VarChar(256)
+  reversesEntryId BigInt?          @unique @map("reverses_entry_id")
+  actorType       ActorType        @map("actor_type")
+  actorUserId     String?          @map("actor_user_id") @db.Uuid
+  requestId       String?          @map("request_id") @db.VarChar(64)
+  metadata        Json             @default("{}")
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  reverses   JournalEntry? @relation("Reversal", fields: [reversesEntryId], references: [id], onDelete: Restrict)
+  reversedBy JournalEntry? @relation("Reversal")
+  postings   Posting[]
+
+  @@index([type, createdAt])
+  @@map("journal_entries")
+}
+
+/// Immutable.
+model Posting {
+  id        BigInt           @id @default(autoincrement())
+  entryId   BigInt           @map("entry_id")
+  accountId String           @map("account_id") @db.Uuid
+  /// Denormalised from the account (checked by trigger) for per-asset balancing.
+  assetId   String           @map("asset_id") @db.Uuid
+  direction PostingDirection
+  amount    Decimal          @db.Decimal(38, 0)
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  entry   JournalEntry  @relation(fields: [entryId], references: [id], onDelete: Restrict)
+  account LedgerAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  asset   Asset         @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@index([entryId])
+  @@index([accountId, id])
+  @@map("postings")
+}
+
+/// Append-only record of every reconciliation run.
+model LedgerReconciliationRun {
+  id              String                @id @default(uuid()) @db.Uuid
+  trigger         ReconciliationTrigger
+  status          ReconciliationStatus
+  startedAt       DateTime              @map("started_at") @db.Timestamptz(3)
+  finishedAt      DateTime              @map("finished_at") @db.Timestamptz(3)
+  accountsChecked Int                   @map("accounts_checked")
+  entriesChecked  Int                   @map("entries_checked")
+  /// Structured list of discrepancies (empty when OK).
+  findings        Json                  @default("[]")
+  actorUserId     String?               @map("actor_user_id") @db.Uuid
+
+  @@index([startedAt])
+  @@map("ledger_reconciliation_runs")
 }

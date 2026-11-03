@@ -7,8 +7,8 @@ tests, security review and documentation are done.
 | ----- | ---------------------------------------------------------- | ------------ |
 | 0     | Architecture and repository foundation                     | **Complete** |
 | 1     | Frontend, backend, authentication, database, Docker, CI    | **Complete** |
-| 2     | Financial ledger and accounting                            | Next         |
-| 3     | Spot matching engine (Rust)                                | Planned      |
+| 2     | Financial ledger and accounting                            | **Complete** |
+| 3     | Spot matching engine (Rust)                                | Next         |
 | 4     | Market data and professional trading terminal              | Planned      |
 | 5     | Spot paper trading and simulation                          | Planned      |
 | 6     | Perpetual futures and risk simulation                      | Planned      |
@@ -33,32 +33,43 @@ tests, security review and documentation are done.
 - [x] Docker images, Compose stack with an edge proxy, CI pipeline, dependency audit
 - [x] Architecture, ADR, security, API and operations documentation
 
-## Sprint 2 plan: Phase 2, the financial ledger
+## Phase 2 acceptance criteria (Sprint 2)
 
-**Goal:** a double-entry ledger that can be shown to be correct before any trading
-code exists.
+- [x] ADR for amounts, chart of accounts, posting algorithm, corrections and reconciliation ([ADR-0006](../decisions/0006-double-entry-ledger.md))
+- [x] Integer minor units in `NUMERIC(38,0)` / `bigint`; exact decimal parsing that never rounds (property-tested)
+- [x] Asset registry with immutable code and scale; enable/disable; audited configuration
+- [x] Journal entries and postings, balanced per asset, enforced by a deferred database constraint
+- [x] Immutable journal, postings and reconciliation runs; balances change only through postings (DB triggers)
+- [x] Non-negative balances, enforced by an application pre-check and a database CHECK
+- [x] Deterministic lock order (no deadlocks); idempotency keys with request fingerprints
+- [x] Holds and releases (available ↔ locked) ready for the order system
+- [x] Reversals as the only correction mechanism; at most one reversal per entry
+- [x] Reconciliation (projection, per-entry balance, trial balance, negative balances): scheduled, manual and CLI; append-only results
+- [x] User balances and history API and dashboard (EN/AR); staff read API with audited access
+- [x] Simulated deposits for development only, refused outside `local`/`ci`
+- [x] Tests: property-based, concurrency, idempotency races, DB invariants, reconciliation tamper detection
 
-1. **Design (ADR):** chart of accounts (user available/locked, fees, suspense,
-   external custody, insurance fund), asset registry with per-asset precision, and
-   a fixed-precision decimal representation. The candidate is integer minor units
-   in `NUMERIC(38,0)` with a per-asset scale. `number` is never used for amounts.
-2. **Schema:** `assets`, `ledger_accounts`, `journal_entries`, `postings`, and
-   `balances` as a projection. Constraints: postings in each journal entry sum to
-   zero per asset (deferred constraint trigger). Journal tables are
-   immutable (same trigger pattern as audit). Idempotency key is unique per
-   operation type.
-3. **Ledger service:** `post(entry)` in a single serializable transaction or with
-   row-level locking (`SELECT … FOR UPDATE`) on affected balance rows, in a
-   deterministic lock order to avoid deadlocks. It must never allow negative
-   available balances, and it supports hold/release (available→locked) for
-   future orders.
-4. **Corrections:** only via compensating entries that reference the original.
-5. **Reconciliation:** a job that recomputes balances from postings and compares
-   them with the projection. Mismatches raise alerts and block withdrawals.
-6. **Tests:** property-based tests (random operation sequences keep invariants),
-   concurrency tests (parallel postings on one account must never overdraw), an
-   idempotency test (replayed keys post once), and reconciliation tests.
-7. **Admin read API:** ledger inquiry gated by `reports:read`, with every access
-   audited.
-8. **Out of scope:** deposits/withdrawals (Phase 8), matching (Phase 3), and any
-   UI beyond read-only balances.
+## Sprint 3 plan: Phase 3, spot matching engine
+
+**Goal:** a deterministic, independently testable matching engine. It never
+touches balances; the ledger settles its output.
+
+1. **ADR:** engine boundaries; the command/event protocol (an append-only input
+   log with sequence numbers); recovery by snapshot plus replay; how the
+   API ↔ engine transport starts (in-process queue vs TCP vs Redpanda; the
+   simplest option that is durable and measured).
+2. **Market registry:** symbol, base/quote asset, tick size, lot size, min/max
+   notional, and status (configured via `markets:configure`, audited).
+3. **Rust crate `services/matching-engine`:** order book per market,
+   price-time priority, limit, market and stop (trigger) orders,
+   partial fills, cancel, amend (price change = cancel/replace; size reduce in
+   place), self-trade prevention, and fixed-point integer prices and quantities.
+4. **Order state machine:** `NEW → OPEN → PARTIALLY_FILLED → FILLED | CANCELLED | REJECTED | EXPIRED`,
+   with every transition an event.
+5. **Settlement:** the API holds funds before an order is accepted; each fill
+   becomes one balanced multi-asset journal entry (base and quote legs plus fee),
+   with idempotency key `fill:<market>:<sequence>`; releases on cancel.
+6. **Tests:** deterministic replay (same input log ⇒ byte-identical events),
+   property tests (no crossed book, conservation of quantity, price-time order),
+   fuzzing of the command parser, and a ledger settlement integration test.
+7. **Out of scope:** market data fan-out and trading UI (Phase 4), perpetuals (Phase 6).

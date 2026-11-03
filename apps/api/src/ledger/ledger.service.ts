@@ -1,0 +1,573 @@
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
+import {
+  Prisma,
+  type ActorType,
+  type Asset,
+  type JournalEntry,
+  type LedgerAccount,
+  type LedgerAccountType,
+  type PostingDirection,
+} from '@prisma/client';
+import {
+  formatAmount,
+  type AssetDto,
+  type BalanceDto,
+  type LedgerHistoryItemDto,
+} from '@platform/shared';
+import { randomUUID } from 'node:crypto';
+import { AuditService, type AuditEvent } from '../audit/audit.service';
+import { AppError } from '../common/app-error';
+import { APP_CONFIG, type AppConfig } from '../config/app-config';
+import { PrismaService } from '../infrastructure/prisma/prisma.service';
+import {
+  ACCOUNT_SPECS,
+  assertBalancedPerAsset,
+  balanceDelta,
+  fingerprintOf,
+  mirrorPostings,
+  toMinorUnits,
+  validateEntryRequest,
+  type EntryRequest,
+  type PostingRequest,
+} from './ledger-domain';
+
+export interface LedgerActor {
+  actorType: ActorType;
+  actorUserId?: string | null;
+  requestId?: string | null;
+}
+
+export interface PostResult {
+  entry: JournalEntry;
+  /** True when an identical request with the same idempotency key was already posted. */
+  replayed: boolean;
+}
+
+interface LockedAccountRow {
+  id: string;
+  asset_id: string;
+  normal_side: PostingDirection;
+  allow_negative: boolean;
+  balance: string;
+}
+
+const SYSTEM_OWNER = 'system';
+
+function insufficientFunds(): AppError {
+  return new AppError(
+    HttpStatus.UNPROCESSABLE_ENTITY,
+    'INSUFFICIENT_FUNDS',
+    'Insufficient available balance',
+  );
+}
+
+function prismaErrorText(err: unknown): string {
+  if (err instanceof Error) {
+    const meta = (err as { meta?: unknown }).meta;
+    return `${err.message} ${meta ? JSON.stringify(meta) : ''}`;
+  }
+  return String(err);
+}
+
+function isUniqueViolationOn(err: unknown, column: string): boolean {
+  if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') return false;
+  const target = (err.meta as { target?: unknown } | undefined)?.target;
+  if (Array.isArray(target)) return target.includes(column);
+  return typeof target === 'string' && target.includes(column);
+}
+
+/**
+ * The double-entry ledger (ADR-0006). This service is the only writer of
+ * journal entries. All amounts are bigint minor units.
+ */
+@Injectable()
+export class LedgerService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
+  ) {}
+
+  // ------------------------------------------------------------------ assets
+
+  async createAsset(
+    input: { code: string; name: string; scale: number },
+    actor: LedgerActor,
+  ): Promise<Asset> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const asset = await tx.asset.create({ data: input });
+        await this.audit.record(
+          {
+            action: 'ledger.asset.created',
+            outcome: 'SUCCESS',
+            actorType: actor.actorType,
+            actorUserId: actor.actorUserId ?? null,
+            targetType: 'asset',
+            targetId: asset.code,
+            context: { requestId: actor.requestId ?? null },
+            metadata: { name: asset.name, scale: asset.scale },
+          },
+          tx,
+        );
+        return asset;
+      });
+    } catch (err) {
+      if (isUniqueViolationOn(err, 'code')) {
+        throw new AppError(
+          HttpStatus.CONFLICT,
+          'CONFLICT',
+          'An asset with this code already exists',
+        );
+      }
+      throw err;
+    }
+  }
+
+  async setAssetStatus(
+    code: string,
+    status: 'ACTIVE' | 'DISABLED',
+    actor: LedgerActor,
+  ): Promise<Asset> {
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.asset.findUnique({ where: { code } });
+      if (!existing) throw AppError.notFound('Asset not found');
+      const asset = await tx.asset.update({ where: { code }, data: { status } });
+      await this.audit.record(
+        {
+          action: 'ledger.asset.status_changed',
+          outcome: 'SUCCESS',
+          actorType: actor.actorType,
+          actorUserId: actor.actorUserId ?? null,
+          targetType: 'asset',
+          targetId: code,
+          context: { requestId: actor.requestId ?? null },
+          metadata: { from: existing.status, to: status },
+        },
+        tx,
+      );
+      return asset;
+    });
+  }
+
+  listAssets(onlyActive: boolean): Promise<Asset[]> {
+    return this.prisma.asset.findMany({
+      where: onlyActive ? { status: 'ACTIVE' } : {},
+      orderBy: { code: 'asc' },
+    });
+  }
+
+  toAssetDto(asset: Asset): AssetDto {
+    return { code: asset.code, name: asset.name, scale: asset.scale, status: asset.status };
+  }
+
+  async requireAsset(code: string, mustBeActive = true): Promise<Asset> {
+    const asset = await this.prisma.asset.findUnique({ where: { code } });
+    if (!asset) throw AppError.notFound(`Unknown asset ${code}`);
+    if (mustBeActive && asset.status !== 'ACTIVE') {
+      throw new AppError(HttpStatus.CONFLICT, 'CONFLICT', `Asset ${code} is disabled`);
+    }
+    return asset;
+  }
+
+  // ---------------------------------------------------------------- accounts
+
+  /** Returns the account, creating it (with zero balance) if needed. Race-safe. */
+  async ensureAccount(
+    assetId: string,
+    type: LedgerAccountType,
+    ownerUserId: string | null,
+  ): Promise<LedgerAccount> {
+    const spec = ACCOUNT_SPECS[type];
+    if (spec.userOwned !== (ownerUserId !== null)) {
+      throw new Error(
+        `Account type ${type} ${spec.userOwned ? 'requires' : 'must not have'} an owner`,
+      );
+    }
+    const ownerKey = ownerUserId ?? SYSTEM_OWNER;
+    await this.prisma.$executeRaw`
+      INSERT INTO "ledger_accounts" ("id", "asset_id", "type", "owner_user_id", "owner_key", "normal_side", "allow_negative", "updated_at")
+      VALUES (${randomUUID()}::uuid, ${assetId}::uuid, ${type}::"LedgerAccountType", ${ownerUserId}::uuid, ${ownerKey},
+              ${spec.normalSide}::"PostingDirection", ${spec.allowNegative}, now())
+      ON CONFLICT ("asset_id", "type", "owner_key") DO NOTHING`;
+    return this.prisma.ledgerAccount.findUniqueOrThrow({
+      where: { assetId_type_ownerKey: { assetId, type, ownerKey } },
+    });
+  }
+
+  // ------------------------------------------------------------------ posting
+
+  /**
+   * Posts a balanced journal entry atomically (ADR-0006 posting algorithm).
+   * Idempotent: replaying the same key with the same content returns the
+   * original entry; the same key with different content is rejected.
+   */
+  async post(
+    req: EntryRequest,
+    actor: LedgerActor,
+    options: {
+      audit?: Omit<AuditEvent, 'actorType' | 'actorUserId'>;
+      metadata?: Record<string, unknown>;
+    } = {},
+  ): Promise<PostResult> {
+    const postings = validateEntryRequest(req);
+    const fingerprint = fingerprintOf(req);
+
+    const existing = await this.prisma.journalEntry.findUnique({
+      where: { idempotencyKey: req.idempotencyKey },
+    });
+    if (existing) return this.replay(existing, fingerprint);
+
+    try {
+      const entry = await this.prisma.$transaction(
+        async (tx) => {
+          const accountIds = postings.map((p) => p.accountId);
+          // Lock in id order: every writer uses the same order, so no deadlocks.
+          const rows = await tx.$queryRaw<LockedAccountRow[]>`
+            SELECT "id", "asset_id", "normal_side", "allow_negative", "balance"::text AS "balance"
+              FROM "ledger_accounts"
+             WHERE "id" = ANY(${accountIds}::uuid[])
+             ORDER BY "id"
+               FOR UPDATE`;
+          if (rows.length !== accountIds.length)
+            throw AppError.notFound('Ledger account not found');
+          const byId = new Map(rows.map((r) => [r.id, r]));
+
+          const withAssets = postings.map((p) => ({
+            ...p,
+            assetId: byId.get(p.accountId)!.asset_id,
+          }));
+          assertBalancedPerAsset(withAssets);
+
+          for (const p of postings) {
+            const row = byId.get(p.accountId)!;
+            const next =
+              toMinorUnits(row.balance) + balanceDelta(row.normal_side, p.direction, p.amount);
+            if (!row.allow_negative && next < 0n) throw insufficientFunds();
+          }
+
+          const created = await tx.journalEntry.create({
+            data: {
+              type: req.type,
+              idempotencyKey: req.idempotencyKey,
+              fingerprint,
+              description: req.description,
+              reversesEntryId: req.reversesEntryId ?? null,
+              actorType: actor.actorType,
+              actorUserId: actor.actorUserId ?? null,
+              requestId: actor.requestId ?? null,
+              metadata: (options.metadata ?? {}) as Prisma.InputJsonValue,
+            },
+          });
+          await tx.posting.createMany({
+            data: withAssets.map((p) => ({
+              entryId: created.id,
+              accountId: p.accountId,
+              assetId: p.assetId,
+              direction: p.direction,
+              amount: p.amount.toString(),
+            })),
+          });
+          if (options.audit) {
+            await this.audit.record(
+              {
+                ...options.audit,
+                actorType: actor.actorType,
+                actorUserId: actor.actorUserId ?? null,
+                metadata: { ...options.audit.metadata, entryId: created.id.toString() },
+              },
+              tx,
+            );
+          }
+          return created;
+        },
+        { timeout: 15_000 },
+      );
+      return { entry, replayed: false };
+    } catch (err) {
+      if (isUniqueViolationOn(err, 'idempotency_key')) {
+        // Lost a race with an identical request: resolve to the committed entry.
+        const winner = await this.prisma.journalEntry.findUniqueOrThrow({
+          where: { idempotencyKey: req.idempotencyKey },
+        });
+        return this.replay(winner, fingerprint);
+      }
+      if (isUniqueViolationOn(err, 'reverses_entry_id')) {
+        throw new AppError(HttpStatus.CONFLICT, 'CONFLICT', 'This entry has already been reversed');
+      }
+      // Database backstop for non-negative balances (should be pre-empted above).
+      if (prismaErrorText(err).includes('ledger_accounts_non_negative_chk'))
+        throw insufficientFunds();
+      throw err;
+    }
+  }
+
+  private replay(entry: JournalEntry, fingerprint: string): PostResult {
+    if (entry.fingerprint !== fingerprint) {
+      throw new AppError(
+        HttpStatus.CONFLICT,
+        'IDEMPOTENCY_CONFLICT',
+        'Idempotency key was already used for a different request',
+      );
+    }
+    return { entry, replayed: true };
+  }
+
+  // ----------------------------------------------------- business operations
+
+  private async userAccounts(userId: string, assetCode: string) {
+    const asset = await this.requireAsset(assetCode);
+    const available = await this.ensureAccount(asset.id, 'USER_AVAILABLE', userId);
+    const locked = await this.ensureAccount(asset.id, 'USER_LOCKED', userId);
+    return { asset, available, locked };
+  }
+
+  /** Moves funds from available to locked (e.g. for an open order). */
+  async hold(
+    params: {
+      userId: string;
+      assetCode: string;
+      amount: bigint;
+      idempotencyKey: string;
+      description: string;
+    },
+    actor: LedgerActor,
+  ): Promise<PostResult> {
+    const { available, locked } = await this.userAccounts(params.userId, params.assetCode);
+    return this.post(
+      {
+        type: 'BALANCE_HOLD',
+        idempotencyKey: params.idempotencyKey,
+        description: params.description,
+        postings: [
+          { accountId: available.id, direction: 'DEBIT', amount: params.amount },
+          { accountId: locked.id, direction: 'CREDIT', amount: params.amount },
+        ],
+      },
+      actor,
+    );
+  }
+
+  /** Moves funds from locked back to available. */
+  async release(
+    params: {
+      userId: string;
+      assetCode: string;
+      amount: bigint;
+      idempotencyKey: string;
+      description: string;
+    },
+    actor: LedgerActor,
+  ): Promise<PostResult> {
+    const { available, locked } = await this.userAccounts(params.userId, params.assetCode);
+    return this.post(
+      {
+        type: 'BALANCE_RELEASE',
+        idempotencyKey: params.idempotencyKey,
+        description: params.description,
+        postings: [
+          { accountId: locked.id, direction: 'DEBIT', amount: params.amount },
+          { accountId: available.id, direction: 'CREDIT', amount: params.amount },
+        ],
+      },
+      actor,
+    );
+  }
+
+  /**
+   * DEVELOPMENT ONLY: credits a user with simulated funds. Refused outside
+   * DEPLOY_ENV=local|ci so it can never mint balances in staging/production.
+   */
+  async simulatedDeposit(
+    params: { userId: string; assetCode: string; amount: bigint; idempotencyKey: string },
+    actor: LedgerActor,
+  ): Promise<PostResult> {
+    if (this.config.DEPLOY_ENV !== 'local' && this.config.DEPLOY_ENV !== 'ci') {
+      throw AppError.forbidden(
+        'Simulated deposits are only available in local and CI environments',
+      );
+    }
+    const { asset, available } = await this.userAccounts(params.userId, params.assetCode);
+    const custody = await this.ensureAccount(asset.id, 'SIMULATED_CUSTODY', null);
+    return this.post(
+      {
+        type: 'SIMULATED_DEPOSIT',
+        idempotencyKey: params.idempotencyKey,
+        description: `Simulated deposit (development only) of ${formatAmount(params.amount, asset.scale)} ${asset.code}`,
+        postings: [
+          { accountId: custody.id, direction: 'DEBIT', amount: params.amount },
+          { accountId: available.id, direction: 'CREDIT', amount: params.amount },
+        ],
+      },
+      actor,
+      {
+        audit: {
+          action: 'ledger.simulated_deposit',
+          outcome: 'SUCCESS',
+          targetType: 'user',
+          targetId: params.userId,
+          context: { requestId: actor.requestId ?? null },
+          metadata: { asset: asset.code, amount: formatAmount(params.amount, asset.scale) },
+        },
+      },
+    );
+  }
+
+  /** Posts the mirror image of an entry. Each entry can be reversed once; reversals cannot be reversed. */
+  async reverse(
+    params: { entryId: bigint; reason: string; idempotencyKey: string },
+    actor: LedgerActor,
+  ): Promise<PostResult> {
+    const original = await this.prisma.journalEntry.findUnique({
+      where: { id: params.entryId },
+      include: { postings: true },
+    });
+    if (!original) throw AppError.notFound('Journal entry not found');
+    const existingReversal = await this.prisma.journalEntry.findUnique({
+      where: { reversesEntryId: original.id },
+      select: { id: true, idempotencyKey: true },
+    });
+    if (existingReversal && existingReversal.idempotencyKey !== params.idempotencyKey) {
+      throw new AppError(HttpStatus.CONFLICT, 'CONFLICT', 'This entry has already been reversed');
+    }
+    if (original.type === 'REVERSAL') {
+      throw new AppError(
+        HttpStatus.CONFLICT,
+        'CONFLICT',
+        'Reversal entries cannot be reversed; post a new entry',
+      );
+    }
+    const postings: PostingRequest[] = original.postings.map((p) => ({
+      accountId: p.accountId,
+      direction: p.direction,
+      amount: toMinorUnits(p.amount),
+    }));
+    return this.post(
+      {
+        type: 'REVERSAL',
+        idempotencyKey: params.idempotencyKey,
+        description: `Reversal of entry ${original.id}: ${params.reason}`.slice(0, 256),
+        reversesEntryId: original.id,
+        postings: mirrorPostings(postings),
+      },
+      actor,
+      {
+        audit: {
+          action: 'ledger.entry.reversed',
+          outcome: 'SUCCESS',
+          targetType: 'journal_entry',
+          targetId: original.id.toString(),
+          context: { requestId: actor.requestId ?? null },
+          metadata: { reason: params.reason },
+        },
+      },
+    );
+  }
+
+  // ---------------------------------------------------------------- queries
+
+  /** Balances for every active asset (zero if the user has no account yet). */
+  async balancesForUser(userId: string): Promise<BalanceDto[]> {
+    const [assets, accounts] = await Promise.all([
+      this.prisma.asset.findMany({ orderBy: { code: 'asc' } }),
+      this.prisma.ledgerAccount.findMany({ where: { ownerUserId: userId } }),
+    ]);
+    const result: BalanceDto[] = [];
+    for (const asset of assets) {
+      const mine = accounts.filter((a) => a.assetId === asset.id);
+      const available = toMinorUnits(mine.find((a) => a.type === 'USER_AVAILABLE')?.balance ?? '0');
+      const locked = toMinorUnits(mine.find((a) => a.type === 'USER_LOCKED')?.balance ?? '0');
+      if (asset.status !== 'ACTIVE' && available === 0n && locked === 0n) continue;
+      result.push({
+        asset: asset.code,
+        name: asset.name,
+        scale: asset.scale,
+        available: formatAmount(available, asset.scale),
+        locked: formatAmount(locked, asset.scale),
+        total: formatAmount(available + locked, asset.scale),
+      });
+    }
+    return result;
+  }
+
+  async historyForUser(
+    userId: string,
+    query: { limit: number; before?: string },
+  ): Promise<{ items: LedgerHistoryItemDto[]; nextBefore: string | null }> {
+    const postings = await this.prisma.posting.findMany({
+      where: {
+        account: { ownerUserId: userId },
+        ...(query.before ? { id: { lt: BigInt(query.before) } } : {}),
+      },
+      orderBy: { id: 'desc' },
+      take: query.limit,
+      include: { entry: { select: { type: true } }, account: true, asset: true },
+    });
+    const items = postings.map((p) => {
+      const delta = balanceDelta(p.account.normalSide, p.direction, toMinorUnits(p.amount));
+      const formatted = formatAmount(delta < 0n ? -delta : delta, p.asset.scale);
+      return {
+        postingId: p.id.toString(),
+        entryId: p.entryId.toString(),
+        entryType: p.entry.type,
+        asset: p.asset.code,
+        bucket: p.account.type === 'USER_LOCKED' ? ('locked' as const) : ('available' as const),
+        change: `${delta < 0n ? '-' : '+'}${formatted}`,
+        createdAt: p.createdAt.toISOString(),
+      };
+    });
+    return {
+      items,
+      nextBefore:
+        postings.length === query.limit
+          ? (postings[postings.length - 1]?.id.toString() ?? null)
+          : null,
+    };
+  }
+
+  async entryWithPostings(entryId: bigint) {
+    const entry = await this.prisma.journalEntry.findUnique({
+      where: { id: entryId },
+      include: { postings: { include: { asset: true, account: true }, orderBy: { id: 'asc' } } },
+    });
+    if (!entry) throw AppError.notFound('Journal entry not found');
+    return {
+      id: entry.id.toString(),
+      type: entry.type,
+      idempotencyKey: entry.idempotencyKey,
+      description: entry.description,
+      reversesEntryId: entry.reversesEntryId?.toString() ?? null,
+      actorType: entry.actorType,
+      actorUserId: entry.actorUserId,
+      requestId: entry.requestId,
+      createdAt: entry.createdAt.toISOString(),
+      postings: entry.postings.map((p) => ({
+        id: p.id.toString(),
+        accountId: p.accountId,
+        accountType: p.account.type,
+        ownerUserId: p.account.ownerUserId,
+        asset: p.asset.code,
+        direction: p.direction,
+        amount: formatAmount(toMinorUnits(p.amount), p.asset.scale),
+      })),
+    };
+  }
+
+  async accountsFor(ownerUserId: string | undefined) {
+    const accounts = await this.prisma.ledgerAccount.findMany({
+      where: ownerUserId ? { ownerUserId } : { ownerKey: SYSTEM_OWNER },
+      include: { asset: true },
+      orderBy: [{ assetId: 'asc' }, { type: 'asc' }],
+      take: 500,
+    });
+    return accounts.map((a) => ({
+      id: a.id,
+      asset: a.asset.code,
+      type: a.type,
+      ownerUserId: a.ownerUserId,
+      normalSide: a.normalSide,
+      balance: formatAmount(toMinorUnits(a.balance), a.asset.scale),
+      updatedAt: a.updatedAt.toISOString(),
+    }));
+  }
+}

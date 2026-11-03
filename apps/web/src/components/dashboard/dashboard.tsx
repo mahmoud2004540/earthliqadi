@@ -10,11 +10,12 @@ import type { Dictionary } from '@/i18n';
 import { ApiError, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { SecurityPanel } from './security-panel';
+import { WalletPanel } from './wallet-panel';
 
 export function Dashboard({ locale, t }: { locale: string; t: Dictionary }) {
   const router = useRouter();
   const [user, setUser] = useState<CurrentUserDto | null>(null);
-  const [tab, setTab] = useState<'overview' | 'security'>('overview');
+  const [tab, setTab] = useState<'overview' | 'wallet' | 'security'>('overview');
 
   const [version, setVersion] = useState(0);
   const reload = useCallback(() => setVersion((v) => v + 1), []);
@@ -62,7 +63,7 @@ export function Dashboard({ locale, t }: { locale: string; t: Dictionary }) {
       </div>
 
       <div role="tablist" className="mt-8 flex gap-1 border-b border-border">
-        {(['overview', 'security'] as const).map((key) => (
+        {(['overview', 'wallet', 'security'] as const).map((key) => (
           <button
             key={key}
             role="tab"
@@ -75,12 +76,16 @@ export function Dashboard({ locale, t }: { locale: string; t: Dictionary }) {
                 : 'border-transparent text-muted hover:text-foreground',
             )}
           >
-            {key === 'overview' ? d.overview : d.securityTab}
+            {key === 'overview' ? d.overview : key === 'wallet' ? d.balancesTitle : d.securityTab}
           </button>
         ))}
       </div>
 
-      {tab === 'overview' ? (
+      {tab === 'wallet' ? (
+        <div className="mt-8">
+          <WalletPanel t={t} locale={locale} />
+        </div>
+      ) : tab === 'overview' ? (
         <div className="mt-8 space-y-8">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Stat label={d.accountStatus} value={user.status.replace('_', ' ')} tone="positive" />

@@ -46,6 +46,29 @@ are `http://localhost:3000/api/docs` and `http://localhost:3000/api/v1/...`.
 | GET    | `/v1/admin/users`               | ✔    | `users:read`          | Paginated users (no secrets); access is audited    |
 | GET    | `/v1/admin/audit-logs`          | ✔    | `audit:read`          | Audit log, newest first                            |
 
+## Ledger endpoints (Phase 2)
+
+Amounts are always **decimal strings at the asset's full scale** (e.g. `"0.75000000"`
+for BTC with scale 8). They are never JSON numbers.
+
+| Method | Path                               | Auth | Permission          | Description                                                            |
+| ------ | ---------------------------------- | ---- | ------------------- | ---------------------------------------------------------------------- |
+| GET    | `/v1/assets`                       | —    | —                   | Active assets (code, name, scale). No prices or volumes.               |
+| GET    | `/v1/me/balances`                  | ✔    | `account:self:read` | Available / locked / total per active asset                            |
+| GET    | `/v1/me/ledger-entries`            | ✔    | `account:self:read` | Own balance changes, newest first (`?limit=&before=`)                  |
+| GET    | `/v1/admin/assets`                 | ✔    | `ledger:read`       | All assets, including disabled                                         |
+| POST   | `/v1/admin/assets`                 | ✔    | `assets:configure`  | Create asset `{code, name, scale}` (code and scale immutable); audited |
+| PATCH  | `/v1/admin/assets/:code/status`    | ✔    | `assets:configure`  | `{status: ACTIVE\|DISABLED}`; audited                                  |
+| GET    | `/v1/admin/ledger/accounts`        | ✔    | `ledger:read`       | Accounts of `?ownerUserId=` (or system accounts); access audited       |
+| GET    | `/v1/admin/ledger/entries/:id`     | ✔    | `ledger:read`       | Entry with postings; access audited                                    |
+| POST   | `/v1/admin/ledger/reconciliations` | ✔    | `ledger:reconcile`  | Run a reconciliation now                                               |
+| GET    | `/v1/admin/ledger/reconciliations` | ✔    | `ledger:read`       | Recent reconciliation runs and findings                                |
+
+There is intentionally **no HTTP endpoint that posts journal entries or adjusts
+balances**. Holds and releases are internal service calls for the order system
+(Phase 3). Staff adjustments need maker-checker approval (Phase 7). Error codes
+specific to the ledger: `INSUFFICIENT_FUNDS` (422) and `IDEMPOTENCY_CONFLICT` (409).
+
 ## Example (curl through the edge)
 
 ```bash

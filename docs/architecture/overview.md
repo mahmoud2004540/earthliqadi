@@ -1,6 +1,6 @@
 # Architecture overview
 
-> Status: **Phase 0 + Phase 1 implemented** (foundation, identity, access control).
+> Status: **Phases 0–2 implemented** (foundation, identity, access control, double-entry ledger).
 > Nothing in this repository handles real money. See [roadmap](roadmap.md).
 
 ## 1. Goals that drive the architecture
@@ -78,35 +78,41 @@ Global request pipeline, in order:
 
 Modules:
 
-| Module    | Responsibility                                                                    |
-| --------- | --------------------------------------------------------------------------------- |
-| `auth`    | Registration, email verification, login, MFA challenge, logout, password reset    |
-| `account` | `/v1/me`: profile, sessions (list/revoke), password change, TOTP enrolment        |
-| `rbac`    | Syncs the permission/role catalogue at boot; resolves permissions; audited grants |
-| `audit`   | Append-only audit writes, transactional with the change they describe             |
-| `admin`   | Permission-gated read endpoints (users, audit log). The UI comes in Phase 7.      |
-| `health`  | `/health/live` (process), `/health/ready` (DB + Redis)                            |
-| `mail`    | Development transports only (`log`, `memory`); production is refused at boot      |
+| Module    | Responsibility                                                                                |
+| --------- | --------------------------------------------------------------------------------------------- |
+| `auth`    | Registration, email verification, login, MFA challenge, logout, password reset                |
+| `account` | `/v1/me`: profile, sessions (list/revoke), password change, TOTP enrolment                    |
+| `rbac`    | Syncs the permission/role catalogue at boot; resolves permissions; audited grants             |
+| `audit`   | Append-only audit writes, transactional with the change they describe                         |
+| `ledger`  | Assets, double-entry posting, holds/releases, reversals, reconciliation, balances/history API |
+| `admin`   | Permission-gated read endpoints (users, audit log). The UI comes in Phase 7.                  |
+| `health`  | `/health/live` (process), `/health/ready` (DB + Redis)                                        |
+| `mail`    | Development transports only (`log`, `memory`); production is refused at boot                  |
 
-## 5. Data model (Phase 1)
+## 5. Data model
 
-`users`, `sessions`, `verification_tokens`, `roles`, `permissions`,
-`role_permissions`, `user_roles`, `audit_logs`.
+Identity (Phase 1): `users`, `sessions`, `verification_tokens`, `roles`,
+`permissions`, `role_permissions`, `user_roles`, `audit_logs`.
 
 - Tokens (session, email verification, password reset) are stored only as SHA-256
   hashes.
 - TOTP secrets are AES-256-GCM encrypted, with the user id as associated data.
 - `audit_logs` has `BEFORE UPDATE/DELETE/TRUNCATE` triggers that raise.
-- `CHECK` constraints enforce normalised emails and sane expiry timestamps.
 
-Financial tables (accounts, journal entries, balances, orders, fills) do **not**
-exist yet. They are Phase 2 and later.
+Ledger (Phase 2, [ADR-0006](../decisions/0006-double-entry-ledger.md)): `assets`,
+`ledger_accounts`, `journal_entries`, `postings`, `ledger_reconciliation_runs`.
+
+- Amounts are `NUMERIC(38,0)` minor units (TypeScript: `bigint`).
+- Database triggers enforce: entries balanced per asset (deferred, at commit);
+  immutable journal and postings; balances that change only through postings;
+  non-negative balances (`CHECK`); immutable asset code and scale.
+
+Orders, markets and fills arrive with Phase 3.
 
 ## 6. Planned components (not implemented)
 
 | Component        | Phase | Notes                                                                                              |
 | ---------------- | ----- | -------------------------------------------------------------------------------------------------- |
-| Ledger           | 2     | Double-entry, immutable journal, idempotency keys, compensating entries, reconciliation jobs       |
 | Matching engine  | 3     | Rust, single-threaded per market, deterministic, price-time priority, event-sourced input log      |
 | Market data      | 4     | Sequenced WebSocket feeds, snapshots + deltas, stale-data detection; last/mark/index kept separate |
 | Paper trading    | 5     | Simulated balances in a separate ledger namespace; never mixed with real balances                  |

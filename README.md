@@ -5,9 +5,10 @@ The final brand has not been chosen. The display name comes from configuration
 (`BRAND_NAME`, `NEXT_PUBLIC_BRAND_NAME`) and never appears in business logic or
 database identifiers.
 
-> **Status: pre-launch engineering (Phases 0–1 complete).**
-> There is no ledger, no trading, no custody and no real money anywhere in this
-> repository. The platform is not licensed, audited or insured, and it offers no
+> **Status: pre-launch engineering (Phases 0–2 complete).**
+> There is no trading, no custody, no real deposits and no real money anywhere in
+> this repository. Balances can only be funded with simulated test deposits in
+> local/CI environments. The platform is not licensed, audited or insured, and it offers no
 > regulated services. See [known issues](docs/operations/known-issues.md).
 
 ## What exists today
@@ -22,6 +23,11 @@ database identifiers.
   server-side sessions, TOTP MFA, CSRF protection, Redis-backed rate limiting,
   account lockout, RBAC with audited role grants, an append-only audit log,
   health endpoints and OpenAPI.
+- **Ledger** (Phase 2): double-entry journal in integer minor units
+  (`NUMERIC(38,0)`/`bigint`), database-enforced invariants (balanced entries,
+  immutability, non-negative balances), idempotent posting, holds/releases,
+  reversals, scheduled reconciliation, and a balances and history dashboard.
+  See [ADR-0006](docs/decisions/0006-double-entry-ledger.md).
 - **Shared packages:** zod schemas and the RBAC catalogue (`packages/shared`),
   and environment validation (`packages/config`).
 - **Infrastructure:** Dockerfiles, a Compose stack with an nginx edge proxy, a CI
@@ -71,7 +77,8 @@ tests/              (reserved) cross-service integration and browser e2e suites
   [0002 versions](docs/decisions/0002-dependency-versions.md) ·
   [0003 sessions](docs/decisions/0003-server-side-sessions.md) ·
   [0004 edge proxy](docs/decisions/0004-edge-proxy-topology.md) ·
-  [0005 shared validation](docs/decisions/0005-shared-zod-validation.md)
+  [0005 shared validation](docs/decisions/0005-shared-zod-validation.md) ·
+  [0006 ledger](docs/decisions/0006-double-entry-ledger.md)
 - Security: [controls & threat model](docs/security/threat-model.md) ·
   [dependency policy](docs/security/dependency-policy.md) ·
   [incident response (draft)](docs/security/incident-response.md)
@@ -83,7 +90,7 @@ tests/              (reserved) cross-service integration and browser e2e suites
 ## Ground rules
 
 - Never use real customer funds or production credentials in development.
-- Use fixed-precision decimals for money; never binary floating point (from Phase 2).
+- Money is integer minor units (`bigint`); never binary floating point.
 - Never publish unverified claims (licences, audits, reserves, partners, liquidity).
 - Real-money operation requires specialist legal and compliance review and the
   required authorizations (e.g. MiCA CASP) for each jurisdiction and product.

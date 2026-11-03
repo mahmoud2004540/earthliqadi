@@ -1,11 +1,11 @@
-# Known issues and incomplete features (Sprint 1)
+# Known issues and incomplete features (Sprints 1–2)
 
 This is the honest list of what does **not** exist yet or is limited. Anything
 not described as implemented in the docs should be treated as absent.
 
 ## Not implemented (by design, later phases)
 
-- Financial ledger, balances, deposits, withdrawals and custody (Phases 2 and 8)
+- Real deposits, withdrawals and custody (Phase 8). Balances can only be funded with **simulated** test deposits in local/CI.
 - Matching engine, order entry, market data, trading terminal and charts (Phases 3–5)
 - Perpetual futures, risk engine, liquidation, insurance fund and ADL (Phase 6)
 - Admin application, KYC/AML workflows, support tickets, notifications and
@@ -34,6 +34,14 @@ not described as implemented in the docs should be treated as absent.
   bodies are.
 - **E2E browser tests** are not part of CI yet. UI flows were verified manually
   with Playwright during Sprint 1.
+
+### Ledger (Sprint 2)
+
+- No staff adjustment endpoint: corrections are reversals only (CLI/service). Maker-checker adjustments come in Phase 7.
+- No fee accounts in use yet; `FEE_REVENUE` exists in the chart but nothing posts to it until trading (Phase 3).
+- Reconciliation scans the whole ledger each run. This is fine at development scale; it needs an incremental/checkpointed design later.
+- Hot accounts (one row per asset for simulated custody now, fee revenue later) serialise writers. Sharding or batching is planned with the matching engine (ADR to follow).
+- The dashboard shows balances at full asset scale without fiat valuation. No prices exist yet, by design.
 
 ## Environment notes
 

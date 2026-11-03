@@ -23,6 +23,9 @@ export const PERMISSIONS = {
   SUPPORT_TICKETS_MANAGE: 'support:tickets:manage',
   REPORTS_READ: 'reports:read',
   OPERATIONS_EMERGENCY: 'operations:emergency',
+  LEDGER_READ: 'ledger:read',
+  LEDGER_RECONCILE: 'ledger:reconcile',
+  ASSETS_CONFIGURE: 'assets:configure',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -43,6 +46,9 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   'support:tickets:manage': 'Respond to and manage support tickets',
   'reports:read': 'Access operational and regulatory reports',
   'operations:emergency': 'Trigger emergency operational controls (e.g. halt trading)',
+  'ledger:read': 'Read ledger accounts, journal entries and reconciliation results',
+  'ledger:reconcile': 'Run a ledger reconciliation',
+  'assets:configure': 'Create and enable/disable assets (listing decisions)',
 };
 
 export const ROLES = {
@@ -93,21 +99,29 @@ export const SYSTEM_ROLES: readonly RoleDefinition[] = [
       P.WITHDRAWALS_REVIEW,
       P.REPORTS_READ,
       P.AUDIT_READ,
+      P.LEDGER_READ,
     ],
     staff: true,
   },
   {
     key: 'risk_officer',
     name: 'Risk officer',
-    description: 'Market risk configuration and emergency controls',
-    permissions: [P.MARKETS_CONFIGURE, P.REPORTS_READ, P.OPERATIONS_EMERGENCY],
+    description: 'Market and asset configuration, ledger oversight and emergency controls',
+    permissions: [
+      P.MARKETS_CONFIGURE,
+      P.ASSETS_CONFIGURE,
+      P.REPORTS_READ,
+      P.OPERATIONS_EMERGENCY,
+      P.LEDGER_READ,
+      P.LEDGER_RECONCILE,
+    ],
     staff: true,
   },
   {
     key: 'auditor',
     name: 'Auditor',
-    description: 'Read-only access to the audit log and reports',
-    permissions: [P.AUDIT_READ, P.REPORTS_READ, P.ROLES_READ],
+    description: 'Read-only access to the audit log, ledger and reports; may run reconciliations',
+    permissions: [P.AUDIT_READ, P.REPORTS_READ, P.ROLES_READ, P.LEDGER_READ, P.LEDGER_RECONCILE],
     staff: true,
   },
   {

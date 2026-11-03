@@ -13,7 +13,7 @@ import { NestFactory } from '@nestjs/core';
 import { emailSchema, isRoleKey } from '@platform/shared';
 import { parseArgs } from 'node:util';
 import { AppModule } from '../app.module';
-import { loadAppConfig } from '../config/app-config';
+import { loadAppConfigOrExit } from '../config/app-config';
 import { PrismaService } from '../infrastructure/prisma/prisma.service';
 import { RbacService } from '../rbac/rbac.service';
 
@@ -34,7 +34,7 @@ async function run(): Promise<void> {
     );
     process.exit(64);
   }
-  const config = loadAppConfig();
+  const config = loadAppConfigOrExit();
   const app = await NestFactory.createApplicationContext(
     AppModule.forRoot({ ...config, LOG_LEVEL: 'warn' }),
   );

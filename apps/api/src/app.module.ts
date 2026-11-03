@@ -17,6 +17,7 @@ import { HealthController } from './health/health.controller';
 import { PrismaModule } from './infrastructure/prisma/prisma.module';
 import { REDIS, RedisModule } from './infrastructure/redis/redis.module';
 import { RedisThrottlerStorage } from './infrastructure/throttler/redis-throttler.storage';
+import { LedgerModule } from './ledger/ledger.module';
 import { MailModule } from './mail/mail.module';
 import { RbacModule } from './rbac/rbac.module';
 
@@ -76,6 +77,7 @@ export class AppModule {
         AuthModule,
         AccountModule,
         AdminModule,
+        LedgerModule,
       ],
       controllers: [HealthController],
       providers: [
