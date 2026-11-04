@@ -5,7 +5,7 @@ The final brand has not been chosen. The display name comes from configuration
 (`BRAND_NAME`, `NEXT_PUBLIC_BRAND_NAME`) and never appears in business logic or
 database identifiers.
 
-> **Status: pre-launch engineering (Phases 0–8 complete).**
+> **Status: pre-launch engineering (Phases 0–8 complete; Phase 9 engineering complete, external audits and legal review pending).**
 > Matching and settlement work end to end on **simulated** funds and **test
 > tokens on a local/test chain** only. There is no real money anywhere in this
 > repository, and the vault contract is not audited. Balances can only be funded with simulated test deposits in
@@ -69,6 +69,12 @@ database identifiers.
   their own if the operator stops. Indexer, custody reconciliation and a
   local Anvil chain in Compose. See
   [ADR-0014](docs/decisions/0014-non-custodial-vault.md).
+- **Security & operational readiness** (Phase 9, engineering part): an
+  isolated **signer service** with its own limits and audit log (`apps/signer`),
+  step-up re-authentication and an admin IP allow-list, verified backup/restore
+  drills, a Prometheus/Alertmanager/Grafana profile, and personal data export.
+  See [ADR-0015](docs/decisions/0015-security-and-operational-readiness.md) and
+  the [production-readiness checklist](docs/operations/production-readiness.md).
 - **Shared packages:** zod schemas and the RBAC catalogue (`packages/shared`),
   and environment validation (`packages/config`).
 - **Infrastructure:** Dockerfiles, a Compose stack with an nginx edge proxy, a CI
@@ -127,7 +133,8 @@ tests/              (reserved) cross-service integration and browser e2e suites
   [0011 perpetual futures](docs/decisions/0011-perpetual-futures.md) ·
   [0012 admin, compliance & monitoring](docs/decisions/0012-admin-compliance-monitoring.md) ·
   [0013 wallet sign-in, no KYC](docs/decisions/0013-wallet-sign-in-no-kyc.md) ·
-  [0014 non-custodial vault](docs/decisions/0014-non-custodial-vault.md)
+  [0014 non-custodial vault](docs/decisions/0014-non-custodial-vault.md) ·
+  [0015 signer, step-up, backups, monitoring](docs/decisions/0015-security-and-operational-readiness.md)
 - Security: [controls & threat model](docs/security/threat-model.md) ·
   [dependency policy](docs/security/dependency-policy.md) ·
   [incident response (draft)](docs/security/incident-response.md)
@@ -135,6 +142,7 @@ tests/              (reserved) cross-service integration and browser e2e suites
 - Operations: [local development](docs/operations/local-development.md) ·
   [known issues](docs/operations/known-issues.md) ·
   [runbooks](docs/operations/runbooks.md) ·
+  [production readiness](docs/operations/production-readiness.md) ·
   [backup & recovery](docs/operations/backup-recovery.md)
 
 ## Ground rules

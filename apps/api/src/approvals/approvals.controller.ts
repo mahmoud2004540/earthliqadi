@@ -14,7 +14,7 @@ import type { AuthContext } from '../auth/auth-context';
 import { CurrentAuth } from '../auth/current-auth.decorator';
 import { SessionService } from '../auth/session.service';
 import { AppError } from '../common/app-error';
-import { RequirePermissions } from '../common/decorators';
+import { RequirePermissions, RequireStepUp } from '../common/decorators';
 import { ApiZodBody } from '../common/openapi';
 import { ReqContext, type RequestContext } from '../common/request-context';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -49,6 +49,7 @@ export class ApprovalsController {
   }
 
   @Post()
+  @RequireStepUp()
   @RequirePermissions(PERMISSIONS.APPROVALS_READ)
   @ApiZodBody(approvalRequestSchema)
   create(
@@ -61,6 +62,7 @@ export class ApprovalsController {
 
   @Post(':id/approve')
   @HttpCode(HttpStatus.OK)
+  @RequireStepUp()
   @RequirePermissions(PERMISSIONS.APPROVALS_READ)
   @ApiZodBody(approvalDecisionSchema)
   approve(
@@ -75,6 +77,7 @@ export class ApprovalsController {
 
   @Post(':id/reject')
   @HttpCode(HttpStatus.OK)
+  @RequireStepUp()
   @RequirePermissions(PERMISSIONS.APPROVALS_READ)
   @ApiZodBody(approvalDecisionSchema)
   reject(
@@ -118,6 +121,7 @@ export class AdminOperationsController {
    */
   @Post('users/:id/suspend')
   @HttpCode(HttpStatus.OK)
+  @RequireStepUp()
   @RequirePermissions(PERMISSIONS.USERS_MANAGE_STATUS)
   @ApiZodBody(suspendUserSchema)
   async suspend(

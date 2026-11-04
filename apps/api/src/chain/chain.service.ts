@@ -31,6 +31,7 @@ import { RbacService } from '../rbac/rbac.service';
 import vaultArtifact from './artifacts/ExchangeVault.json';
 import tokenArtifact from './artifacts/TestToken.json';
 import { buildTree, leafHash, proofFor, type BalanceLeaf } from './merkle';
+import { LocalOperatorSigner, RemoteOperatorSigner, type OperatorSigner } from './operator-signer';
 
 /** Testnets and local chains only (ADR-0014). Mainnets are refused outright. */
 export const ALLOWED_CHAIN_IDS = new Set([31337, 11155111, 17000, 84532, 421614]);
@@ -78,6 +79,7 @@ export class ChainService {
   private readonly wallet: WalletClient | null;
   private readonly account: PrivateKeyAccount | null;
   private chainIdCache: number | null = null;
+  private readonly operatorSigner: OperatorSigner | null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -95,6 +97,11 @@ export class ChainService {
       url && this.account
         ? createWalletClient({ account: this.account, transport: http(url) })
         : null;
+    this.operatorSigner = config.SIGNER_URL
+      ? new RemoteOperatorSigner(config.SIGNER_URL, config.SIGNER_HMAC_SECRET!)
+      : this.wallet && this.account && this.client
+        ? new LocalOperatorSigner(this.account, this.wallet, this.client, VAULT_ABI)
+        : null;
   }
 
   get enabled(): boolean {
@@ -104,6 +111,11 @@ export class ChainService {
   private rpc(): PublicClient {
     if (!this.client) throw AppError.notFound('The vault is not configured in this environment');
     return this.client;
+  }
+
+  private operator(): OperatorSigner {
+    if (!this.operatorSigner) throw conflict('No operator signer is configured');
+    return this.operatorSigner;
   }
 
   private signer(): { wallet: WalletClient; account: PrivateKeyAccount } {
@@ -434,7 +446,7 @@ export class ChainService {
     amountText: string,
   ): Promise<WithdrawalDto> {
     const d = await this.requireDeployment();
-    const { account } = this.signer();
+    const operator = this.operator();
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     if (!user.walletAddress) throw conflict('Withdrawals go to your wallet: sign in with a wallet');
     const asset = await this.ledger.requireAsset(assetCode);
@@ -480,26 +492,7 @@ export class ChainService {
         afterState,
         expiry: BigInt(Math.floor(expiry.getTime() / 1000)),
       };
-      const signature = await account.signTypedData({
-        domain: {
-          name: 'ExchangeVault',
-          version: '1',
-          chainId: d.chainId,
-          verifyingContract: d.vaultAddress as Hex,
-        },
-        types: {
-          Withdrawal: [
-            { name: 'id', type: 'bytes32' },
-            { name: 'user', type: 'address' },
-            { name: 'token', type: 'address' },
-            { name: 'amount', type: 'uint256' },
-            { name: 'afterState', type: 'uint64' },
-            { name: 'expiry', type: 'uint64' },
-          ],
-        },
-        primaryType: 'Withdrawal',
-        message,
-      });
+      const signature = await operator.signWithdrawal(d.chainId, d.vaultAddress as Hex, message);
       return tx.withdrawal.create({
         data: {
           id,
@@ -691,12 +684,12 @@ export class ChainService {
     })) as bigint;
     let txHash: string | null = null;
     if (onChainIndex < state.index) {
-      const { hash } = await this.send(d.vaultAddress as Hex, VAULT_ABI, 'commitState', [
+      txHash = await this.operator().commitState(
+        d.vaultAddress as Hex,
         state.index,
-        state.root,
+        state.root as Hex,
         state.lastDepositId,
-      ]);
-      txHash = hash;
+      );
     }
     await this.prisma.vaultState.update({
       where: {

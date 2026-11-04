@@ -121,6 +121,18 @@ export const apiEnvSchema = z
 
     /** Staff permissions require MFA on the account (ADR-0012). Cannot be disabled outside local/ci. */
     STAFF_MFA_REQUIRED: booleanString.default(true),
+    /** Seconds a step-up (fresh authenticator code) stays valid for sensitive staff actions. */
+    STEP_UP_WINDOW_SECONDS: z.coerce.number().int().min(30).max(3600).default(300),
+    /** Comma-separated CIDRs; when set, staff permissions are only usable from these addresses. */
+    ADMIN_IP_ALLOWLIST: z
+      .string()
+      .default('')
+      .transform((v) =>
+        v
+          .split(',')
+          .map((c) => c.trim())
+          .filter(Boolean),
+      ),
     /** Hours before an unanswered maker-checker request expires. */
     APPROVAL_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
     /** ISO 3166-1 alpha-2 codes (comma-separated) refused at identity verification. Legal input required. */
@@ -154,6 +166,9 @@ export const apiEnvSchema = z
       .string()
       .regex(/^0x[0-9a-fA-F]{64}$/)
       .optional(),
+    /** Isolated signer service (ADR-0015); required outside local/ci when the vault is enabled. */
+    SIGNER_URL: z.url().optional(),
+    SIGNER_HMAC_SECRET: z.string().min(32).optional(),
     CHAIN_CONFIRMATIONS: z.coerce.number().int().min(0).max(100).default(2),
     /** Milliseconds between indexer ticks; 0 disables the indexer. */
     CHAIN_POLL_MS: z.coerce.number().int().min(0).max(600_000).default(2000),
@@ -166,6 +181,13 @@ export const apiEnvSchema = z
     METRICS_TOKEN: z.string().min(32).optional(),
   })
   .superRefine((env, ctx) => {
+    if (env.SIGNER_URL && !env.SIGNER_HMAC_SECRET) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['SIGNER_HMAC_SECRET'],
+        message: 'required with SIGNER_URL',
+      });
+    }
     if (env.KYC_REQUIRED_FOR_REAL_TRADING && !env.KYC_ENABLED) {
       ctx.addIssue({
         code: 'custom',
@@ -181,6 +203,13 @@ export const apiEnvSchema = z
         code: 'custom',
         path: ['NODE_ENV'],
         message: `must be "production" when DEPLOY_ENV=${env.DEPLOY_ENV}`,
+      });
+    }
+    if (env.CHAIN_RPC_URL && !env.SIGNER_URL) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['SIGNER_URL'],
+        message: 'the vault needs the isolated signer service outside local/ci (ADR-0015)',
       });
     }
     if (env.CHAIN_OPERATOR_KEY) {

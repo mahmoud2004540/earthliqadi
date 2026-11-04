@@ -236,6 +236,21 @@ Deposits have no endpoint: users call `deposit(token, amount)` on the vault
 from their wallet, and the indexer credits them after `CHAIN_CONFIRMATIONS`.
 Vault-backed markets accept orders from wallet accounts only.
 
+## Security & privacy (Phase 9)
+
+| Method | Path               | Auth | Description                                                                                                |
+| ------ | ------------------ | ---- | ---------------------------------------------------------------------------------------------------------- |
+| POST   | `/v1/auth/step-up` | ✔    | `{code}`: fresh TOTP for this session; required by sensitive staff actions within `STEP_UP_WINDOW_SECONDS` |
+| GET    | `/v1/me/export`    | ✔    | Personal data export (JSON attachment; no secrets; audited)                                                |
+
+New errors: `403 STEP_UP_REQUIRED`, `403 IP_NOT_ALLOWED` (staff permissions
+outside `ADMIN_IP_ALLOWLIST`), `409 LIMIT_EXCEEDED` when the signer's policy
+refuses a withdrawal.
+
+The signer service (`apps/signer`, internal only) exposes `POST
+/v1/sign/withdrawal` and `POST /v1/commit-state` with HMAC headers
+`x-signer-timestamp`, `x-signer-request-id`, `x-signer-signature`.
+
 ## Example (curl through the edge)
 
 ```bash

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { keccak_256 } from '@noble/hashes/sha3';
 import { expect, test } from '@playwright/test';
@@ -48,6 +49,15 @@ test('sign in with a wallet: no email, no password, no identity documents', asyn
   await expect(page.getByText('Wallet signature')).toBeVisible();
   await page.getByRole('tab', { name: 'Security' }).click();
   await expect(page.getByText('Change password')).toHaveCount(0);
+  // Personal data export downloads one JSON file with the wallet identity in it.
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByTestId('data-export').click(),
+  ]);
+  const exported = JSON.parse(readFileSync(await download.path(), 'utf8')) as {
+    account: { walletAddress: string };
+  };
+  expect(exported.account.walletAddress).toBe(wallet.address);
 
   // A second visit signs the same account back in.
   await page.context().clearCookies();

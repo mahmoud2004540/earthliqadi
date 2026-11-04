@@ -104,6 +104,8 @@ model Session {
   expiresAt     DateTime  @map("expires_at") @db.Timestamptz(3)
   revokedAt     DateTime? @map("revoked_at") @db.Timestamptz(3)
   revokedReason String?   @map("revoked_reason") @db.VarChar(64)
+  /// Last fresh authenticator check in this session (step-up for sensitive staff actions).
+  stepUpAt      DateTime? @map("step_up_at") @db.Timestamptz(3)
 
   user User @relation(fields: [userId], references: [id], onDelete: Restrict)
 

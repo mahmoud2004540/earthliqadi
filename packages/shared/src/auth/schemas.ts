@@ -48,6 +48,11 @@ export const loginSchema = z.object({
 });
 export type LoginInput = z.input<typeof loginSchema>;
 
+/** Fresh authenticator code for a sensitive staff action (step-up). */
+export const stepUpSchema = z.object({
+  code: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code'),
+});
+
 /** Sign-In with Ethereum (EIP-4361) message and its personal_sign signature (ADR-0013). */
 export const walletLoginSchema = z.object({
   message: z.string().min(50).max(2048),

@@ -146,6 +146,8 @@ jobs:
         run: docker build -f infrastructure/docker/api.Dockerfile -t exchange-platform/api:ci .
       - name: Build web image
         run: docker build -f infrastructure/docker/web.Dockerfile -t exchange-platform/web:ci .
+      - name: Build signer image
+        run: docker build -f infrastructure/docker/signer.Dockerfile -t exchange-platform/signer:ci .
       - name: Build engine image
         run: docker build -f infrastructure/docker/engine.Dockerfile -t exchange-platform/engine:ci .
       - name: Validate compose file

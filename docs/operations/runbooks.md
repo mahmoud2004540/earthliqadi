@@ -102,3 +102,22 @@ escalate. Never edit chain records by hand.
 `chain custody` shows ledger ≠ on-chain at the indexed block. Check for a
 reorg or an RPC returning stale data, re-run the indexer, and halt vault-backed
 markets if the difference persists.
+
+## Backups
+
+Run `scripts/backup.sh` on schedule and `scripts/restore-drill.sh <dump>` at
+least weekly. A backup that has not passed a drill does not count. Keep dumps
+encrypted and off-host (they contain personal data).
+
+## Signer refusing withdrawals
+
+`409 LIMIT_EXCEEDED` with a signer policy code (`DAILY_LIMIT`,
+`PER_TX_LIMIT`, ...) is the signer protecting the vault. Check its audit log.
+Raise limits only with maker-checker sign-off, and investigate unusual volume
+first: a spike can mean an API compromise.
+
+## Step-up / IP allow-list lockouts
+
+`STEP_UP_REQUIRED` means re-confirming with the authenticator.
+`IP_NOT_ALLOWED` means the staff member is outside `ADMIN_IP_ALLOWLIST`;
+change the list only through the infrastructure change process, never ad hoc.

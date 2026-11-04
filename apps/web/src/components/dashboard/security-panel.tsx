@@ -17,6 +17,7 @@ export function SecurityPanel({ user, t, onChange }: Props) {
   return (
     <div className="mt-8 space-y-6">
       <SessionsCard t={t} />
+      <DataExportCard t={t} />
       {user.email !== null && (
         <>
           <MfaCard user={user} t={t} onChange={onChange} />
@@ -24,6 +25,45 @@ export function SecurityPanel({ user, t, onChange }: Props) {
         </>
       )}
     </div>
+  );
+}
+
+/** Personal data export (GDPR art. 15/20): one JSON file with everything held about the account. */
+function DataExportCard({ t }: { t: Dictionary }) {
+  const d = t.dashboard;
+  const [error, setError] = useState<string | null>(null);
+  async function download() {
+    setError(null);
+    try {
+      const data = await api<unknown>('/v1/me/export');
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'personal-data-export.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch {
+      setError(d.exportFailed);
+    }
+  }
+  return (
+    <Card className="p-5">
+      <CardTitle>{d.exportTitle}</CardTitle>
+      <CardDescription>{d.exportIntro}</CardDescription>
+      <Button
+        className="mt-4"
+        variant="outline"
+        onClick={() => void download()}
+        data-testid="data-export"
+      >
+        {d.exportButton}
+      </Button>
+      {error && (
+        <Alert tone="error" className="mt-3">
+          {error}
+        </Alert>
+      )}
+    </Card>
   );
 }
 

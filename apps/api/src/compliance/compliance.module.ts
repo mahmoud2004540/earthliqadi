@@ -20,7 +20,7 @@ import {
 import { z } from 'zod';
 import type { AuthContext } from '../auth/auth-context';
 import { CurrentAuth } from '../auth/current-auth.decorator';
-import { AuthRateLimit, RequirePermissions } from '../common/decorators';
+import { AuthRateLimit, RequirePermissions, RequireStepUp } from '../common/decorators';
 import { ApiZodBody } from '../common/openapi';
 import { ReqContext, type RequestContext } from '../common/request-context';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -84,6 +84,7 @@ export class KycReviewController {
 
   @Post(':id/decision')
   @HttpCode(HttpStatus.OK)
+  @RequireStepUp()
   @RequirePermissions(PERMISSIONS.KYC_REVIEW)
   @ApiZodBody(kycDecisionSchema)
   decide(

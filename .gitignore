@@ -15,3 +15,7 @@ test-results/
 *.rdb
 tests/e2e/playwright-report
 tests/e2e/test-results
+
+# Database backups (contain personal data)
+backups/
+infrastructure/monitoring/prometheus/metrics-token

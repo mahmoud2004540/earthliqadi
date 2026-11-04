@@ -100,6 +100,12 @@ export default async function globalSetup(): Promise<void> {
       data: { code: totp(secret) },
     });
     if (!enabled.ok()) throw new Error(`MFA enable failed: ${enabled.status()}`);
+    // Market creation is a sensitive action: step up with the NEXT code (replay-protected).
+    const stepUp = await api.post('/api/v1/auth/step-up', {
+      headers,
+      data: { code: totp(secret, Date.now() + 30_000) },
+    });
+    if (!stepUp.ok()) throw new Error(`step-up failed: ${stepUp.status()}`);
     const created = await api.post('/api/v1/admin/markets', {
       headers,
       data: { base, quote, tickSize: '0.01', lotSize: '0.0001', makerFeeBps: 10, takerFeeBps: 20 },

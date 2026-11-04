@@ -133,6 +133,18 @@ introduce withdrawals (8) and trading (3–6).
 | Running against mainnet by mistake           | Chain id allow-list (testnets/local only); raw key refused outside local/ci                                | code + config tests  |
 | Reentrancy / non-standard tokens             | Reentrancy guard; balance-delta crediting; checked low-level transfers                                     | Foundry              |
 
+## Security & operations controls (Phase 9)
+
+| Threat                                          | Control                                                                              | Verified by        |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------ |
+| API compromise used to drain the vault          | Key only in the signer; signer-side per-tx/daily limits, single-use ids, allow-lists | unit + live chain  |
+| Forged or replayed signer requests              | HMAC over timestamp+request id+body, 30 s skew, request-id replay rejection          | unit               |
+| Signer restart resetting limits                 | Audit log written before responding; state rebuilt from it at start                  | unit               |
+| Stolen staff session used for sensitive actions | Step-up TOTP within 5 minutes, replay-protected                                      | unit + integration |
+| Staff access from untrusted networks            | Optional CIDR allow-list for staff permissions                                       | unit + integration |
+| Unrecoverable data loss                         | Checksummed dumps + restore drill with full reconciliation of the restored copy      | drill run          |
+| Silent outages                                  | Prometheus scrape + promtool-validated alert rules + dashboard                       | local stack        |
+
 ## Known limitations (must be resolved before any production use)
 
 1. **No production email transport.** Staging and production intentionally refuse to boot.

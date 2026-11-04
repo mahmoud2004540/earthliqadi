@@ -1,0 +1,14 @@
+# Alert routing (ADR-0015). Local default: alerts are visible in the Alertmanager
+# UI only. Production: replace the receiver with the on-call integration
+# (pager/chat webhook); "page" severity must reach a human within minutes.
+route:
+  receiver: local-only
+  group_by: ['alertname', 'market']
+  group_wait: 30s
+  repeat_interval: 1h
+  routes:
+    - matchers: ['severity="page"']
+      receiver: local-only
+      repeat_interval: 15m
+receivers:
+  - name: local-only

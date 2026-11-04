@@ -18,12 +18,11 @@ not described as implemented in the docs should be treated as absent.
   Staging and production refuse to boot until a real provider is integrated.
 - **MFA:** TOTP only. No recovery codes, no WebAuthn, no QR code rendering (the
   setup key is shown as text and the `otpauth://` URI is returned by the API).
-- **Account deletion and data export** (GDPR rights) are not implemented.
+- **Account deletion** is handled manually through support (data export exists: `GET /v1/me/export`); ledger, trade and audit records have legal retention periods.
 - **Legal pages** contain placeholders stating that the documents are unpublished.
 - **Session list** shows raw user-agent strings; there is no device naming or
   geolocation yet.
-- **Backups:** none are configured for local Compose volumes. Production backup
-  and restore is not yet designed or tested (see `backup-recovery.md`).
+- **Backups:** logical dumps with a verified restore drill exist (`scripts/`). Point-in-time recovery and off-site encrypted storage are not set up yet.
 - **Response schemas** are not included in the OpenAPI document; only request
   bodies are.
 - **E2E browser tests** are not part of CI yet. UI flows were verified manually
@@ -143,6 +142,17 @@ not described as implemented in the docs should be treated as absent.
 - After an Anvil reset, the stored deployment no longer exists on-chain:
   redeploy with `chain deploy --suffix X` (asset codes stay linked to their
   original token permanently).
+
+### Security & operations (Sprint 9)
+
+- The signer holds a **software key** (HSM/KMS backend not implemented). Its
+  audit log is a local file on its volume; ship it to tamper-evident storage
+  in production.
+- Step-up uses the browser's `prompt()` for the code: functional, not
+  polished.
+- The monitoring stack runs locally only; alerts are not routed to anyone.
+- External audits, penetration tests and legal review have **not** been done
+  (see `production-readiness.md`).
 
 ## Environment notes
 

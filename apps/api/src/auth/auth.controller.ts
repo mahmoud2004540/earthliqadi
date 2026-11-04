@@ -5,6 +5,7 @@ import {
   loginMfaSchema,
   loginSchema,
   walletLoginSchema,
+  stepUpSchema,
   registerSchema,
   resetPasswordSchema,
   verifyEmailSchema,
@@ -134,6 +135,19 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<LoginResultDto> {
     return this.finish(await this.auth.completeMfaLogin(body.challengeId, body.code, ctx), res);
+  }
+
+  /** Fresh authenticator code for sensitive staff actions (valid STEP_UP_WINDOW_SECONDS). */
+  @AuthRateLimit()
+  @Post('step-up')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiZodBody(stepUpSchema)
+  async stepUp(
+    @CurrentAuth() auth: AuthContext,
+    @Body(new ZodValidationPipe(stepUpSchema)) body: z.infer<typeof stepUpSchema>,
+    @ReqContext() ctx: RequestContext,
+  ): Promise<void> {
+    await this.auth.stepUp(auth.user.id, auth.sessionId, body.code, ctx);
   }
 
   @Post('logout')

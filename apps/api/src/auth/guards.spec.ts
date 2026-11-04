@@ -18,16 +18,30 @@ function httpContext(req: Record<string, unknown>): ExecutionContext {
 describe('PermissionsGuard', () => {
   const audit = { recordSafe: jest.fn().mockResolvedValue(undefined) } as unknown as AuditService;
 
-  function guardRequiring(perms: string[] | undefined, staffMfa = true): PermissionsGuard {
-    const reflector = { getAllAndOverride: () => perms } as unknown as Reflector;
+  function guardRequiring(
+    perms: string[] | undefined,
+    staffMfa = true,
+    stepUp = false,
+    allowlist = '',
+  ): PermissionsGuard {
+    const reflector = {
+      getAllAndOverride: (key: string) => (key === 'requireStepUp' ? stepUp : perms),
+    } as unknown as Reflector;
     return new PermissionsGuard(reflector, audit, {
-      ...testConfig(),
+      ...testConfig({ ADMIN_IP_ALLOWLIST: allowlist }),
       STAFF_MFA_REQUIRED: staffMfa,
     });
   }
 
-  const auth = (permissions: string[], mfa = true) => ({
+  const auth = (
+    permissions: string[],
+    mfa = true,
+    stepUpAt: Date | null = null,
+    ip = '10.0.0.1',
+  ) => ({
+    ip,
     auth: {
+      stepUpAt,
       user: { id: 'u1', mfaEnabledAt: mfa ? new Date() : null },
       permissions,
       roles: [],
@@ -75,6 +89,48 @@ describe('PermissionsGuard', () => {
     const relaxed = guardRequiring([PERMISSIONS.USERS_READ], false);
     await expect(
       relaxed.canActivate(httpContext(auth([PERMISSIONS.USERS_READ], false))),
+    ).resolves.toBe(true);
+  });
+
+  it('requires a recent step-up for sensitive staff actions', async () => {
+    const guard = guardRequiring([PERMISSIONS.USERS_MANAGE_STATUS], true, true);
+    await expect(
+      guard.canActivate(httpContext(auth([PERMISSIONS.USERS_MANAGE_STATUS]))),
+    ).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED' });
+    const stale = new Date(Date.now() - 10 * 60_000);
+    await expect(
+      guard.canActivate(httpContext(auth([PERMISSIONS.USERS_MANAGE_STATUS], true, stale))),
+    ).rejects.toMatchObject({ code: 'STEP_UP_REQUIRED' });
+    await expect(
+      guard.canActivate(httpContext(auth([PERMISSIONS.USERS_MANAGE_STATUS], true, new Date()))),
+    ).resolves.toBe(true);
+  });
+
+  it('limits staff permissions to the admin IP allow-list when configured', async () => {
+    const guard = guardRequiring(
+      [PERMISSIONS.USERS_READ],
+      true,
+      false,
+      '10.20.0.0/16, 2001:db8::/32',
+    );
+    await expect(
+      guard.canActivate(httpContext(auth([PERMISSIONS.USERS_READ], true, null, '10.20.3.4'))),
+    ).resolves.toBe(true);
+    await expect(
+      guard.canActivate(
+        httpContext(auth([PERMISSIONS.USERS_READ], true, null, '::ffff:10.20.3.4')),
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      guard.canActivate(httpContext(auth([PERMISSIONS.USERS_READ], true, null, '2001:db8::1'))),
+    ).resolves.toBe(true);
+    await expect(
+      guard.canActivate(httpContext(auth([PERMISSIONS.USERS_READ], true, null, '10.21.0.1'))),
+    ).rejects.toMatchObject({ code: 'IP_NOT_ALLOWED' });
+    // Customer permissions are never IP-restricted.
+    const customer = guardRequiring([PERMISSIONS.TRADING_TRADE], true, false, '10.20.0.0/16');
+    await expect(
+      customer.canActivate(httpContext(auth([PERMISSIONS.TRADING_TRADE], true, null, '8.8.8.8'))),
     ).resolves.toBe(true);
   });
 

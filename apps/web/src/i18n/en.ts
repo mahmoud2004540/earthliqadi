@@ -488,6 +488,11 @@ export const en = {
     supportTab: 'Support',
     inboxTab: 'Inbox',
     adminConsole: 'Admin console',
+    exportTitle: 'Your data',
+    exportIntro:
+      'Download everything we hold about your account (profile, sessions, balances, ledger history, orders, trades, support messages, activity) as one JSON file.',
+    exportButton: 'Download my data',
+    exportFailed: 'The export could not be created. Please try again.',
     signInMethod: 'Sign-in method',
     walletSignature: 'Wallet signature',
     verification: {

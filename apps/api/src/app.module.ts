@@ -29,6 +29,7 @@ import { MonitoringModule } from './monitoring/monitoring.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SupportModule } from './support/support.module';
 import { ChainModule } from './chain/chain.module';
+import { PrivacyModule } from './privacy/privacy.module';
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9-]{8,64}$/;
 
@@ -96,6 +97,7 @@ export class AppModule {
         SupportModule,
         MonitoringModule,
         ChainModule,
+        PrivacyModule,
       ],
       controllers: [HealthController],
       providers: [

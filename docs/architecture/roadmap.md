@@ -121,21 +121,25 @@ tests, security review and documentation are done.
 - [x] UI: vault panel (test tokens, deposit, withdraw from the wallet, proof download)
 - [x] Tests: Merkle property tests; live-chain integration test of the full cycle, including freeze and escape with exact payouts; browser e2e with an injected wallet
 
-## Sprint 9 plan: Phase 9, security audits and regulatory readiness
+## Phase 9 acceptance criteria (Sprint 9, engineering part)
 
-1. **External reviews (to be commissioned; none claimed):** smart-contract
-   audit of `ExchangeVault`; penetration test of the web, API and admin
-   surfaces; review of ADR-0006/0007/0011/0014.
-2. **Key management:** signing service for the operator key (HSM/KMS,
-   separate host, policy limits, audit), multisig + timelock for future
-   contract versions, key rotation runbooks.
-3. **Admin hardening:** separate admin origin, IP allow-lists, step-up
-   re-authentication for sensitive actions, staff SSO.
-4. **Compliance readiness (with counsel):** jurisdiction analysis for the
-   ADR-0013 model; geo-restriction via a trusted GeoIP signal; wallet
-   sanctions screening provider boundary; terms of use and risk disclosures
-   reviewed by lawyers; GDPR export/deletion.
-5. **Operational readiness:** deployed Prometheus/Alertmanager/Grafana with
-   routing; backups and restore drills; incident response exercises; load
-   tests on dedicated infrastructure.
-6. **Supply chain:** SBOM, image signing, dependency pinning policy review.
+- [x] ADR ([ADR-0015](../decisions/0015-security-and-operational-readiness.md)) and an honest [production-readiness checklist](../operations/production-readiness.md)
+- [x] Isolated signer service: HMAC + replay protection, chain/vault/token allow-lists, per-withdrawal and daily limits, chain-time expiry window, single-use ids, append-only audit log that restores limits after restarts; API in remote-signer mode; raw keys refused outside local/ci
+- [x] Step-up re-authentication for sensitive staff actions; admin IP allow-list
+- [x] Backup script and restore drill (checksum, restore, row counts, full reconciliation on the restored copy)
+- [x] Monitoring profile: Prometheus (bearer token), Alertmanager, Grafana dashboard; rules validated with promtool; scrape verified
+- [x] Personal data export (no secrets; audited)
+- [ ] External: smart-contract audit, penetration test, legal analysis, HSM/KMS, on-call (not claimed)
+
+## Sprint 10 plan: Phase 10, controlled launch preparation (only after the external items)
+
+1. **Infrastructure as code** for a staging environment (managed Postgres with
+   PITR, Redis, private networks, secret manager, the signer on its own host
+   with an HSM/KMS backend, WAF at the edge).
+2. **Public testnet** deployment (e.g. Sepolia) with higher confirmation
+   counts, reorg handling, and an external RPC with failover.
+3. **Release process:** signed images, SBOM, staged rollout, `engine-replay`
+   gate, database migration review, rollback runbooks.
+4. **Launch gates:** audit findings fixed, pen-test retest, legal sign-off,
+   geo-restriction live, on-call staffed, incident drill done. Real assets
+   only behind explicit per-asset limits, starting very small.

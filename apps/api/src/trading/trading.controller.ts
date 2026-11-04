@@ -28,7 +28,7 @@ import type { Response } from 'express';
 import { z } from 'zod';
 import type { AuthContext } from '../auth/auth-context';
 import { CurrentAuth } from '../auth/current-auth.decorator';
-import { Public, RequirePermissions } from '../common/decorators';
+import { Public, RequirePermissions, RequireStepUp } from '../common/decorators';
 import { ApiZodBody } from '../common/openapi';
 import { ReqContext, type RequestContext } from '../common/request-context';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -139,6 +139,7 @@ export class AdminMarketsController {
   ) {}
 
   @Post('markets')
+  @RequireStepUp()
   @RequirePermissions(PERMISSIONS.MARKETS_CONFIGURE)
   @ApiZodBody(createMarketSchema)
   async create(
@@ -156,6 +157,7 @@ export class AdminMarketsController {
 
   /** Halt stops new orders (cancels still work); resume reopens order entry. */
   @Patch('markets/:symbol/status')
+  @RequireStepUp()
   @RequirePermissions(PERMISSIONS.MARKETS_CONFIGURE)
   @ApiZodBody(marketStatusSchema)
   async setStatus(

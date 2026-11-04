@@ -1,0 +1,22 @@
+{
+  "name": "@platform/signer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Isolated operator signer with policy limits (ADR-0015). Holds the vault operator key; the API never does.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "viem": "2.57.6",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3",
+    "vitest": "4.1.12"
+  }
+}

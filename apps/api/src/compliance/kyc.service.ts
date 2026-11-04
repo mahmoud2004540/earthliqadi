@@ -161,6 +161,24 @@ export class KycService {
     };
   }
 
+  /** The subject's own cases, decrypted, for a data export (works even with the module disabled). */
+  async exportForUser(userId: string) {
+    const cases = await this.prisma.kycCase.findMany({
+      where: { userId },
+      orderBy: { submittedAt: 'asc' },
+    });
+    return cases.map((c) => ({
+      id: c.id,
+      status: c.status.toLowerCase(),
+      level: c.level,
+      countryCode: c.countryCode,
+      submittedAt: c.submittedAt.toISOString(),
+      decidedAt: c.decidedAt?.toISOString() ?? null,
+      decisionNote: c.decisionNote,
+      profile: JSON.parse(this.box.open(c.profileEnc, this.aad(c.id)).toString('utf8')) as unknown,
+    }));
+  }
+
   async queue(status: 'pending' | 'all', limit: number): Promise<KycReviewDto[]> {
     this.assertEnabled();
     const rows = await this.prisma.kycCase.findMany({

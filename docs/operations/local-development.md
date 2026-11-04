@@ -138,6 +138,15 @@ Sign in with a wallet, open **Dashboard → Balances**, use **Get test tokens
 & gas**, then deposit/withdraw. MetaMask: add network `http://localhost:8545`
 (chain id 31337); the panel offers to add it.
 
+## Backups, monitoring and the signer (ADR-0015)
+
+```bash
+scripts/backup.sh                                   # backups/<ts>.dump + .sha256
+scripts/restore-drill.sh backups/<ts>.dump          # restore + full reconciliation
+scripts/monitoring-up.sh                            # Prometheus :9090, Alertmanager :9093, Grafana :3001
+docker compose --profile signer up -d signer        # isolated signer (set SIGNER_* in .env first)
+```
+
 ## Quality checks
 
 ```bash

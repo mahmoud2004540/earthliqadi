@@ -8,9 +8,10 @@ import {
 import { Reflector } from '@nestjs/core';
 import { isStaffPermission, type Permission } from '@platform/shared';
 import type { Request } from 'express';
+import { BlockList, isIP } from 'node:net';
 import { AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
-import { IS_PUBLIC_KEY, PERMISSIONS_KEY } from '../common/decorators';
+import { IS_PUBLIC_KEY, PERMISSIONS_KEY, STEP_UP_KEY } from '../common/decorators';
 import { requestContextFrom } from '../common/request-context';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { RbacService } from '../rbac/rbac.service';
@@ -74,7 +75,13 @@ export class SessionAuthGuard implements CanActivate {
     if (!result) throw AppError.unauthenticated();
 
     const { roles, permissions } = await this.rbac.rolesAndPermissionsFor(result.user.id);
-    req.auth = { sessionId: result.session.id, user: result.user, roles, permissions };
+    req.auth = {
+      sessionId: result.session.id,
+      stepUpAt: result.session.stepUpAt,
+      user: result.user,
+      roles,
+      permissions,
+    };
     return true;
   }
 }
@@ -90,7 +97,41 @@ export class PermissionsGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly audit: AuditService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
-  ) {}
+  ) {
+    for (const cidr of config.ADMIN_IP_ALLOWLIST) {
+      const [addr, bits] = cidr.split('/');
+      const family = isIP(addr ?? '') === 6 ? 'ipv6' : 'ipv4';
+      this.allowlist.addSubnet(addr!, Number(bits ?? (family === 'ipv6' ? 128 : 32)), family);
+    }
+  }
+
+  private readonly allowlist = new BlockList();
+
+  private ipAllowed(ip: string | undefined): boolean {
+    if (this.config.ADMIN_IP_ALLOWLIST.length === 0) return true;
+    if (!ip) return false;
+    const plain = ip.startsWith('::ffff:') ? ip.slice(7) : ip;
+    return this.allowlist.check(plain, isIP(plain) === 6 ? 'ipv6' : 'ipv4');
+  }
+
+  private async deny(
+    req: Request,
+    auth: NonNullable<Request['auth']>,
+    code: 'MFA_REQUIRED' | 'STEP_UP_REQUIRED' | 'IP_NOT_ALLOWED',
+    message: string,
+  ): Promise<never> {
+    await this.audit.recordSafe({
+      action: 'rbac.access.denied',
+      outcome: 'DENIED',
+      actorType: 'USER',
+      actorUserId: auth.user.id,
+      targetType: 'route',
+      targetId: `${req.method} ${req.path}`.slice(0, 128),
+      context: requestContextFrom(req),
+      metadata: { reason: code },
+    });
+    throw new AppError(HttpStatus.FORBIDDEN, code, message);
+  }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const required = this.reflector.getAllAndOverride<Permission[] | undefined>(PERMISSIONS_KEY, [
@@ -104,29 +145,42 @@ export class PermissionsGuard implements CanActivate {
     if (!auth) throw AppError.unauthenticated();
 
     const missing = required.filter((p) => !auth.permissions.includes(p));
-    if (
-      missing.length === 0 &&
-      this.config.STAFF_MFA_REQUIRED &&
-      auth.user.mfaEnabledAt === null &&
-      required.some(isStaffPermission)
-    ) {
-      await this.audit.recordSafe({
-        action: 'rbac.access.denied',
-        outcome: 'DENIED',
-        actorType: 'USER',
-        actorUserId: auth.user.id,
-        targetType: 'route',
-        targetId: `${req.method} ${req.path}`.slice(0, 128),
-        context: requestContextFrom(req),
-        metadata: { reason: 'staff permission without MFA' },
-      });
-      throw new AppError(
-        HttpStatus.FORBIDDEN,
-        'MFA_REQUIRED',
-        'Staff access requires two-factor authentication on your account',
-      );
+    if (missing.length === 0) {
+      const staff = required.some(isStaffPermission);
+      if (staff && !this.ipAllowed(req.ip))
+        await this.deny(
+          req,
+          auth,
+          'IP_NOT_ALLOWED',
+          'Staff access is not allowed from this network',
+        );
+      if (staff && this.config.STAFF_MFA_REQUIRED && auth.user.mfaEnabledAt === null)
+        await this.deny(
+          req,
+          auth,
+          'MFA_REQUIRED',
+          'Staff access requires two-factor authentication on your account',
+        );
+      const stepUp =
+        this.reflector.getAllAndOverride<unknown>(STEP_UP_KEY, [
+          context.getHandler(),
+          context.getClass(),
+        ]) === true;
+      // Accounts without MFA only reach here when STAFF_MFA_REQUIRED is off (local/ci).
+      if (stepUp && auth.user.mfaEnabledAt !== null) {
+        const fresh =
+          auth.stepUpAt !== null &&
+          Date.now() - auth.stepUpAt.getTime() <= this.config.STEP_UP_WINDOW_SECONDS * 1000;
+        if (!fresh)
+          await this.deny(
+            req,
+            auth,
+            'STEP_UP_REQUIRED',
+            'Confirm this action with a fresh authenticator code',
+          );
+      }
+      return true;
     }
-    if (missing.length === 0) return true;
 
     await this.audit.recordSafe({
       action: 'rbac.access.denied',

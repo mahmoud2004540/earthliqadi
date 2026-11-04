@@ -61,12 +61,13 @@ async function personOn(target: INestApplication, ...roles: RoleKey[]): Promise<
 }
 
 /** Enrols TOTP through the real API (the code is computed like an authenticator app). */
-async function enableMfa(p: Person): Promise<void> {
+async function enableMfa(p: Person): Promise<Buffer> {
   const setup = await p.client.post('/v1/me/mfa/totp/setup', { password: PASSWORD });
   expect(setup.status).toBe(200);
   const secret = base32Decode(setup.body.secret as string);
   const res = await p.client.post('/v1/me/mfa/totp/enable', { code: hotp(secret, timeStep()) });
   expect(res.status).toBe(204);
+  return secret;
 }
 
 const KYC = {
@@ -98,6 +99,40 @@ describe('staff MFA enforcement', () => {
       expect((await staff.client.get('/v1/me/tickets')).status).toBe(200);
       await enableMfa(staff);
       expect((await staff.client.get('/v1/admin/tickets')).status).toBe(200);
+    });
+  });
+});
+
+describe('step-up re-authentication (ADR-0015)', () => {
+  it('requires a fresh authenticator code for sensitive staff actions', async () => {
+    await withEnv({ STAFF_MFA_REQUIRED: 'true' }, async (strict) => {
+      const admin = await personOn(strict, 'administrator');
+      const secret = await enableMfa(admin);
+      const target = await personOn(strict);
+      const suspend = () =>
+        admin.client.post(`/v1/admin/users/${target.id}/suspend`, { reason: 'step-up test' });
+      // Reading is fine without step-up; the sensitive action is not.
+      expect((await admin.client.get('/v1/admin/users')).status).toBe(200);
+      const denied = await suspend();
+      expect(denied.status).toBe(403);
+      expect(denied.body.error.code).toBe('STEP_UP_REQUIRED');
+      expect((await admin.client.post('/v1/auth/step-up', { code: '000000' })).status).toBe(401);
+      // The enrolment used the current time-step; replay protection needs the next one.
+      const ok = await admin.client.post('/v1/auth/step-up', {
+        code: hotp(secret, timeStep() + 1),
+      });
+      expect(ok.status).toBe(204);
+      expect((await suspend()).status).toBe(200);
+    });
+  });
+
+  it('restricts staff permissions to the admin IP allow-list when configured', async () => {
+    await withEnv({ ADMIN_IP_ALLOWLIST: '192.0.2.0/24' }, async (restricted) => {
+      const staff = await personOn(restricted, 'support_agent');
+      const res = await staff.client.get('/v1/admin/tickets');
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('IP_NOT_ALLOWED');
+      expect((await staff.client.get('/v1/me/tickets')).status).toBe(200);
     });
   });
 });
@@ -439,5 +474,39 @@ describe('monitoring', () => {
     expect(health.body.queues).toEqual(
       expect.objectContaining({ approvalsPending: expect.any(Number) }),
     );
+  });
+});
+
+describe('personal data export', () => {
+  it('returns everything about the account, without secrets, and audits the export', async () => {
+    const user = await person();
+    await user.client.post('/v1/me/verification', { ...KYC, legalName: 'Export Person' });
+    await user.client.post('/v1/me/tickets', { subject: 'Export test', body: 'Hello' });
+    const res = await user.client.get('/v1/me/export');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-disposition']).toMatch(/attachment/);
+    expect(res.body).toMatchObject({
+      format: 'exchange-platform/personal-data-export@1',
+      account: { id: user.id, email: user.email },
+    });
+    expect(res.body.identityVerification[0].profile.legalName).toBe('Export Person');
+    expect(res.body.supportTickets[0].messages[0].body).toBe('Hello');
+    expect(res.body.sessions.length).toBeGreaterThan(0);
+    const text = JSON.stringify(res.body);
+    for (const secret of [
+      'passwordHash',
+      'password_hash',
+      'mfaTotpSecretEnc',
+      'tokenHash',
+      'profileEnc',
+    ])
+      expect(text).not.toContain(secret);
+    const row = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(text).not.toContain(row.passwordHash!);
+    expect(
+      await prisma.auditLog.count({
+        where: { action: 'account.data_exported', actorUserId: user.id },
+      }),
+    ).toBe(1);
   });
 });

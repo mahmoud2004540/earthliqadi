@@ -152,6 +152,36 @@ export class AuthService {
     await this.sendVerificationEmail(user, token);
   }
 
+  // ---------------------------------------------------------------- step-up
+
+  /** Re-proves possession of the authenticator in this session (ADR-0015). */
+  async stepUp(
+    userId: string,
+    sessionId: string,
+    code: string,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    if (!user.mfaEnabledAt)
+      throw new AppError(
+        HttpStatus.CONFLICT,
+        'MFA_NOT_ENABLED',
+        'Enable two-factor authentication first',
+      );
+    const ok = await this.mfa.verifyAndConsume(user, code);
+    await this.audit.recordSafe({
+      action: 'auth.step_up',
+      outcome: ok ? 'SUCCESS' : 'FAILURE',
+      actorType: 'USER',
+      actorUserId: userId,
+      targetType: 'session',
+      targetId: sessionId,
+      context: ctx,
+    });
+    if (!ok) throw new AppError(HttpStatus.UNAUTHORIZED, 'MFA_INVALID', 'Invalid or reused code');
+    await this.prisma.session.update({ where: { id: sessionId }, data: { stepUpAt: new Date() } });
+  }
+
   // ---------------------------------------------------------- wallet sign-in
 
   /** Issues a single-use SIWE nonce (5 minutes). */

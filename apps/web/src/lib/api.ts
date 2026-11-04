@@ -60,6 +60,16 @@ export async function api<T>(
       csrfToken = null;
       return api<T>(path, options, true);
     }
+    // Sensitive staff actions need a fresh authenticator code (ADR-0015): ask once, then retry.
+    if (err?.code === 'STEP_UP_REQUIRED' && !retried && typeof window !== 'undefined') {
+      const code = window.prompt(
+        'Confirm this action: enter the 6-digit code from your authenticator app',
+      );
+      if (code) {
+        await api('/v1/auth/step-up', { method: 'POST', body: { code: code.trim() } });
+        return api<T>(path, options, true);
+      }
+    }
     throw new ApiError(
       res.status,
       err?.code ?? 'INTERNAL_ERROR',
