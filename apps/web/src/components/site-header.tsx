@@ -9,6 +9,7 @@ export function SiteHeader({ t }: { t: Dictionary }) {
     { href: 'trade', label: t.nav.trade },
     { href: 'fees', label: t.nav.fees },
     { href: 'vaults', label: t.nav.vaults },
+    { href: 'grids', label: t.nav.grids },
     { href: 'leaderboard', label: t.nav.leaderboard },
     { href: 'security', label: t.nav.security },
     { href: 'proof', label: t.nav.proof },

@@ -44,7 +44,11 @@ not described as implemented in the docs should be treated as absent.
   stops, and the set of known order ids (which grows without bound). This is
   acceptable at development scale and noted for optimisation.
 - The PostgreSQL transport adds milliseconds of latency; it has not been load-tested yet (Sprint 4).
-- No order expiry (GTD), iceberg orders or trailing stops.
+- No order expiry (GTD). Iceberg, trailing stop, chase, scaled, hidden orders
+  and grid bots exist (ADR-0020, ADR-0025). Trailing stop and chase run in the
+  API on the algo poll (about 1 s), not inside the engine.
+- Grid bots read all their child orders on every step; very long-running grids
+  need a cursor or a summary table. Grid profit is gross, before fees.
 - A market buy needs an explicit protection price, because there is no
   reference price yet.
 - If settlement hits an invariant violation, that market's settlement stops

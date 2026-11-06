@@ -6,7 +6,13 @@ import {
   type OrderType,
   type TimeInForce,
 } from '@prisma/client';
-import { formatAmountTrimmed, type OrderDto, type TradeDto } from '@platform/shared';
+import {
+  formatAmountTrimmed,
+  type OrderDto,
+  type scaleOrderSchema,
+  type TradeDto,
+} from '@platform/shared';
+import type { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { AuditService } from '../audit/audit.service';
 import { LeaderVaultsService } from '../leader-vaults/leader-vaults.service';
@@ -27,6 +33,7 @@ import {
   ticksToPrice,
 } from './order-math';
 import { isTerminal } from './order-state';
+import { scalePlan } from '../algo/pro-math';
 import { parsePerpConfig } from '../perps/perp-config';
 import { checkPerpOrder, lockPosition, perpHold } from '../perps/perp-orders';
 import { currentMark } from '../perps/perp-prices';
@@ -42,6 +49,7 @@ export interface PlaceOrderRequest {
   quantity: string;
   reduceOnly?: boolean;
   trigger?: 'above' | 'below';
+  hidden?: boolean;
 }
 
 type OrderWithMarket = Order & { market: MarketWithAssets };
@@ -88,6 +96,8 @@ export class OrdersService {
       rateChecked?: boolean;
       ocoGroupId?: string;
       algoOrderId?: string;
+      /** Grid children (ADR-0025): the level the order sits on. */
+      gridLevel?: number;
       /**
        * Block trades (ADR-0020): run inside the caller's transaction and hand
        * back the engine payload instead of enqueueing a place command.
@@ -132,6 +142,9 @@ export class OrdersService {
       throw invalid('stopPrice', 'stopPrice is only valid for stop orders');
     if (!isStop && req.trigger) throw invalid('trigger', 'trigger is only valid for stop orders');
     const trigger = isStop ? (req.trigger ?? null) : null;
+    const hidden = req.hidden ?? false;
+    if (hidden && (type !== 'LIMIT' || (tif !== 'GTC' && tif !== 'POST_ONLY')))
+      throw invalid('hidden', 'Hidden orders must be limit orders with gtc or post_only');
 
     const priceTicks = req.price ? priceToTicks(req.price, u) : null;
     const stopPriceTicks = req.stopPrice ? priceToTicks(req.stopPrice, u, 'stopPrice') : null;
@@ -153,6 +166,7 @@ export class OrdersService {
       quantityLots,
       reduceOnly,
       trigger,
+      hidden,
     };
     const existing = await this.prisma.order.findUnique({
       where: { userId_clientOrderId: { userId, clientOrderId: req.clientOrderId } },
@@ -261,6 +275,8 @@ export class OrdersService {
             ocoGroupId: opts.ocoGroupId ?? null,
             engineAccount,
             algoOrderId: opts.algoOrderId ?? null,
+            hidden,
+            gridLevel: opts.gridLevel ?? null,
           },
           include: { market: { include: { baseAsset: true, quoteAsset: true } } },
         });
@@ -351,6 +367,48 @@ export class OrdersService {
       }
     }
     return out;
+  }
+
+  /**
+   * Scaled order (ADR-0025): plans `count` limit orders and places them as a
+   * batch (each order succeeds or fails on its own, like placeBatch).
+   */
+  async placeScale(
+    userId: string,
+    req: z.infer<typeof scaleOrderSchema>,
+    ctx: RequestContext,
+  ): ReturnType<OrdersService['placeBatch']> {
+    const market = await this.markets.require(req.market);
+    const u = unitsOf(market);
+    let plan: { priceTicks: bigint; lots: bigint }[];
+    try {
+      plan = scalePlan({
+        totalLots: quantityToLots(req.quantity, u),
+        start: priceToTicks(req.startPrice, u, 'startPrice'),
+        end: priceToTicks(req.endPrice, u, 'endPrice'),
+        count: req.count,
+        distribution: req.distribution,
+        minLots: market.minQuantityLots,
+      });
+    } catch (err) {
+      if (err instanceof AppError) throw err;
+      throw invalid('count', err instanceof Error ? err.message : 'Invalid scaled order');
+    }
+    return this.placeBatch(
+      userId,
+      plan.map((o, i) => ({
+        market: market.symbol,
+        clientOrderId: `${req.clientOrderIdPrefix}-${i}`,
+        side: req.side,
+        type: 'limit' as const,
+        timeInForce: req.timeInForce,
+        price: ticksToPrice(o.priceTicks, u),
+        quantity: lotsToQuantity(o.lots, u),
+        ...(req.reduceOnly ? { reduceOnly: true } : {}),
+        ...(req.hidden ? { hidden: true } : {}),
+      })),
+      ctx,
+    );
   }
 
   /** Requests cancellation of every open order (optionally one market). Counts as one request. */
@@ -615,7 +673,8 @@ export class OrdersService {
       existing.stopPriceTicks === f.stopPriceTicks &&
       existing.quantityLots === f.quantityLots &&
       existing.reduceOnly === f.reduceOnly &&
-      existing.triggerDirection === f.trigger;
+      existing.triggerDirection === f.trigger &&
+      existing.hidden === f.hidden;
     if (!same) {
       throw new AppError(
         HttpStatus.CONFLICT,
@@ -654,6 +713,7 @@ export class OrdersService {
       cancelRequested: o.cancelRequestedAt !== null,
       reduceOnly: o.reduceOnly,
       liquidation: o.isLiquidation,
+      hidden: o.hidden,
       createdAt: o.createdAt.toISOString(),
       updatedAt: o.updatedAt.toISOString(),
     };

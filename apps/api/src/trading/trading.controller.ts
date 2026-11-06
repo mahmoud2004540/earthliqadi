@@ -24,6 +24,7 @@ import {
   orderListQuerySchema,
   placeOrderSchema,
   reduceOrderSchema,
+  scaleOrderSchema,
   type BatchOrderResultDto,
   type MarketDto,
   type OrderDto,
@@ -93,6 +94,21 @@ export class OrdersController {
     @ReqContext() ctx: RequestContext,
   ): Promise<{ results: BatchOrderResultDto[] }> {
     return { results: await this.orders.placeBatch(auth.user.id, body.orders, ctx) };
+  }
+
+  /** Scaled order (ADR-0025): 2-20 limit orders over a price range; per-item results. */
+  @Post('scale')
+  @AccessPolicy('open', 'single')
+  @HttpCode(HttpStatus.OK)
+  @ApiKeyScope('trade')
+  @RequirePermissions(PERMISSIONS.TRADING_TRADE)
+  @ApiZodBody(scaleOrderSchema)
+  async scale(
+    @CurrentAuth() auth: AuthContext,
+    @Body(new ZodValidationPipe(scaleOrderSchema)) body: z.infer<typeof scaleOrderSchema>,
+    @ReqContext() ctx: RequestContext,
+  ): Promise<{ results: BatchOrderResultDto[] }> {
+    return { results: await this.orders.placeScale(auth.user.id, body, ctx) };
   }
 
   /** Cancels every open order (optionally one market). */

@@ -164,39 +164,140 @@ export const vaultRedeemSchema = z.object({
   shares: z.union([z.literal('all'), z.string().regex(/^[1-9][0-9]{0,30}$/)]),
 });
 
-/** TWAP / iceberg (ADR-0020). Prices: limit for each child (TWAP: worst acceptable). */
-export const algoOrderSchema = z
-  .object({
-    market: marketSymbolSchema,
-    kind: z.enum(['twap', 'iceberg']),
+/**
+ * Algo orders (ADR-0020, ADR-0025). Every child is an ordinary order with its
+ * own hold and risk checks.
+ *
+ * - twap: an IOC slice every `intervalSeconds`, at `price` or better.
+ * - iceberg: one visible GTC slice at a time at `price`.
+ * - trailing: a stop that follows the price; it fires when the reference
+ *   price (mark for perpetuals, last trade for spot) retraces `callbackBps`
+ *   from its best level since activation, sending an IOC order bounded by
+ *   `slippageBps`.
+ * - chase: a post-only order that keeps re-pricing to the best price on its
+ *   side of the book, never beyond `price`, until filled.
+ * - grid: buys below and sells above the current price on `gridCount`
+ *   evenly spaced intervals between `lowerPrice` and `upperPrice`; every fill
+ *   is answered one level away (ADR-0025).
+ */
+const algoBase = {
+  market: marketSymbolSchema,
+  reduceOnly: z.boolean().optional(),
+};
+export const algoOrderSchema = z.discriminatedUnion('kind', [
+  z.object({
+    ...algoBase,
+    kind: z.literal('twap'),
     side: z.enum(['buy', 'sell']),
     quantity: amountStringSchema,
-    /** TWAP: size of each slice. Iceberg: the visible size. */
     sliceQuantity: amountStringSchema,
     price: amountStringSchema,
-    /** TWAP only: seconds between slices. */
-    intervalSeconds: z.number().int().min(5).max(86_400).optional(),
-    reduceOnly: z.boolean().optional(),
-  })
-  .refine((a) => (a.kind === 'twap') === (a.intervalSeconds !== undefined), {
-    message: 'intervalSeconds is required for TWAP and not allowed for iceberg',
-    path: ['intervalSeconds'],
-  });
+    intervalSeconds: z.number().int().min(5).max(86_400),
+  }),
+  z.object({
+    ...algoBase,
+    kind: z.literal('iceberg'),
+    side: z.enum(['buy', 'sell']),
+    quantity: amountStringSchema,
+    sliceQuantity: amountStringSchema,
+    price: amountStringSchema,
+  }),
+  z.object({
+    ...algoBase,
+    kind: z.literal('trailing'),
+    side: z.enum(['buy', 'sell']),
+    quantity: amountStringSchema,
+    /** Retrace that triggers the stop, in basis points (10 = 0.1%, 2000 = 20%). */
+    callbackBps: z.number().int().min(10).max(2000),
+    /** Optional: tracking starts once the price reaches this level. */
+    activationPrice: amountStringSchema.optional(),
+    /** Worst fill accepted when it fires, in basis points from the trigger price. */
+    slippageBps: z.number().int().min(10).max(1000).default(100),
+  }),
+  z.object({
+    ...algoBase,
+    kind: z.literal('chase'),
+    side: z.enum(['buy', 'sell']),
+    quantity: amountStringSchema,
+    /** The chase never rests beyond this price (buy: above, sell: below). */
+    price: amountStringSchema,
+  }),
+  z.object({
+    ...algoBase,
+    kind: z.literal('grid'),
+    lowerPrice: amountStringSchema,
+    upperPrice: amountStringSchema,
+    gridCount: z.number().int().min(2).max(100),
+    /** Size of each grid order. */
+    quantityPerGrid: amountStringSchema,
+    /** long: buy first (spot and perpetuals). short and neutral: perpetuals only. */
+    direction: z.enum(['long', 'short', 'neutral']).default('long'),
+    /** List it in the grid marketplace (parameters and results, never the owner). */
+    isPublic: z.boolean().default(false),
+  }),
+]);
+export type AlgoOrderInput = z.infer<typeof algoOrderSchema>;
+
+export const gridCopySchema = z.object({
+  quantityPerGrid: amountStringSchema,
+  isPublic: z.boolean().default(false),
+});
+export const gridVisibilitySchema = z.object({ isPublic: z.boolean() });
+
+export type AlgoKind = 'twap' | 'iceberg' | 'trailing' | 'chase' | 'grid';
+
+export interface GridStatsDto {
+  lowerPrice: string;
+  upperPrice: string;
+  gridCount: number;
+  direction: 'long' | 'short' | 'neutral';
+  quantityPerGrid: string;
+  /** Completed buy-sell round trips. */
+  completedRounds: number;
+  /** Gross profit of completed rounds at grid prices, before fees (quote asset). */
+  gridProfit: string;
+  isPublic: boolean;
+  copiedFromId: string | null;
+}
 
 export interface AlgoOrderDto {
   id: string;
   market: string;
-  kind: 'twap' | 'iceberg';
-  side: 'buy' | 'sell';
+  kind: AlgoKind;
+  /** Grids trade both sides. */
+  side: 'buy' | 'sell' | 'both';
   quantity: string;
   sliceQuantity: string;
   filledQuantity: string;
-  price: string;
+  /** TWAP/iceberg: limit; chase: cap; trailing and grid: null. */
+  price: string | null;
   intervalSeconds: number | null;
   status: 'running' | 'done' | 'cancelled' | 'failed';
   slicesSent: number;
   lastError: string | null;
   createdAt: string;
+  trailing: {
+    callbackBps: number;
+    slippageBps: number;
+    activationPrice: string | null;
+    activated: boolean;
+    /** Best reference price since activation (peak for sells, trough for buys). */
+    extremePrice: string | null;
+    /** Price at which it fires now, once activated. */
+    triggerPrice: string | null;
+  } | null;
+  grid: GridStatsDto | null;
+}
+
+/** A public grid in the marketplace: parameters and results only (ADR-0025). */
+export interface PublicGridDto extends GridStatsDto {
+  id: string;
+  market: string;
+  status: AlgoOrderDto['status'];
+  createdAt: string;
+  /** Running time in seconds (until now, or until it stopped). */
+  runningSeconds: number;
+  copies: number;
 }
 
 /** RFQ / block trades (ADR-0020). */

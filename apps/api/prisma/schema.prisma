@@ -507,8 +507,12 @@ model Order {
   ocoGroupId        String?     @map("oco_group_id") @db.Uuid
   /// Self-trade-prevention account sent to the engine (null on older rows = user id).
   engineAccount     String?     @map("engine_account") @db.Uuid
-  /// Child of a TWAP / iceberg parent (ADR-0020).
+  /// Child of an algo order (TWAP, iceberg, chase, trailing stop, grid; ADR-0020, ADR-0025).
   algoOrderId       String?     @map("algo_order_id") @db.Uuid
+  /// Left out of the public order book (ADR-0025); limit GTC/post-only only.
+  hidden            Boolean     @default(false)
+  /// Grid children: the grid level the order sits on.
+  gridLevel         Int?        @map("grid_level") @db.SmallInt
   quantityLots      BigInt      @map("quantity_lots")
   filledLots        BigInt      @default(0) @map("filled_lots")
   status            OrderStatus @default(PENDING_NEW)
@@ -536,6 +540,7 @@ model Order {
   @@unique([userId, clientOrderId])
   @@index([userId, createdAt])
   @@index([marketId, status])
+  @@index([algoOrderId], map: "orders_algo_order_idx")
   @@map("orders")
 }
 
@@ -1114,8 +1119,23 @@ model AlgoOrder {
   side            OrderSide
   totalLots       BigInt    @map("total_lots")
   sliceLots       BigInt    @map("slice_lots")
-  priceTicks      BigInt    @map("price_ticks")
+  priceTicks      BigInt?   @map("price_ticks")
   intervalSeconds Int?      @map("interval_seconds")
+  /// Trailing stop (ADR-0025): retrace that triggers it, and the protection band of its order.
+  callbackBps     Int?      @map("callback_bps")
+  slippageBps     Int?      @map("slippage_bps")
+  activationTicks BigInt?   @map("activation_ticks")
+  /// Best reference price seen since activation (peak for sells, trough for buys).
+  extremeTicks    BigInt?   @map("extreme_ticks")
+  activated       Boolean   @default(false)
+  /// Grid (ADR-0025).
+  gridLowerTicks  BigInt?   @map("grid_lower_ticks")
+  gridUpperTicks  BigInt?   @map("grid_upper_ticks")
+  gridCount       Int?      @map("grid_count")
+  gridDirection   String?   @map("grid_direction") @db.VarChar(8)
+  /// Listed in the grid marketplace.
+  isPublic        Boolean   @default(false) @map("is_public")
+  copiedFromId    String?   @map("copied_from_id") @db.Uuid
   reduceOnly      Boolean   @default(false) @map("reduce_only")
   status          String    @default("RUNNING") @db.VarChar(10)
   slicesSent      Int       @default(0) @map("slices_sent")

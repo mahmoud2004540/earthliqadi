@@ -9,23 +9,28 @@ import {
   Module,
   Param,
   Post,
+  Query,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import {
   PERMISSIONS,
   algoOrderSchema,
+  gridCopySchema,
+  gridVisibilitySchema,
+  marketSymbolSchema,
   rfqAcceptSchema,
   rfqMakerSchema,
   rfqQuoteSchema,
   rfqRequestSchema,
   uuidParamSchema,
   type AlgoOrderDto,
+  type PublicGridDto,
   type RfqDto,
 } from '@platform/shared';
-import type { z } from 'zod';
+import { z } from 'zod';
 import type { AuthContext } from '../auth/auth-context';
 import { CurrentAuth } from '../auth/current-auth.decorator';
-import { ApiKeyScope, RequirePermissions, RequireStepUp } from '../common/decorators';
+import { ApiKeyScope, Public, RequirePermissions, RequireStepUp } from '../common/decorators';
 import { ApiZodBody } from '../common/openapi';
 import { ReqContext, type RequestContext } from '../common/request-context';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -33,7 +38,7 @@ import { TradingModule } from '../trading/trading.module';
 import { AlgoOrdersScheduler, AlgoOrdersService } from './algo-orders.service';
 import { RfqService } from './rfq.service';
 
-/** TWAP and iceberg orders (ADR-0020). */
+/** Algo orders: TWAP, iceberg (ADR-0020), trailing stop, chase, grid (ADR-0025). */
 @ApiTags('trading')
 @Controller({ path: 'algo-orders', version: '1' })
 export class AlgoOrdersController {
@@ -59,6 +64,20 @@ export class AlgoOrdersController {
     return this.algos.create(auth.user.id, body, ctx);
   }
 
+  /** Lists or unlists one of the caller's grids in the marketplace. */
+  @Post(':id/visibility')
+  @HttpCode(HttpStatus.OK)
+  @ApiKeyScope('trade')
+  @RequirePermissions(PERMISSIONS.TRADING_TRADE)
+  @ApiZodBody(gridVisibilitySchema)
+  visibility(
+    @CurrentAuth() auth: AuthContext,
+    @Param(new ZodValidationPipe(uuidParamSchema)) p: z.infer<typeof uuidParamSchema>,
+    @Body(new ZodValidationPipe(gridVisibilitySchema)) body: z.infer<typeof gridVisibilitySchema>,
+  ): Promise<AlgoOrderDto> {
+    return this.algos.setVisibility(auth.user.id, p.id, body.isPublic);
+  }
+
   @Delete(':id')
   @ApiKeyScope('trade')
   @RequirePermissions(PERMISSIONS.TRADING_TRADE)
@@ -67,6 +86,39 @@ export class AlgoOrdersController {
     @Param(new ZodValidationPipe(uuidParamSchema)) p: z.infer<typeof uuidParamSchema>,
   ): Promise<AlgoOrderDto> {
     return this.algos.cancel(auth.user.id, p.id);
+  }
+}
+
+const gridListQuerySchema = z.object({ market: marketSymbolSchema.optional() });
+
+/** Grid marketplace (ADR-0025): public grids and copying them. */
+@ApiTags('trading')
+@Controller({ path: 'grids', version: '1' })
+export class GridMarketplaceController {
+  constructor(private readonly algos: AlgoOrdersService) {}
+
+  /** Public grids, best results first. Parameters and results only, never the owner. */
+  @Public()
+  @Get('public')
+  async list(
+    @Query(new ZodValidationPipe(gridListQuerySchema)) q: z.infer<typeof gridListQuerySchema>,
+  ): Promise<{ grids: PublicGridDto[] }> {
+    return { grids: await this.algos.listPublic(q.market) };
+  }
+
+  /** Starts a grid with the same parameters at the caller's own size. */
+  @Post(':id/copy')
+  @AccessPolicy('open')
+  @ApiKeyScope('trade')
+  @RequirePermissions(PERMISSIONS.TRADING_TRADE)
+  @ApiZodBody(gridCopySchema)
+  copy(
+    @CurrentAuth() auth: AuthContext,
+    @Param(new ZodValidationPipe(uuidParamSchema)) p: z.infer<typeof uuidParamSchema>,
+    @Body(new ZodValidationPipe(gridCopySchema)) body: z.infer<typeof gridCopySchema>,
+    @ReqContext() ctx: RequestContext,
+  ): Promise<AlgoOrderDto> {
+    return this.algos.copy(auth.user.id, p.id, body, ctx);
   }
 }
 
@@ -168,7 +220,7 @@ export class AdminRfqController {
 
 @Module({
   imports: [TradingModule],
-  controllers: [AlgoOrdersController, RfqController, AdminRfqController],
+  controllers: [AlgoOrdersController, GridMarketplaceController, RfqController, AdminRfqController],
   providers: [AlgoOrdersService, AlgoOrdersScheduler, RfqService],
   exports: [AlgoOrdersService],
 })

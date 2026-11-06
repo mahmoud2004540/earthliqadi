@@ -92,6 +92,7 @@ export class MarketDataService {
        WHERE "market_id" = ${market.id}::uuid
          AND "status" IN ('OPEN', 'PARTIALLY_FILLED')
          AND "time_in_force" IN ('GTC', 'POST_ONLY')
+         AND NOT "hidden"
          AND "price_ticks" IS NOT NULL
        GROUP BY "side", "price_ticks"
       HAVING SUM("quantity_lots" - "filled_lots") > 0`;

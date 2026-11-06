@@ -317,6 +317,7 @@ export function Terminal({ symbol, t }: { symbol: string; t: Dictionary }) {
               onPlaced={refreshPrivate}
               t={t}
               leverage={positions.find((p) => p.market === symbol)?.leverage ?? null}
+              bbo={{ bid: book?.bids[0]?.[0] ?? null, ask: book?.asks[0]?.[0] ?? null }}
             />
           )}
           {market && signedIn && <AlgoPanel market={market} t={t} />}

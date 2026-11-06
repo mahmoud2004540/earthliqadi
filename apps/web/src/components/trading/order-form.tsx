@@ -33,6 +33,8 @@ export interface OrderFormProps {
   t: Dictionary;
   /** Perpetuals: the user's leverage on this market (null until known). */
   leverage?: number | null;
+  /** Best visible bid and ask, for the BBO button. */
+  bbo?: { bid: string | null; ask: string | null };
 }
 
 export function OrderForm({
@@ -46,11 +48,13 @@ export function OrderForm({
   onPlaced,
   t,
   leverage = null,
+  bbo = { bid: null, ask: null },
 }: OrderFormProps) {
   const tt = t.terminal;
   const tp = tt.perp;
   const perp = market.kind === 'perpetual';
   const [reduceOnly, setReduceOnly] = useState(false);
+  const [hidden, setHidden] = useState(false);
   const [leverageInput, setLeverageInput] = useState('');
   const [side, setSide] = useState<Side>('buy');
   const [type, setType] = useState<OrderType>('limit');
@@ -62,6 +66,9 @@ export function OrderForm({
 
   const isMarketLike = type === 'market' || type === 'stop_market';
   const isStop = type === 'stop_limit' || type === 'stop_market';
+  const hiddenAllowed = type === 'limit' && (tif === 'gtc' || tif === 'post_only');
+  // BBO: rest at the best price on your own side (a maker at the top of the book).
+  const bboPrice = side === 'buy' ? bbo.bid : bbo.ask;
   const holdAsset = perp || side === 'buy' ? market.quote : market.base;
   const available = balances.find((b) => b.asset === holdAsset)?.available ?? '0';
   // Exact maximum hold: buys hold price × quantity in quote; sells hold the quantity in base.
@@ -120,6 +127,7 @@ export function OrderForm({
           ...(isStop ? { stopPrice } : {}),
           quantity,
           ...(perp && reduceOnly ? { reduceOnly: true } : {}),
+          ...(hiddenAllowed && hidden ? { hidden: true } : {}),
         },
       });
       setMessage({ tone: 'success', text: tt.submitted });
@@ -213,13 +221,28 @@ export function OrderForm({
         <Label htmlFor="price">
           {priceLabel} ({market.quote})
         </Label>
-        <Input
-          id="price"
-          inputMode="decimal"
-          value={price}
-          onChange={(e) => onPriceChange(e.target.value.trim())}
-          dir="ltr"
-        />
+        <div className="flex gap-2">
+          <Input
+            id="price"
+            inputMode="decimal"
+            value={price}
+            onChange={(e) => onPriceChange(e.target.value.trim())}
+            dir="ltr"
+          />
+          {!isMarketLike && (
+            <Button
+              type="button"
+              variant="outline"
+              className="shrink-0"
+              disabled={!bboPrice}
+              title={tt.bboHint}
+              onClick={() => bboPrice && onPriceChange(bboPrice)}
+              data-testid="bbo"
+            >
+              BBO
+            </Button>
+          )}
+        </div>
         {isMarketLike && <p className="mt-1 text-xs text-muted">{tt.protectionHint}</p>}
       </div>
       <div>
@@ -250,6 +273,17 @@ export function OrderForm({
             {type === 'limit' && <option value="post_only">Post only</option>}
           </select>
         </div>
+      )}
+      {hiddenAllowed && (
+        <label className="flex items-center gap-2 text-xs" title={tt.hiddenHint}>
+          <input
+            type="checkbox"
+            checked={hidden}
+            onChange={(e) => setHidden(e.target.checked)}
+            data-testid="hidden-order"
+          />
+          {tt.hidden}
+        </label>
       )}
 
       {perp && (

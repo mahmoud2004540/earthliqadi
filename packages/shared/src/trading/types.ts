@@ -52,8 +52,33 @@ export const placeOrderSchema = z.object({
    * Take-profit: a sell `above` or a buy `below`.
    */
   trigger: z.enum(['above', 'below']).optional(),
+  /**
+   * Hidden order (ADR-0025): rests and matches normally but is left out of
+   * the public order book. Limit orders with gtc or post_only only.
+   */
+  hidden: z.boolean().optional(),
 });
 export type PlaceOrderInput = z.input<typeof placeOrderSchema>;
+
+/**
+ * Scaled order (ADR-0025): `count` limit orders at evenly spaced prices from
+ * `startPrice` to `endPrice`, splitting `quantity` by `distribution`
+ * (`increasing` puts more size towards `endPrice`). Order i gets the
+ * clientOrderId `${clientOrderIdPrefix}-${i}`.
+ */
+export const scaleOrderSchema = z.object({
+  market: marketSymbolSchema,
+  clientOrderIdPrefix: z.string().regex(/^[A-Za-z0-9_-]{1,40}$/),
+  side: z.enum(ORDER_SIDES),
+  quantity: amountStringSchema,
+  startPrice: amountStringSchema,
+  endPrice: amountStringSchema,
+  count: z.number().int().min(2).max(20),
+  distribution: z.enum(['flat', 'increasing', 'decreasing']).default('flat'),
+  timeInForce: z.enum(['gtc', 'post_only']).default('gtc'),
+  reduceOnly: z.boolean().optional(),
+  hidden: z.boolean().optional(),
+});
 
 /** New remaining quantity (must be lower than the current remaining quantity). */
 export const reduceOrderSchema = z.object({ remainingQuantity: amountStringSchema });
@@ -257,6 +282,8 @@ export interface OrderDto {
   cancelRequested: boolean;
   reduceOnly: boolean;
   liquidation: boolean;
+  /** Left out of the public order book (ADR-0025). */
+  hidden: boolean;
   createdAt: string;
   updatedAt: string;
 }
