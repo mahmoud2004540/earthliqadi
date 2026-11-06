@@ -116,8 +116,72 @@ impl OrderBook {
                 account,
                 remaining,
             } => self.reduce(order_id, account, *remaining, &mut events),
+            Command::Block { buy, sell, maker } => self.block(buy, sell, *maker, &mut events),
         }
         events
+    }
+
+    // ------------------------------------------------------------ block
+
+    fn block(&mut self, buy: &PlaceOrder, sell: &PlaceOrder, maker: Side, events: &mut Vec<Event>) {
+        let shape_ok = buy.side == Side::Buy
+            && sell.side == Side::Sell
+            && buy.kind == OrderKind::Limit
+            && sell.kind == OrderKind::Limit
+            && buy.tif == TimeInForce::Fok
+            && sell.tif == TimeInForce::Fok
+            && buy.price.is_some()
+            && buy.price == sell.price
+            && buy.quantity == sell.quantity
+            && buy.account != sell.account
+            && buy.order_id != sell.order_id
+            && self.validate(buy).is_ok()
+            && self.validate(sell).is_ok();
+        let duplicate =
+            self.known_ids.contains(&buy.order_id) || self.known_ids.contains(&sell.order_id);
+        for o in [buy, sell] {
+            if !o.order_id.is_empty() {
+                self.known_ids.insert(o.order_id.clone());
+            }
+        }
+        if !shape_ok || duplicate {
+            let reason = if duplicate {
+                RejectReason::DuplicateOrderId
+            } else {
+                RejectReason::InvalidBlock
+            };
+            for o in [buy, sell] {
+                events.push(Event::Rejected {
+                    order_id: o.order_id.clone(),
+                    reason,
+                });
+            }
+            return;
+        }
+        events.push(Self::accepted(buy));
+        events.push(Self::accepted(sell));
+        let (m, t) = if maker == Side::Buy {
+            (buy, sell)
+        } else {
+            (sell, buy)
+        };
+        events.push(Event::Trade {
+            maker_order_id: m.order_id.clone(),
+            taker_order_id: t.order_id.clone(),
+            maker_account: m.account.clone(),
+            taker_account: t.account.clone(),
+            taker_side: t.side,
+            price: buy.price.expect("checked"),
+            quantity: buy.quantity,
+            maker_remaining: 0,
+            taker_remaining: 0,
+        });
+        events.push(Event::Filled {
+            order_id: m.order_id.clone(),
+        });
+        events.push(Event::Filled {
+            order_id: t.order_id.clone(),
+        });
     }
 
     // ------------------------------------------------------------ place

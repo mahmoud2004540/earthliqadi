@@ -814,6 +814,86 @@ export class ChainService {
     return out;
   }
 
+  /**
+   * Public proof of liabilities (ADR-0020): per vault token, what the
+   * latest committed balance root promises to users (sum of its leaves),
+   * what the ledger owes users now, and what the vault contract actually
+   * holds now. Anyone can recompute the on-chain number.
+   */
+  async solvency() {
+    const d = await this.deployment();
+    if (!d) return { enabled: false as const };
+    const state = await this.prisma.vaultState.findFirst({
+      where: { chainId: d.chainId, vaultAddress: d.vaultAddress, status: 'COMMITTED' },
+      orderBy: { index: 'desc' },
+    });
+    const assets = await this.vaultAssets(d);
+    const tokens = [];
+    for (const a of assets) {
+      const onChain = (await this.rpc().readContract({
+        address: a.chainTokenAddress as Hex,
+        abi: TOKEN_ABI as never,
+        functionName: 'balanceOf',
+        args: [d.vaultAddress as Hex] as never,
+      })) as bigint;
+      const committed = state
+        ? await this.prisma.vaultStateLeaf.aggregate({
+            where: {
+              chainId: d.chainId,
+              vaultAddress: d.vaultAddress,
+              index: state.index,
+              tokenAddress: a.chainTokenAddress!,
+            },
+            _sum: { balance: true },
+          })
+        : null;
+      const users = await this.prisma.ledgerAccount.aggregate({
+        where: {
+          assetId: a.id,
+          type: { in: ['USER_AVAILABLE', 'USER_LOCKED', 'USER_MARGIN', 'USER_WITHDRAWING'] },
+        },
+        _sum: { balance: true },
+      });
+      const custody = await this.prisma.ledgerAccount.findFirst({
+        where: { assetId: a.id, type: 'VAULT_CUSTODY' },
+      });
+      const fmt = (v: bigint) => formatAmountTrimmed(v, a.scale);
+      const committedSum = committed?._sum.balance ? toMinorUnits(committed._sum.balance) : 0n;
+      const owed = users._sum.balance ? toMinorUnits(users._sum.balance) : 0n;
+      const custodyLedger = custody ? toMinorUnits(custody.balance) : 0n;
+      tokens.push({
+        asset: a.code,
+        token: a.chainTokenAddress,
+        onChainBalance: fmt(onChain),
+        custodyLedger: fmt(custodyLedger),
+        userBalancesNow: fmt(owed),
+        committedLiabilities: fmt(committedSum),
+        ledgerMatchesChain: custodyLedger === onChain,
+        committedCovered: onChain >= committedSum,
+      });
+    }
+    return {
+      enabled: true as const,
+      chainId: d.chainId,
+      vault: d.vaultAddress,
+      state: state
+        ? {
+            index: state.index.toString(),
+            root: state.root,
+            leafCount: state.leafCount,
+            committedAt: state.committedAt?.toISOString() ?? null,
+            txHash: state.txHash,
+          }
+        : null,
+      tokens,
+      notes: [
+        'onChainBalance is read from the token contract at request time; anyone can verify it.',
+        'committedLiabilities is the sum of every balance in the latest committed Merkle root, which users can claim through the escape hatch.',
+        'Deposits and withdrawals after the committed state make the two differ temporarily.',
+      ],
+    };
+  }
+
   // ----------------------------------------------------------- config/faucet
 
   async publicConfig(): Promise<VaultConfigDto> {

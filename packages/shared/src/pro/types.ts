@@ -163,3 +163,58 @@ export const vaultDepositSchema = z.object({
 export const vaultRedeemSchema = z.object({
   shares: z.union([z.literal('all'), z.string().regex(/^[1-9][0-9]{0,30}$/)]),
 });
+
+/** TWAP / iceberg (ADR-0020). Prices: limit for each child (TWAP: worst acceptable). */
+export const algoOrderSchema = z
+  .object({
+    market: marketSymbolSchema,
+    kind: z.enum(['twap', 'iceberg']),
+    side: z.enum(['buy', 'sell']),
+    quantity: amountStringSchema,
+    /** TWAP: size of each slice. Iceberg: the visible size. */
+    sliceQuantity: amountStringSchema,
+    price: amountStringSchema,
+    /** TWAP only: seconds between slices. */
+    intervalSeconds: z.number().int().min(5).max(86_400).optional(),
+    reduceOnly: z.boolean().optional(),
+  })
+  .refine((a) => (a.kind === 'twap') === (a.intervalSeconds !== undefined), {
+    message: 'intervalSeconds is required for TWAP and not allowed for iceberg',
+    path: ['intervalSeconds'],
+  });
+
+export interface AlgoOrderDto {
+  id: string;
+  market: string;
+  kind: 'twap' | 'iceberg';
+  side: 'buy' | 'sell';
+  quantity: string;
+  sliceQuantity: string;
+  filledQuantity: string;
+  price: string;
+  intervalSeconds: number | null;
+  status: 'running' | 'done' | 'cancelled' | 'failed';
+  slicesSent: number;
+  lastError: string | null;
+  createdAt: string;
+}
+
+/** RFQ / block trades (ADR-0020). */
+export const rfqRequestSchema = z.object({
+  market: marketSymbolSchema,
+  side: z.enum(['buy', 'sell']),
+  quantity: amountStringSchema,
+});
+export const rfqQuoteSchema = z.object({ price: amountStringSchema });
+export const rfqAcceptSchema = z.object({ quoteId: z.uuid() });
+export const rfqMakerSchema = z.object({ userId: z.uuid() });
+
+export interface RfqDto {
+  id: string;
+  market: string;
+  side: 'buy' | 'sell';
+  quantity: string;
+  status: 'open' | 'filled' | 'cancelled' | 'expired';
+  expiresAt: string;
+  quotes: { id: string; price: string; expiresAt: string }[];
+}

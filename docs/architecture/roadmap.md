@@ -156,4 +156,7 @@ See [`docs/product/product-brief.md`](../product/product-brief.md).
       TP/SL (OCO), sub-accounts, API-key WebSocket auth (ADR-0017)
 - [x] Step C: fee tiers, maker rebates, referral fee share, activity points with wash filters ([ADR-0018](../decisions/0018-fees-referrals-points.md))
 - [x] Step D: leader vaults (copy-trading) with fixed terms, high-water-mark profit share, queued exits, self-trade prevention, pro-rata escape-hatch leaves, track records and a risk-adjusted leaderboard ([ADR-0019](../decisions/0019-leader-vaults.md))
-- [ ] Step E: whale tools (TWAP, iceberg, RFQ, cross margin) and proof pages
+- [x] Step E: TWAP and iceberg orders, RFQ block trades (engine `block` command), public proof of
+      funds page ([ADR-0020](../decisions/0020-large-trader-tools-and-proof.md))
+- [ ] Next: cross margin and portfolio margin (new account-level risk engine), multi-collateral with
+      haircuts

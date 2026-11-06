@@ -502,6 +502,8 @@ model Order {
   ocoGroupId        String?     @map("oco_group_id") @db.Uuid
   /// Self-trade-prevention account sent to the engine (null on older rows = user id).
   engineAccount     String?     @map("engine_account") @db.Uuid
+  /// Child of a TWAP / iceberg parent (ADR-0020).
+  algoOrderId       String?     @map("algo_order_id") @db.Uuid
   quantityLots      BigInt      @map("quantity_lots")
   filledLots        BigInt      @default(0) @map("filled_lots")
   status            OrderStatus @default(PENDING_NEW)
@@ -1096,4 +1098,67 @@ model VaultSnapshot {
 
   @@id([vaultId, at])
   @@map("vault_snapshots")
+}
+
+/// TWAP / iceberg parent order (ADR-0020); children are ordinary orders.
+model AlgoOrder {
+  id              String    @id @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  marketId        String    @map("market_id") @db.Uuid
+  kind            String    @db.VarChar(8)
+  side            OrderSide
+  totalLots       BigInt    @map("total_lots")
+  sliceLots       BigInt    @map("slice_lots")
+  priceTicks      BigInt    @map("price_ticks")
+  intervalSeconds Int?      @map("interval_seconds")
+  reduceOnly      Boolean   @default(false) @map("reduce_only")
+  status          String    @default("RUNNING") @db.VarChar(10)
+  slicesSent      Int       @default(0) @map("slices_sent")
+  nextAt          DateTime  @map("next_at") @db.Timestamptz(3)
+  lastError       String?   @map("last_error") @db.VarChar(256)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  @@index([userId, createdAt], map: "algo_orders_user_idx")
+  @@map("algo_orders")
+}
+
+/// Accounts allowed to answer RFQs (ADR-0020).
+model RfqMaker {
+  userId       String    @id @map("user_id") @db.Uuid
+  registeredBy String    @map("registered_by") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  @@map("rfq_makers")
+}
+
+model RfqRequest {
+  id              String    @id @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  marketId        String    @map("market_id") @db.Uuid
+  side            OrderSide
+  quantityLots    BigInt    @map("quantity_lots")
+  status          String    @default("OPEN") @db.VarChar(10)
+  expiresAt       DateTime  @map("expires_at") @db.Timestamptz(3)
+  acceptedQuoteId String?   @map("accepted_quote_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  quotes RfqQuote[]
+
+  @@map("rfq_requests")
+}
+
+model RfqQuote {
+  id          String   @id @db.Uuid
+  requestId   String   @map("request_id") @db.Uuid
+  makerUserId String   @map("maker_user_id") @db.Uuid
+  priceTicks  BigInt   @map("price_ticks")
+  expiresAt   DateTime @map("expires_at") @db.Timestamptz(3)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  request RfqRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+
+  @@unique([requestId, makerUserId], map: "rfq_quotes_request_maker_key")
+  @@map("rfq_quotes")
 }

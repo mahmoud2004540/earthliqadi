@@ -186,6 +186,25 @@ monitoring. These are listed in `docs/operations/production-readiness.md`.
 12. **Public proof-of-liabilities page** against the on-chain vault
     balances.
 
+### Build status (2026-11-07)
+
+| #   | Item                                                                                | Status                                              |
+| --- | ----------------------------------------------------------------------------------- | --------------------------------------------------- |
+| 1   | Paper trading removed                                                               | Done (ADR-0016)                                     |
+| 2   | Real spot on vault collateral                                                       | Done (ADR-0016)                                     |
+| 3   | Real perpetuals, oracle index, insurance fund from fees                             | Done (ADR-0016)                                     |
+| 4   | Agent API keys, batch, cancel-all, dead-man switch, book diffs, TP/SL, sub-accounts | Done (ADR-0017)                                     |
+| 5   | Fee tiers and maker rebates                                                         | Done (ADR-0018)                                     |
+| 6   | Leader vaults                                                                       | Done (ADR-0019)                                     |
+| 7   | Track records and leaderboard                                                       | Done (ADR-0019)                                     |
+| 8   | Referral links with fee share                                                       | Done (ADR-0018)                                     |
+| 9   | Per-user proof page                                                                 | Done (ADR-0020)                                     |
+| 10  | TWAP, iceberg, RFQ block trades                                                     | Done (ADR-0020)                                     |
+| 10  | Cross margin, portfolio margin, multi-collateral                                    | **Not done**: needs a new account-level risk engine |
+| 11  | Activity points with wash-trading filters                                           | Done (ADR-0018)                                     |
+| 11  | Listing request board                                                               | **Not done**                                        |
+| 12  | Public proof-of-liabilities page                                                    | Done (ADR-0020)                                     |
+
 ## 7. What we remove
 
 - **Paper trading:** removed entirely, at the owner's decision. This

@@ -26,6 +26,7 @@ import { mergeTrades } from '@/lib/trades';
 import { cn } from '@/lib/utils';
 import { MyOrders } from './my-orders';
 import { OrderBook } from './order-book';
+import { AlgoPanel } from './algo-panel';
 import { OrderForm } from './order-form';
 import { PerpStatsStrip, PositionsPanel, usePerpStats } from './perp-panel';
 import { PriceChart } from './price-chart';
@@ -318,6 +319,7 @@ export function Terminal({ symbol, t }: { symbol: string; t: Dictionary }) {
               leverage={positions.find((p) => p.market === symbol)?.leverage ?? null}
             />
           )}
+          {market && signedIn && <AlgoPanel market={market} t={t} />}
         </div>
       </div>
 

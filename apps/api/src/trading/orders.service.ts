@@ -84,7 +84,16 @@ export class OrdersService {
     userId: string,
     req: PlaceOrderRequest,
     ctx: RequestContext,
-    opts: { rateChecked?: boolean; ocoGroupId?: string } = {},
+    opts: {
+      rateChecked?: boolean;
+      ocoGroupId?: string;
+      algoOrderId?: string;
+      /**
+       * Block trades (ADR-0020): run inside the caller's transaction and hand
+       * back the engine payload instead of enqueueing a place command.
+       */
+      within?: { tx: Prisma.TransactionClient; payload?: Record<string, unknown> };
+    } = {},
   ): Promise<{ order: OrderDto; replayed: boolean }> {
     const market = await this.markets.require(req.market);
     const u = unitsOf(market);
@@ -210,85 +219,92 @@ export class OrdersService {
     const mark = perpConfig ? await currentMark(this.prisma, market.id, perpConfig) : null;
 
     try {
-      const order = await this.prisma.$transaction(
-        async (tx) => {
-          let hold = spotHold;
-          let leverage: number | null = null;
-          if (perpConfig) {
-            const position = await lockPosition(tx, userId, market.id, perpConfig.defaultLeverage);
-            leverage = await checkPerpOrder(tx, {
-              market,
-              config: perpConfig,
-              position,
-              side,
-              priceTicks: priceTicks!,
-              quantityLots,
-              reduceOnly,
-              mark,
-              isStop,
-              oco: opts.ocoGroupId !== undefined,
-            });
-            hold = perpHold(market, priceTicks!, quantityLots, leverage, reduceOnly);
-          }
-          if (account.isVault)
-            await this.vaults.checkOrder(userId, market, reduceOnly, leverage ?? 1, hold);
-          const created = await tx.order.create({
-            data: {
-              id: orderId,
-              userId,
-              marketId: market.id,
-              clientOrderId: req.clientOrderId,
-              side,
-              type,
-              timeInForce: tif,
-              priceTicks,
-              stopPriceTicks,
-              quantityLots,
-              holdAssetId: holdAsset.id,
-              holdAmount: hold.toString(),
-              lockedRemaining: hold.toString(),
-              reduceOnly,
-              leverage,
-              triggerDirection: trigger,
-              ocoGroupId: opts.ocoGroupId ?? null,
-              engineAccount,
+      const body = async (tx: Prisma.TransactionClient) => {
+        let hold = spotHold;
+        let leverage: number | null = null;
+        if (perpConfig) {
+          const position = await lockPosition(tx, userId, market.id, perpConfig.defaultLeverage);
+          leverage = await checkPerpOrder(tx, {
+            market,
+            config: perpConfig,
+            position,
+            side,
+            priceTicks: priceTicks!,
+            quantityLots,
+            reduceOnly,
+            mark,
+            isStop,
+            oco: opts.ocoGroupId !== undefined,
+          });
+          hold = perpHold(market, priceTicks!, quantityLots, leverage, reduceOnly);
+        }
+        if (account.isVault)
+          await this.vaults.checkOrder(userId, market, reduceOnly, leverage ?? 1, hold);
+        const created = await tx.order.create({
+          data: {
+            id: orderId,
+            userId,
+            marketId: market.id,
+            clientOrderId: req.clientOrderId,
+            side,
+            type,
+            timeInForce: tif,
+            priceTicks,
+            stopPriceTicks,
+            quantityLots,
+            holdAssetId: holdAsset.id,
+            holdAmount: hold.toString(),
+            lockedRemaining: hold.toString(),
+            reduceOnly,
+            leverage,
+            triggerDirection: trigger,
+            ocoGroupId: opts.ocoGroupId ?? null,
+            engineAccount,
+            algoOrderId: opts.algoOrderId ?? null,
+          },
+          include: { market: { include: { baseAsset: true, quoteAsset: true } } },
+        });
+        if (hold > 0n)
+          await this.ledger.postWithin(
+            tx,
+            {
+              type: 'BALANCE_HOLD',
+              idempotencyKey: `order-hold:${orderId}`,
+              description: `Hold for order ${orderId} on ${market.symbol}`,
+              postings: [
+                { accountId: available, direction: 'DEBIT', amount: hold },
+                { accountId: locked, direction: 'CREDIT', amount: hold },
+              ],
             },
-            include: { market: { include: { baseAsset: true, quoteAsset: true } } },
-          });
-          if (hold > 0n)
-            await this.ledger.postWithin(
-              tx,
-              {
-                type: 'BALANCE_HOLD',
-                idempotencyKey: `order-hold:${orderId}`,
-                description: `Hold for order ${orderId} on ${market.symbol}`,
-                postings: [
-                  { accountId: available, direction: 'DEBIT', amount: hold },
-                  { accountId: locked, direction: 'CREDIT', amount: hold },
-                ],
-              },
-              { actorType: 'USER', actorUserId: userId, requestId: ctx.requestId },
-            );
-          // Take the per-market sequence lock LAST: it is held until commit (keeping
-          // sequences gap-free and commit-ordered) but no longer serialises the
-          // order insert and fund hold of concurrent orders (measured: ADR-0007 notes).
-          const seq = await this.nextCommandSeq(tx, market.id, true);
-          await this.enqueue(tx, market.id, seq, 'place', {
-            type: 'place',
-            order_id: orderId,
-            account: engineAccount,
-            side: req.side,
-            kind: req.type,
-            tif: tif.toLowerCase(),
-            price: priceTicks === null ? null : Number(priceTicks),
-            stop_price: stopPriceTicks === null ? null : Number(stopPriceTicks),
-            quantity: Number(quantityLots),
-            ...(trigger ? { trigger } : {}),
-          });
+            { actorType: 'USER', actorUserId: userId, requestId: ctx.requestId },
+          );
+        const payload = {
+          type: 'place',
+          order_id: orderId,
+          account: engineAccount,
+          side: req.side,
+          kind: req.type,
+          tif: tif.toLowerCase(),
+          price: priceTicks === null ? null : Number(priceTicks),
+          stop_price: stopPriceTicks === null ? null : Number(stopPriceTicks),
+          quantity: Number(quantityLots),
+          ...(trigger ? { trigger } : {}),
+        };
+        if (opts.within) {
+          const { type: _type, ...order } = payload;
+          opts.within.payload = order;
           return created;
-        },
-        { timeout: 15_000 },
-      );
+        }
+        // Take the per-market sequence lock LAST: it is held until commit (keeping
+        // sequences gap-free and commit-ordered) but no longer serialises the
+        // order insert and fund hold of concurrent orders (measured: ADR-0007 notes).
+        const seq = await this.nextCommandSeq(tx, market.id, true);
+        await this.enqueue(tx, market.id, seq, 'place', payload);
+        return created;
+      };
+      const order = opts.within
+        ? await body(opts.within.tx)
+        : await this.prisma.$transaction(body, { timeout: 15_000 });
       return { order: this.toDto(order), replayed: false };
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
@@ -543,10 +559,10 @@ export class OrdersService {
   async enqueueSystemCommand(
     tx: Prisma.TransactionClient,
     marketId: string,
-    kind: 'place' | 'cancel',
+    kind: 'place' | 'cancel' | 'block',
     payload: Record<string, unknown>,
   ): Promise<void> {
-    const seq = await this.nextCommandSeq(tx, marketId, kind === 'place');
+    const seq = await this.nextCommandSeq(tx, marketId, kind !== 'cancel');
     await this.enqueue(tx, marketId, seq, kind, payload);
   }
 
@@ -571,7 +587,7 @@ export class OrdersService {
     tx: Prisma.TransactionClient,
     marketId: string,
     seq: bigint,
-    kind: 'place' | 'cancel' | 'reduce',
+    kind: 'place' | 'cancel' | 'reduce' | 'block',
     payload: Record<string, unknown>,
   ): Promise<void> {
     await tx.engineCommand.create({

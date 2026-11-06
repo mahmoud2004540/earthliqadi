@@ -344,3 +344,19 @@ X-API-Signature: base64(ed25519_sign(`${timestamp}\n${METHOD}\n${path_with_query
   `X-Sub-Account: <accountId>`. Only perpetuals of the vault's asset are
   allowed, within its leverage, margin-usage and drawdown limits.
 - **While exits are queued,** only reduce-only orders are accepted.
+
+## Large-trader tools and proof of funds (ADR-0020)
+
+| Method | Path                   | Auth              | Description                                                                                          |
+| ------ | ---------------------- | ----------------- | ---------------------------------------------------------------------------------------------------- |
+| POST   | `/v1/algo-orders`      | session or key    | `{market, kind: twap\|iceberg, side, quantity, sliceQuantity, price, intervalSeconds?, reduceOnly?}` |
+| GET    | `/v1/algo-orders`      | session or key    | Your algo orders with filled quantity                                                                |
+| DELETE | `/v1/algo-orders/:id`  | session or key    | Stop (cancels the open child)                                                                        |
+| POST   | `/v1/rfq`              | session or key    | `{market, side, quantity}` → request (60 s)                                                          |
+| GET    | `/v1/rfq/open`         | registered makers | Requests to quote                                                                                    |
+| POST   | `/v1/rfq/:id/quotes`   | registered makers | `{price}` (15 s, inside the price band)                                                              |
+| GET    | `/v1/rfq/:id`          | requester         | Live quotes, best first                                                                              |
+| POST   | `/v1/rfq/:id/accept`   | requester         | `{quoteId}` → `{buyOrderId, sellOrderId}`, executed as one block trade                               |
+| POST   | `/v1/rfq/:id/cancel`   | requester         | Cancel the request                                                                                   |
+| POST   | `/v1/admin/rfq-makers` | staff, step-up    | `{userId}` registers a maker                                                                         |
+| GET    | `/v1/vault/solvency`   | public            | On-chain balance vs. committed liabilities per token                                                 |

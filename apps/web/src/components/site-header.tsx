@@ -11,6 +11,7 @@ export function SiteHeader({ t }: { t: Dictionary }) {
     { href: 'vaults', label: t.nav.vaults },
     { href: 'leaderboard', label: t.nav.leaderboard },
     { href: 'security', label: t.nav.security },
+    { href: 'proof', label: t.nav.proof },
     { href: 'trust', label: t.nav.trust },
     { href: 'api-docs', label: t.nav.api },
   ];

@@ -12,6 +12,7 @@ import { AuthModule } from './auth/auth.module';
 import { SubAccountsModule } from './sub-accounts/sub-accounts.module';
 import { GrowthModule } from './growth/growth.module';
 import { LeaderVaultsModule } from './leader-vaults/leader-vaults.module';
+import { AlgoOrdersModule } from './algo/algo-orders.module';
 import { CsrfGuard, PermissionsGuard, SessionAuthGuard } from './auth/guards';
 import { AUTH_RATE_LIMIT_KEY } from './common/decorators';
 import type { AppConfig } from './config/app-config';
@@ -104,6 +105,7 @@ export class AppModule {
         SubAccountsModule,
         GrowthModule,
         LeaderVaultsModule,
+        AlgoOrdersModule,
       ],
       controllers: [HealthController],
       providers: [

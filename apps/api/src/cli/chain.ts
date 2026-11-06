@@ -33,6 +33,7 @@ async function run(): Promise<void> {
       PERP_RISK_POLL_MS: 0,
       CANCEL_TIMER_POLL_MS: 0,
       GROWTH_JOB_INTERVAL_SECONDS: 0,
+      ALGO_POLL_MS: 0,
     }),
   );
   const chain = app.get(ChainService);

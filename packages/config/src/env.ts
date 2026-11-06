@@ -133,6 +133,8 @@ export const apiEnvSchema = z
       ),
     /** Seconds between fee-tier and points recomputations; 0 disables the job. */
     GROWTH_JOB_INTERVAL_SECONDS: z.coerce.number().int().min(0).max(86_400).default(3600),
+    /** Milliseconds between TWAP / iceberg steps; 0 disables (ADR-0020). */
+    ALGO_POLL_MS: z.coerce.number().int().min(0).max(60_000).default(1000),
     /** Milliseconds between dead-man-switch checks (cancel-after timers); 0 disables. */
     CANCEL_TIMER_POLL_MS: z.coerce.number().int().min(0).max(60_000).default(1000),
     LEDGER_RECONCILIATION_INTERVAL_SECONDS: z.coerce.number().int().min(0).max(86400).default(300),

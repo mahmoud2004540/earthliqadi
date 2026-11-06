@@ -61,6 +61,13 @@ export class VaultController {
     return this.chain.requestWithdrawal(auth.user.id, body.asset, body.amount);
   }
 
+  /** Public proof of liabilities: committed root totals vs. tokens held by the contract. */
+  @Public()
+  @Get('solvency')
+  solvency() {
+    return this.chain.solvency();
+  }
+
   /** Merkle proof of the user's balances in the latest committed state (for the escape hatch). */
   @Get('proof')
   @RequirePermissions(PERMISSIONS.ACCOUNT_SELF_READ)

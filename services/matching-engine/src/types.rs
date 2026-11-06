@@ -92,6 +92,15 @@ pub enum Command {
         account: String,
         remaining: Qty,
     },
+    /// Negotiated block trade (RFQ): two limit orders at the same price and
+    /// size fill against each other only. The resting book is not touched and
+    /// the last trade price does not move, so stops are not triggered.
+    Block {
+        buy: PlaceOrder,
+        sell: PlaceOrder,
+        /// Which side quoted the price (the maker of the trade).
+        maker: Side,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -111,6 +120,7 @@ pub enum RejectReason {
     StopWouldTriggerImmediately,
     InvalidReduce,
     UnexpectedTrigger,
+    InvalidBlock,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

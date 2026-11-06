@@ -376,5 +376,17 @@ describe('non-custodial vault on the local chain', () => {
     expect(of(leader.address)).toBe('400000000');
     expect(of(follower.address)).toBe('400000000');
     expect(leaves).toHaveLength(2);
+    // Public proof of liabilities: the contract holds what the root promises.
+    const solvency = (await new TestClient(app).get('/v1/vault/solvency')).body;
+    expect(solvency.state).toMatchObject({ index: '1', leafCount: 2 });
+    expect(solvency.tokens).toEqual([
+      expect.objectContaining({
+        asset: usd,
+        onChainBalance: '800',
+        committedLiabilities: '800',
+        ledgerMatchesChain: true,
+        committedCovered: true,
+      }),
+    ]);
   });
 });

@@ -643,3 +643,90 @@ fn trigger_is_omitted_from_the_wire_when_absent() {
     let json = serde_json::to_string(&limit("x", "a", Side::Buy, 1, 1)).unwrap();
     assert!(!json.contains("trigger"));
 }
+
+fn block_order(id: &str, acct: &str, side: Side, price: u64, qty: u64) -> PlaceOrder {
+    PlaceOrder {
+        order_id: id.into(),
+        account: acct.into(),
+        side,
+        kind: OrderKind::Limit,
+        tif: TimeInForce::Fok,
+        price: Some(price),
+        stop_price: None,
+        quantity: qty,
+        trigger: None,
+    }
+}
+
+#[test]
+fn block_trades_fill_only_against_each_other_and_leave_the_book_alone() {
+    let mut book = OrderBook::new();
+    book.apply(&limit("s1", "a", Side::Sell, 100, 1));
+    book.apply(&limit("b1", "b", Side::Buy, 100, 1)); // last = 100
+    book.apply(&limit("ask", "m", Side::Sell, 101, 5));
+    // A sell stop at 95 would fire if the block moved the last price.
+    book.apply(&place(
+        "st",
+        "c",
+        Side::Sell,
+        OrderKind::StopMarket,
+        TimeInForce::Ioc,
+        None,
+        Some(95),
+        1,
+    ));
+    let events = book.apply(&Command::Block {
+        buy: block_order("rb", "q", Side::Buy, 90, 10),
+        sell: block_order("rs", "mm", Side::Sell, 90, 10),
+        maker: Side::Sell,
+    });
+    assert_eq!(
+        trades(&events),
+        vec![("rs".to_string(), "rb".to_string(), 90, 10)]
+    );
+    assert!(matches!(events.last(), Some(Event::Filled { .. })));
+    assert_eq!(
+        book.pending_stop_count(),
+        1,
+        "the block did not trigger the stop"
+    );
+    // The resting ask is untouched.
+    let events = book.apply(&limit("t", "z", Side::Buy, 101, 5));
+    assert_eq!(
+        trades(&events),
+        vec![("ask".to_string(), "t".to_string(), 101, 5)]
+    );
+}
+
+#[test]
+fn malformed_or_self_blocks_are_rejected_on_both_sides() {
+    let mut book = OrderBook::new();
+    for (buy, sell) in [
+        (
+            block_order("b1", "a", Side::Buy, 90, 10),
+            block_order("s1", "a", Side::Sell, 90, 10),
+        ), // same account
+        (
+            block_order("b2", "a", Side::Buy, 90, 10),
+            block_order("s2", "b", Side::Sell, 91, 10),
+        ), // price mismatch
+        (
+            block_order("b3", "a", Side::Buy, 90, 10),
+            block_order("s3", "b", Side::Sell, 90, 9),
+        ), // size mismatch
+    ] {
+        let events = book.apply(&Command::Block {
+            buy,
+            sell,
+            maker: Side::Sell,
+        });
+        assert_eq!(events.len(), 2);
+        assert!(events.iter().all(|e| matches!(
+            e,
+            Event::Rejected {
+                reason: RejectReason::InvalidBlock,
+                ..
+            }
+        )));
+    }
+}
