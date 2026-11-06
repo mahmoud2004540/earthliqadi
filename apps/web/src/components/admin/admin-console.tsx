@@ -1,6 +1,12 @@
 'use client';
 
-import type { ApprovalDto, KycReviewDto, SystemHealthDto, TicketDto } from '@platform/shared';
+import type {
+  ApprovalDto,
+  KycReviewDto,
+  ListingRequestDto,
+  SystemHealthDto,
+  TicketDto,
+} from '@platform/shared';
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -101,6 +107,7 @@ export function AdminConsole({ t }: { t: Dictionary }) {
         {tab === 'support' && <Support a={a} />}
         {tab === 'users' && <Users a={a} />}
         {tab === 'audit' && <Audit a={a} />}
+        {tab === 'listings' && <Listings a={a} />}
       </div>
     </div>
   );
@@ -691,6 +698,102 @@ function Audit({ a }: { a: A }) {
           </tbody>
         </table>
       </div>
+    </Section>
+  );
+}
+
+/** Listing requests (ADR-0026): decide against the published criteria; decisions are public. */
+function Listings({ a }: { a: A }) {
+  const { data, error, reload } = useResource<{ requests: ListingRequestDto[] }>('/v1/listings', a);
+  const [open, setOpen] = useState<string | null>(null);
+  const [status, setStatus] = useState<'review' | 'listed' | 'rejected'>('review');
+  const [note, setNote] = useState('');
+  const [market, setMarket] = useState('');
+  const [msg, setMsg] = useState<Msg>(null);
+
+  async function decide(e: FormEvent, id: string) {
+    e.preventDefault();
+    setMsg(null);
+    try {
+      await api(`/v1/admin/listings/${id}/decision`, {
+        method: 'POST',
+        body: {
+          status,
+          ...(note ? { note } : {}),
+          ...(status === 'listed' ? { market } : {}),
+        },
+      });
+      setMsg({ tone: 'success', text: a.decided });
+      setOpen(null);
+      setNote('');
+      setMarket('');
+      reload();
+    } catch (err) {
+      setMsg({ tone: 'error', text: errText(err, a) });
+    }
+  }
+
+  if (error) return <Alert tone="error">{error}</Alert>;
+  const live = (data?.requests ?? []).filter((r) => r.status === 'open' || r.status === 'review');
+  return (
+    <Section title={a.listingsTitle}>
+      {msg && <Alert tone={msg.tone}>{msg.text}</Alert>}
+      {live.length === 0 && <p className="text-sm text-muted">{a.listingsEmpty}</p>}
+      <ul className="space-y-3">
+        {live.map((r) => (
+          <li key={r.id} className="rounded-md border border-border p-3 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-medium">
+                {r.baseSymbol}/{r.quoteAsset} · {r.kind} · {r.eligibleVotes}/{r.totalVotes}
+              </span>
+              <Badge>{r.status}</Badge>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setOpen(open === r.id ? null : r.id)}
+              >
+                {a.decision}
+              </Button>
+            </div>
+            <p className="mt-2 whitespace-pre-wrap text-muted">{r.rationale}</p>
+            {open === r.id && (
+              <form className="mt-3 space-y-2" onSubmit={(e) => void decide(e, r.id)}>
+                <select
+                  aria-label={a.decision}
+                  className="h-9 rounded-md border border-border bg-background px-2"
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as typeof status)}
+                >
+                  {r.status === 'open' && <option value="review">review</option>}
+                  <option value="listed">listed</option>
+                  <option value="rejected">rejected</option>
+                </select>
+                <div>
+                  <Label htmlFor={`note-${r.id}`}>{a.listingNote}</Label>
+                  <Input
+                    id={`note-${r.id}`}
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                  />
+                </div>
+                {status === 'listed' && (
+                  <div>
+                    <Label htmlFor={`mkt-${r.id}`}>{a.decisionMarket}</Label>
+                    <Input
+                      id={`mkt-${r.id}`}
+                      value={market}
+                      onChange={(e) => setMarket(e.target.value.trim())}
+                    />
+                  </div>
+                )}
+                <Button type="submit" size="sm">
+                  {a.decide}
+                </Button>
+              </form>
+            )}
+          </li>
+        ))}
+      </ul>
     </Section>
   );
 }

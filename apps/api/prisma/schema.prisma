@@ -1198,3 +1198,43 @@ model SanctionedAddress {
   @@index([address])
   @@map("sanctioned_addresses")
 }
+
+/// Listing request board (ADR-0026).
+model ListingRequest {
+  id             String    @id @db.Uuid
+  authorUserId   String    @map("author_user_id") @db.Uuid
+  baseSymbol     String    @map("base_symbol") @db.VarChar(16)
+  baseName       String    @map("base_name") @db.VarChar(64)
+  kind           String    @db.VarChar(10)
+  quoteAssetCode String    @map("quote_asset_code") @db.VarChar(16)
+  chainId        Int?      @map("chain_id")
+  tokenAddress   String?   @map("token_address") @db.Char(42)
+  rationale      String    @db.VarChar(1000)
+  link           String?   @db.VarChar(200)
+  status         String    @default("OPEN") @db.VarChar(12)
+  decisionNote   String?   @map("decision_note") @db.VarChar(500)
+  decidedBy      String?   @map("decided_by") @db.Uuid
+  decidedAt      DateTime? @map("decided_at") @db.Timestamptz(3)
+  marketId       String?   @map("market_id") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  votes ListingVote[]
+
+  @@index([authorUserId, createdAt], map: "listing_requests_author_idx")
+  @@index([status, createdAt], map: "listing_requests_status_idx")
+  @@map("listing_requests")
+}
+
+model ListingVote {
+  requestId String   @map("request_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  eligible  Boolean
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  request ListingRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@id([requestId, userId])
+  @@index([userId], map: "listing_votes_user_idx")
+  @@map("listing_votes")
+}

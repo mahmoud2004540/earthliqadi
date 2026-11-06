@@ -145,7 +145,8 @@ tests/              (reserved) cross-service integration and browser e2e suites
   [0022 access policy](docs/decisions/0022-access-policy.md),
   [0023 Cloudflare edge and OFAC sync](docs/decisions/0023-cloudflare-edge-and-ofac-sync.md),
   [0024 full region block](docs/decisions/0024-full-region-block.md),
-  [0025 pro order tools](docs/decisions/0025-pro-order-tools.md)
+  [0025 pro order tools](docs/decisions/0025-pro-order-tools.md),
+  [0026 listing request board](docs/decisions/0026-listing-request-board.md)
 - Security: [controls & threat model](docs/security/threat-model.md) ·
   [dependency policy](docs/security/dependency-policy.md) ·
   [incident response (draft)](docs/security/incident-response.md)

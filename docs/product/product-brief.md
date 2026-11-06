@@ -203,7 +203,7 @@ monitoring. These are listed in `docs/operations/production-readiness.md`.
 | 10  | Cross margin                                                                        | Done (ADR-0021)                                     |
 | 10  | Portfolio margin, multi-collateral                                                  | **Not done**: needs a new account-level risk engine |
 | 11  | Activity points with wash-trading filters                                           | Done (ADR-0018)                                     |
-| 11  | Listing request board                                                               | **Not done**                                        |
+| 11  | Listing request board                                                               | Done (ADR-0026)                                     |
 | 12  | Public proof-of-liabilities page                                                    | Done (ADR-0020)                                     |
 | —   | Access policy: restricted regions, sanctions screening, terms of use                | Done (ADR-0022, ADR-0023); list needs counsel       |
 
