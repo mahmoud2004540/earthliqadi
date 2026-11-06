@@ -33,9 +33,12 @@ import {
   type SourceSample,
 } from './perp-math';
 import { OPEN_ORDER_STATUSES, positionState } from './perp-orders';
+import { CollateralService } from './collateral.service';
 import { currentMark } from './perp-prices';
 
 const RISK_ACTOR: LedgerActor = { actorType: 'SYSTEM', requestId: 'perp-risk' };
+/** Upper bound passed as "available" to size the full collateral shortfall. */
+const MAX_SHORTFALL = 10n ** 30n;
 /** Basis EMA period in samples. */
 const BASIS_EMA_PERIOD = 60;
 
@@ -96,6 +99,7 @@ export class PerpRiskService {
     private readonly orders: OrdersService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
+    private readonly collateral: CollateralService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
@@ -475,14 +479,12 @@ export class PerpRiskService {
       where: { marketId: market.id, sizeLots: { not: 0n } },
     });
     let actions = 0;
-    const crossUsers = new Set(
-      (
-        await this.prisma.user.findMany({
-          where: { id: { in: positions.map((p) => p.userId) }, perpMarginMode: 'cross' },
-          select: { id: true },
-        })
-      ).map((u) => u.id),
-    );
+    const cross = await this.prisma.user.findMany({
+      where: { id: { in: positions.map((p) => p.userId) }, perpMarginMode: 'cross' },
+      select: { id: true, perpCollateralEnabled: true },
+    });
+    const crossUsers = new Set(cross.map((u) => u.id));
+    const collateralUsers = new Set(cross.filter((u) => u.perpCollateralEnabled).map((u) => u.id));
     for (const original of positions) {
       let p = original;
       let pos = positionState(p);
@@ -493,6 +495,15 @@ export class PerpRiskService {
           p = topped;
           pos = positionState(p);
           actions++;
+        }
+        // Multi-collateral (ADR-0027): what free quote could not cover, pledged collateral may.
+        if (collateralUsers.has(p.userId)) {
+          const shortfall = crossTopUpAmount(pos, mark, u, mmr, p.leverage, MAX_SHORTFALL);
+          if (
+            shortfall > 0n &&
+            (await this.collateral.defend(p.userId, market.quoteAssetId, shortfall))
+          )
+            actions++;
         }
       }
       const below = isLiquidatable(pos, mark, u, mmr);

@@ -1,6 +1,6 @@
 'use client';
 
-import type { MarketDto, PerpStatsDto, PositionDto } from '@platform/shared';
+import type { MarketDto, MyCollateralDto, PerpStatsDto, PositionDto } from '@platform/shared';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -169,6 +169,7 @@ export function PositionsPanel({
           </button>
         )}
       </div>
+      <CollateralStrip tp={tp} />
       {open.length === 0 ? (
         <p className="text-sm text-muted">{tp.noPositions}</p>
       ) : (
@@ -287,6 +288,66 @@ export function PositionsPanel({
           {message.text}
         </Alert>
       )}
+    </div>
+  );
+}
+
+/** Multi-collateral (ADR-0027): opt-in and what pledged balances are worth after haircuts. */
+function CollateralStrip({ tp }: { tp: Tp }) {
+  const [c, setC] = useState<MyCollateralDto | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    api<MyCollateralDto>('/v1/perp/collateral')
+      .then((r) => active && setC(r))
+      .catch(() => active && setC(null));
+    return () => {
+      active = false;
+    };
+  }, []);
+  if (!c || c.assets.length === 0) return null;
+  async function toggle() {
+    setError(null);
+    try {
+      setC(
+        await api<MyCollateralDto>('/v1/perp/collateral', {
+          method: 'POST',
+          body: { enabled: !c!.enabled },
+        }),
+      );
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    }
+  }
+  return (
+    <div className="mb-3 rounded-md border border-border p-2 text-[11px]" data-testid="collateral">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-medium" title={tp.collateralHelp}>
+          {tp.collateral}: {c.enabled ? tp.on : tp.off}
+          {c.enabled && !c.crossMode && (
+            <span className="ml-2 text-warning">{tp.collateralNeedsCross}</span>
+          )}
+        </span>
+        <button type="button" className="underline" onClick={() => void toggle()}>
+          {c.enabled ? tp.turnOff : tp.turnOn}
+        </button>
+      </div>
+      <ul className="mt-1 space-y-0.5 text-muted">
+        {c.assets
+          .filter((a) => a.enabled)
+          .map((a) => (
+            <li key={a.asset} className="flex justify-between gap-2 font-mono">
+              <span>
+                {a.balance} {a.asset} · −{a.haircutBps / 100}%
+              </span>
+              <span>
+                {a.value ?? '—'} {a.quoteAsset}
+              </span>
+            </li>
+          ))}
+      </ul>
+      <p className="mt-1 text-muted">{tp.collateralHelp}</p>
+      {error && <p className="text-negative">{error}</p>}
     </div>
   );
 }

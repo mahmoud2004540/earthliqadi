@@ -329,6 +329,14 @@ export const en = {
       marginMode: 'Margin mode',
       crossHelp:
         'Cross: your free balance automatically tops up a weakening position before it can be liquidated. Isolated: each position risks only its own margin. Click to switch.',
+      collateral: 'Multi-collateral',
+      on: 'on',
+      off: 'off',
+      turnOn: 'Turn on',
+      turnOff: 'Turn off',
+      collateralNeedsCross: 'works in cross mode only',
+      collateralHelp:
+        'In cross mode, when your free balance can no longer defend a position, the platform sells just enough of these assets on their spot market, never below the best bid minus the haircut shown. Margin itself stays in the quote asset; liquidation is not delayed while a sale settles.',
       takeProfit: 'Take-profit price',
       stopLoss: 'Stop-loss price',
       set: 'Set',

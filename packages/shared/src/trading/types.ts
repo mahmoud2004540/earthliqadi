@@ -304,3 +304,43 @@ export interface TradeDto {
 
 /** Perpetual margin mode (ADR-0021). */
 export const marginModeSchema = z.object({ mode: z.enum(['isolated', 'cross']) });
+
+/**
+ * Multi-collateral (ADR-0027). With `enabled` and cross margin, balances of
+ * accepted collateral assets back perpetual positions: when the free quote
+ * balance runs out, the platform sells just enough of them on their spot
+ * market, never below the best bid minus the asset's haircut.
+ */
+export const collateralSettingSchema = z.object({ enabled: z.boolean() });
+
+/** Staff: accept an asset as collateral (or change / disable it). */
+export const collateralAssetConfigSchema = z.object({
+  asset: z.string().regex(/^[A-Z0-9]{2,16}$/),
+  /** The spot market (asset / quote) used to convert it. */
+  market: z.string(),
+  /** Value discount and worst conversion price, in basis points (1%-50%). */
+  haircutBps: z.number().int().min(100).max(5000),
+  enabled: z.boolean().default(true),
+});
+
+export interface CollateralAssetDto {
+  asset: string;
+  market: string;
+  quoteAsset: string;
+  haircutBps: number;
+  enabled: boolean;
+}
+
+export interface MyCollateralDto {
+  enabled: boolean;
+  /** Collateral only works in cross margin mode. */
+  crossMode: boolean;
+  assets: (CollateralAssetDto & {
+    /** Free balance of the asset. */
+    balance: string;
+    /** Best bid on its spot market, or null with no bids. */
+    bid: string | null;
+    /** balance × bid × (1 − haircut), in the quote asset; null with no bids. */
+    value: string | null;
+  })[];
+}

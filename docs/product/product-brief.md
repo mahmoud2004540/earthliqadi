@@ -201,7 +201,8 @@ monitoring. These are listed in `docs/operations/production-readiness.md`.
 | 9   | Per-user proof page                                                                 | Done (ADR-0020)                                     |
 | 10  | TWAP, iceberg, RFQ block trades                                                     | Done (ADR-0020)                                     |
 | 10  | Cross margin                                                                        | Done (ADR-0021)                                     |
-| 10  | Portfolio margin, multi-collateral                                                  | **Not done**: needs a new account-level risk engine |
+| 10  | Multi-collateral (auto-conversion with haircuts)                                    | Done (ADR-0027)                                     |
+| 10  | Portfolio margin                                                                    | **Not done**: needs a new account-level risk engine |
 | 11  | Activity points with wash-trading filters                                           | Done (ADR-0018)                                     |
 | 11  | Listing request board                                                               | Done (ADR-0026)                                     |
 | 12  | Public proof-of-liabilities page                                                    | Done (ADR-0020)                                     |

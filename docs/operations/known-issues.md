@@ -92,8 +92,9 @@ not described as implemented in the docs should be treated as absent.
 - Index sources are internal spot markets and Chainlink-compatible oracle
   feeds. Simulated feeds are refused outside local/ci. Direct exchange price
   APIs are not integrated.
-- Isolated margin only: no cross margin, no margin removal, no TP/SL
-  attached orders.
+- Cross margin (ADR-0021) and multi-collateral by auto-conversion (ADR-0027)
+  exist. Collateral defends positions but does not fund new ones; no portfolio
+  margin and no margin removal.
 - The risk engine runs on a timer inside the API process. Liquidation latency
   is one or two ticks (`PERP_RISK_POLL_MS`, default 1 s) plus engine and
   settlement time.

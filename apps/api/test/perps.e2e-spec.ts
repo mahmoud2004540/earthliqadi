@@ -6,6 +6,7 @@ import { toMinorUnits } from '../src/ledger/ledger-domain';
 import { LedgerService } from '../src/ledger/ledger.service';
 import { ReconciliationService } from '../src/ledger/reconciliation.service';
 import { parsePerpConfig, sourceLabel } from '../src/perps/perp-config';
+import { CollateralService } from '../src/perps/collateral.service';
 import { PerpRiskService } from '../src/perps/perp-risk.service';
 import { PerpsService } from '../src/perps/perps.service';
 import { MarketsService, type MarketWithAssets } from '../src/trading/markets.service';
@@ -604,6 +605,122 @@ describe('liquidation', () => {
     const funds = await perps.insuranceFunds();
     expect(funds.find((f) => f.asset === m.quote)?.balance).toBe('0.6');
     expect(parseAmount('0.6', 6)).toBe(600_000n);
+    await expectReconciled();
+  });
+});
+
+describe('multi-collateral (ADR-0027)', () => {
+  it('sells pledged collateral at no worse than bid minus haircut, then the proceeds back the position', async () => {
+    const p = await perpMarket();
+    await setMark(p, 100n * USD);
+    // Collateral asset C with its own spot market C / quote.
+    const c = code('CB');
+    await ledger.createAsset({ code: c, name: `Collateral ${c}`, scale: 8 }, SYSTEM);
+    const cSpot = await app.get(MarketsService).create(
+      {
+        base: c,
+        quote: p.quote,
+        tickSize: '0.01',
+        lotSize: '0.0001',
+        makerFeeBps: 0,
+        takerFeeBps: 0,
+      },
+      SYSTEM,
+    );
+    const staff = await fx.trader();
+    const collateral = app.get(CollateralService);
+    const ctx = { requestId: 't', ipAddress: null, userAgent: null };
+    await expect(
+      collateral.configure(
+        staff.userId,
+        { asset: c, market: p.symbol, haircutBps: 1000, enabled: true },
+        ctx,
+      ),
+    ).rejects.toThrow(/spot market/);
+    await collateral.configure(
+      staff.userId,
+      { asset: c, market: cSpot.symbol, haircutBps: 1000, enabled: true },
+      ctx,
+    );
+
+    // Only 10 quote free: all of it becomes margin. 1 C is pledged.
+    const t = await fx.trader([
+      { asset: p.quote, amount: '10', scale: 6 },
+      { asset: c, amount: '1', scale: 8 },
+    ]);
+    await t.client.post('/v1/perp/margin-mode', { mode: 'cross' });
+    expect((await t.client.post('/v1/perp/collateral', { enabled: true })).body).toMatchObject({
+      enabled: true,
+      crossMode: true,
+    });
+    const bidder = await fx.trader([{ asset: p.quote, amount: '1000', scale: 6 }]);
+    await placed(bidder, {
+      market: cSpot.symbol,
+      side: 'buy',
+      type: 'limit',
+      price: '50',
+      quantity: '1',
+    });
+    const mine = (await t.client.get('/v1/perp/collateral')).body;
+    expect(mine.assets.find((a: { asset: string }) => a.asset === c)).toMatchObject({
+      balance: '1',
+      bid: '50',
+      value: '45', // 1 × 50 × 0.9
+      haircutBps: 1000,
+    });
+
+    const short = await funded(p);
+    await placed(t, { market: p.symbol, side: 'buy', type: 'limit', price: '100', quantity: '1' });
+    const s = await placed(short, {
+      market: p.symbol,
+      side: 'sell',
+      type: 'limit',
+      price: '100',
+      quantity: '1',
+    });
+    await fx.until(async () => (await fx.status(s)) === 'FILLED');
+    expect(await balance(t.userId, p.quote, 'USER_AVAILABLE')).toBe(0n);
+
+    // Mark 95.5: equity 5.5 < 1.25 × maintenance 4.775, nothing free → convert collateral.
+    // Shortfall to initial margin at 95.5 is 4.05; at the floor 45 that is 0.09 C.
+    await setMark(p, 95_500_000n);
+    const cfg = parsePerpConfig(p.market.perpConfig);
+    await risk.liquidate(p.market, cfg);
+    await risk.liquidate(p.market, cfg); // one conversion in flight at a time
+    const conv = await prisma.order.findMany({
+      where: { userId: t.userId, clientOrderId: { startsWith: 'collat-' } },
+    });
+    expect(conv).toHaveLength(1);
+    expect(conv[0]).toMatchObject({
+      side: 'SELL',
+      timeInForce: 'IOC',
+      priceTicks: 4500n,
+      quantityLots: 900n,
+    });
+    await fx.until(async () => (await fx.status(conv[0]!.id)) === 'FILLED');
+    expect(await balance(t.userId, p.quote, 'USER_AVAILABLE')).toBe(4_500_000n); // sold at the bid, 50
+
+    // Next tick: the proceeds back the position.
+    await risk.liquidate(p.market, cfg);
+    const pos = (await position(p, t.userId))!;
+    expect(pos.status).toBe('NORMAL');
+    expect(toMinorUnits(pos.margin)).toBe(10n * USD + 4_050_000n);
+    expect(await balance(t.userId, p.quote, 'USER_AVAILABLE')).toBe(450_000n);
+    expect(
+      await prisma.auditLog.count({
+        where: { action: 'perp.collateral.conversion', targetId: conv[0]!.id },
+      }),
+    ).toBe(1);
+
+    // Opted out: nothing is sold.
+    await t.client.post('/v1/perp/collateral', { enabled: false });
+    await setMark(p, 95_000_000n);
+    await risk.liquidate(p.market, cfg);
+    expect(
+      await prisma.order.count({
+        where: { userId: t.userId, clientOrderId: { startsWith: 'collat-' } },
+      }),
+    ).toBe(1);
     await expectReconciled();
   });
 });

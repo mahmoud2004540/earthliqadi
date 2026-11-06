@@ -4,6 +4,9 @@ import { ApiTags } from '@nestjs/swagger';
 import {
   PERMISSIONS,
   addMarginSchema,
+  collateralSettingSchema,
+  type CollateralAssetDto,
+  type MyCollateralDto,
   tpslSchema,
   marginModeSchema,
   type OrderDto,
@@ -20,6 +23,7 @@ import { ApiKeyScope, Public, RequirePermissions } from '../common/decorators';
 import { ApiZodBody } from '../common/openapi';
 import { ReqContext, type RequestContext } from '../common/request-context';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { CollateralService } from './collateral.service';
 import { PerpsService } from './perps.service';
 
 const symbolParam = z.object({ symbol: marketSymbolSchema });
@@ -29,7 +33,40 @@ const limitQuery = z.object({ limit: z.coerce.number().int().min(1).max(200).def
 @ApiTags('perpetuals')
 @Controller({ path: 'perp', version: '1' })
 export class PerpsController {
-  constructor(private readonly perps: PerpsService) {}
+  constructor(
+    private readonly perps: PerpsService,
+    private readonly collateral: CollateralService,
+  ) {}
+
+  /** Assets accepted as collateral, with haircuts (ADR-0027). */
+  @Public()
+  @Get('collateral-assets')
+  async collateralAssets(): Promise<{ assets: CollateralAssetDto[] }> {
+    return { assets: await this.collateral.list() };
+  }
+
+  @Get('collateral')
+  @ApiKeyScope('read')
+  @RequirePermissions(PERMISSIONS.ACCOUNT_SELF_READ)
+  myCollateral(@CurrentAuth() auth: AuthContext): Promise<MyCollateralDto> {
+    return this.collateral.mine(auth.user.id);
+  }
+
+  /** Opt in or out of multi-collateral (works in cross margin mode). Audited. */
+  @Post('collateral')
+  @HttpCode(HttpStatus.OK)
+  @AccessPolicy('manage')
+  @ApiKeyScope('trade')
+  @RequirePermissions(PERMISSIONS.TRADING_TRADE)
+  @ApiZodBody(collateralSettingSchema)
+  setCollateral(
+    @CurrentAuth() auth: AuthContext,
+    @Body(new ZodValidationPipe(collateralSettingSchema))
+    body: z.infer<typeof collateralSettingSchema>,
+    @ReqContext() ctx: RequestContext,
+  ): Promise<MyCollateralDto> {
+    return this.collateral.setEnabled(auth.user.id, body.enabled, ctx);
+  }
 
   /** Mark, index and funding for a perpetual market. */
   @Public()
