@@ -2,7 +2,7 @@
 
 - Status: Accepted (owner request, 2026-11-06)
 - Date: 2026-11-06
-- Extends: ADR-0022
+- Extends: ADR-0022. Amended by ADR-0024: the preset below is now the counsel-approved default, and restricted locations are fully blocked
 - Context: the owner wants the protection model of the reference
   non-custodial venue. Its published terms (last updated 2026-06-15) restrict
   persons in the United States and **Ontario, Canada**, persons in sanctioned

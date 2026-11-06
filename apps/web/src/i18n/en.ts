@@ -794,6 +794,11 @@ export const en = {
     accept: 'Accept',
     accepting: 'Saving…',
     detected: 'Detected location',
+    blockedTitle: 'Not available in your region',
+    blockedBody:
+      'You appear to be accessing the platform from a restricted jurisdiction. The platform is not available to persons located in, resident in or incorporated in restricted jurisdictions, including locations subject to sanctions. If you believe this is a mistake, try reloading the page or contact support from a permitted location.',
+    blockedFunds:
+      'Your funds are not held by the platform: balances committed to the vault contract can always be withdrawn on-chain through its escape hatch, without the platform.',
     sanctionedTitle: 'This wallet cannot use the platform',
     sanctionedBody:
       'This wallet address appears on a sanctions list loaded by the operator. Trading and withdrawals through the platform are not available.',
@@ -819,7 +824,7 @@ export const en = {
       },
       {
         heading: '3. Restricted access',
-        body: 'From a restricted jurisdiction you cannot open new positions or new accounts. Wallets on a sanctions list cannot sign in, trade or withdraw through the platform; wallet addresses are screened against the U.S. Treasury (OFAC) list of sanctioned persons, which is updated automatically. Closing positions, cancelling orders and withdrawing are never blocked for region.',
+        body: 'The platform is not available from a restricted jurisdiction: the interface and the API refuse all requests from there, including sign-in. Collateral is never held by the platform, so balances committed to the vault contract can always be withdrawn on-chain through its escape hatch. Close positions before travelling to a restricted jurisdiction. Wallets on a sanctions list cannot sign in, trade or withdraw through the platform; wallet addresses are screened against the U.S. Treasury (OFAC) list of sanctioned persons, which is updated automatically.',
       },
       {
         heading: '3a. No circumvention',

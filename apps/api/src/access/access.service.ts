@@ -102,6 +102,7 @@ export class AccessService {
       country: loc.country,
       subdivision: loc.subdivision,
       regionRestricted: this.regionRestricted(loc),
+      restrictedMode: this.config.GEO_RESTRICTED_MODE,
       restrictedCountries: this.config.RESTRICTED_COUNTRIES,
       restrictedSubdivisions: this.config.RESTRICTED_SUBDIVISIONS,
       termsVersion: this.config.TERMS_VERSION,

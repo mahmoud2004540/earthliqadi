@@ -1,6 +1,6 @@
 # ADR-0022: Access policy: restricted regions, sanctions screening, terms of use
 
-- Status: Accepted (owner request, 2026-11-07)
+- Status: Accepted (owner request, 2026-11-07); amended by ADR-0023 and ADR-0024 (restricted locations are now fully blocked by default)
 - Date: 2026-11-07
 - Context: the owner wants the access model of established non-custodial
   venues: open to the world without accounts or identity checks, while

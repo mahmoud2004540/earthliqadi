@@ -231,6 +231,11 @@ export interface AccessStatusDto {
   subdivision: string | null;
   /** Opening new risk is blocked from this region (reduce-only orders and withdrawals stay open). */
   regionRestricted: boolean;
+  /**
+   * block_all: a restricted location can use nothing (ADR-0024).
+   * reduce_only: sign-in, closing, cancels and withdrawals stay open (ADR-0022).
+   */
+  restrictedMode: 'block_all' | 'reduce_only';
   /** Published list of restricted jurisdictions (ISO 3166-1 alpha-2). */
   restrictedCountries: string[];
   /** Published restricted subdivisions (ISO 3166-2, e.g. "CA-ON"). */

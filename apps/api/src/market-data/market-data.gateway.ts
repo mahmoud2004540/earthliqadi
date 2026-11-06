@@ -24,6 +24,7 @@ import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { PrismaService } from '../infrastructure/prisma/prisma.service';
 import { OrdersService } from '../trading/orders.service';
 import { MarketDataService } from './market-data.service';
+import { AccessService } from '../access/access.service';
 
 export const WS_PATH = '/ws';
 /** Gateway limits (ADR-0009). Mutable only so tests can shorten timings. */
@@ -103,6 +104,7 @@ export class MarketDataGateway implements OnApplicationBootstrap, OnApplicationS
     private readonly orders: OrdersService,
     private readonly prisma: PrismaService,
     private readonly apiKeys: ApiKeysService,
+    private readonly access: AccessService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
@@ -160,6 +162,12 @@ export class MarketDataGateway implements OnApplicationBootstrap, OnApplicationS
     if (!usesKey && req.headers.origin !== new URL(this.config.WEB_ORIGIN).origin) {
       return this.reject(socket, 403, 'Forbidden');
     }
+    // Restricted locations get no market data either in block_all mode (ADR-0024).
+    if (
+      this.config.GEO_RESTRICTED_MODE === 'block_all' &&
+      this.access.regionRestricted(this.access.locationOf(req))
+    )
+      return this.reject(socket, 451, 'Unavailable For Legal Reasons');
     const ip = this.clientIp(req);
     if ((this.perIp.get(ip) ?? 0) >= WS_LIMITS.maxConnectionsPerIp)
       return this.reject(socket, 429, 'Too Many Requests');

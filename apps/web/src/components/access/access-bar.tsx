@@ -2,6 +2,7 @@
 
 import type { AccessStatusDto, MyAccessStatusDto } from '@platform/shared';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -15,7 +16,8 @@ async function fetchStatus(): Promise<Status | null> {
   try {
     return { ...(await api<MyAccessStatusDto>('/v1/me/access')), signedIn: true };
   } catch (e) {
-    if (!(e instanceof ApiError) || e.status !== 401) return null;
+    // 401: signed out. 451: the whole API refuses this location (block_all mode).
+    if (!(e instanceof ApiError) || (e.status !== 401 && e.status !== 451)) return null;
     try {
       return { ...(await api<AccessStatusDto>('/v1/access')), signedIn: false };
     } catch {
@@ -35,6 +37,7 @@ export function AccessBar({ t }: { t: Dictionary['access'] }) {
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const pathname = usePathname();
 
   useEffect(() => {
     let active = true;
@@ -47,6 +50,39 @@ export function AccessBar({ t }: { t: Dictionary['access'] }) {
   }, []);
 
   if (!s) return null;
+
+  // block_all (ADR-0024): like the reference venue, a restricted location gets
+  // nothing but this notice. The terms page stays readable.
+  if (s.regionRestricted && s.restrictedMode === 'block_all' && pathname !== '/terms') {
+    const where = locationName(s.country, s.subdivision);
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 p-4 backdrop-blur"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="region-blocked-title"
+        data-testid="region-blocked"
+      >
+        <div className="max-w-md rounded-lg border border-border bg-surface p-6 shadow-lg">
+          <h2 id="region-blocked-title" className="text-lg font-semibold">
+            {t.blockedTitle}
+          </h2>
+          <p className="mt-3 text-sm leading-6 text-muted">{t.blockedBody}</p>
+          {where ? (
+            <p className="mt-3 text-sm">
+              {t.detected}: <strong>{where}</strong>
+            </p>
+          ) : null}
+          <p className="mt-3 text-sm leading-6 text-muted">{t.blockedFunds}</p>
+          <p className="mt-4 text-sm">
+            <Link href="/terms" className="underline">
+              {t.termsLink}
+            </Link>
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const accept = async () => {
     setBusy(true);

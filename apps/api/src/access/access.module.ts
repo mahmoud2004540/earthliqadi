@@ -6,6 +6,8 @@ import {
   HttpCode,
   HttpStatus,
   Module,
+  type MiddlewareConsumer,
+  type NestModule,
   Post,
   Req,
 } from '@nestjs/common';
@@ -26,6 +28,7 @@ import { ReqContext, type RequestContext } from '../common/request-context';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { AccessPolicyGuard } from './access.guard';
 import { AccessService } from './access.service';
+import { RegionBlockMiddleware } from './region-block.middleware';
 import { SanctionsSyncService } from './sanctions-sync.service';
 
 @ApiTags('access')
@@ -67,4 +70,8 @@ export class AccessController {
   providers: [AccessService, AccessPolicyGuard, SanctionsSyncService],
   exports: [AccessService, AccessPolicyGuard, SanctionsSyncService],
 })
-export class AccessModule {}
+export class AccessModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(RegionBlockMiddleware).forRoutes('*');
+  }
+}

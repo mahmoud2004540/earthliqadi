@@ -132,6 +132,9 @@ not described as implemented in the docs should be treated as absent.
   automatically (`SANCTIONS_SYNC_HOURS`, ADR-0023). There is no commercial
   screening provider (on-chain exposure analysis). The escape hatch cannot be
   blocked by the operator.
+- **Restricted locations are fully blocked** (ADR-0024). A user who travels
+  to one cannot close positions through the platform there; funds remain
+  withdrawable through the vault's escape hatch.
 - **Cloudflare is not set up yet** for any deployment; see
   `docs/operations/cloudflare-edge.md`.
 - Ethereum (EIP-4361) only; no Solana or other chains, and no

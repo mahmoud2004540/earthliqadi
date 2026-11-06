@@ -20,6 +20,8 @@ const GEO_ENV = {
   GEO_UNKNOWN_COUNTRY: 'allow',
   RESTRICTED_COUNTRIES: 'US,KP',
   RESTRICTED_SUBDIVISIONS: 'CA-ON',
+  // This file covers the reduce-only mode; access-block.e2e-spec.ts covers block_all.
+  GEO_RESTRICTED_MODE: 'reduce_only',
 };
 
 let app: INestApplication;
@@ -160,6 +162,7 @@ describe('restricted regions', () => {
       country: 'US',
       subdivision: null,
       regionRestricted: true,
+      restrictedMode: 'reduce_only',
       restrictedCountries: ['US', 'KP'],
       restrictedSubdivisions: ['CA-ON'],
       termsVersion: TEST_TERMS_VERSION,

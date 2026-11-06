@@ -16,10 +16,10 @@ come from Cloudflare's networks.
    default.
 3. **SSL/TLS:** use **Full (strict)** mode, with an origin certificate on the
    edge.
-4. **Optional:** add a WAF rule that shows a block page for restricted
-   countries on the web app's pages. **Never** block `/api/*` paths with it:
-   users in restricted regions must still be able to close positions and
-   withdraw (ADR-0022).
+4. **Optional:** add a WAF rule that blocks restricted countries at
+   Cloudflare. The platform already blocks them itself (ADR-0024). If you
+   add the rule, keep `/api/v1/access` reachable so the block notice can
+   explain itself.
 
 ## Platform settings
 
@@ -27,8 +27,8 @@ come from Cloudflare's networks.
 GEO_COUNTRY_HEADER=x-edge-country
 GEO_REGION_HEADER=x-edge-region
 GEO_UNKNOWN_COUNTRY=deny
-RESTRICTED_COUNTRIES=...        # counsel decision (preset in .env.example)
-RESTRICTED_SUBDIVISIONS=...     # counsel decision
+# RESTRICTED_COUNTRIES / RESTRICTED_SUBDIVISIONS: counsel-approved defaults (ADR-0024)
+GEO_RESTRICTED_MODE=block_all
 SANCTIONS_SYNC_HOURS=24
 ```
 

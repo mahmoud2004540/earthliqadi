@@ -29,6 +29,14 @@ const base64Key32 = z.string().refine(
   { message: 'must be a base64-encoded 32-byte key' },
 );
 
+/**
+ * Restricted jurisdictions approved by counsel (ADR-0024): the United States
+ * and Ontario, plus territories under comprehensive sanctions (Cuba, Iran,
+ * North Korea, Crimea, Sevastopol, Donetsk, Luhansk). Overridable by env.
+ */
+export const DEFAULT_RESTRICTED_COUNTRIES = 'US,CU,IR,KP';
+export const DEFAULT_RESTRICTED_SUBDIVISIONS = 'CA-ON,UA-43,UA-40,UA-14,UA-09';
+
 export const DEPLOY_ENVIRONMENTS = ['local', 'ci', 'staging', 'production'] as const;
 export type DeployEnvironment = (typeof DEPLOY_ENVIRONMENTS)[number];
 
@@ -158,10 +166,13 @@ export const apiEnvSchema = z
       ),
     /** Hours before an unanswered maker-checker request expires. */
     APPROVAL_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
-    /** ISO 3166-1 alpha-2 codes (comma-separated) refused at identity verification. Legal input required. */
+    /**
+     * ISO 3166-1 alpha-2 codes (comma-separated) of restricted jurisdictions
+     * (ADR-0024: list approved by counsel). Also refused at identity verification.
+     */
     RESTRICTED_COUNTRIES: z
       .string()
-      .default('')
+      .default(DEFAULT_RESTRICTED_COUNTRIES)
       .transform((v) =>
         v
           .split(',')
@@ -197,7 +208,7 @@ export const apiEnvSchema = z
      */
     RESTRICTED_SUBDIVISIONS: z
       .string()
-      .default('')
+      .default(DEFAULT_RESTRICTED_SUBDIVISIONS)
       .transform((v) =>
         v
           .split(',')
@@ -205,6 +216,14 @@ export const apiEnvSchema = z
           .filter(Boolean),
       )
       .pipe(z.array(z.string().regex(/^[A-Z]{2}-[A-Z0-9]{1,3}$/))),
+    /**
+     * What a restricted location may still do (ADR-0024).
+     * block_all: nothing; the interface and API refuse every request except the
+     * public access status (counsel's decision; funds stay withdrawable through
+     * the vault contract's escape hatch). reduce_only: sign in, close, cancel
+     * and withdraw stay open (ADR-0022).
+     */
+    GEO_RESTRICTED_MODE: z.enum(['block_all', 'reduce_only']).default('block_all'),
     /** What to do when the country (or a needed subdivision) is missing or invalid. */
     GEO_UNKNOWN_COUNTRY: z.enum(['allow', 'deny']).default('allow'),
     /**
@@ -224,7 +243,7 @@ export const apiEnvSchema = z
     TERMS_VERSION: z
       .string()
       .regex(/^[A-Za-z0-9._-]{1,32}$/)
-      .default('draft-1'),
+      .default('draft-2'),
     /**
      * Identity verification module (ADR-0013: off by default; customers sign in
      * with a wallet and are never asked for identity documents). The module

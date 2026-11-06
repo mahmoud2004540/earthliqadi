@@ -88,7 +88,9 @@ describe('apiEnvSchema', () => {
   });
 
   it('requires enforceable region restrictions in production (ADR-0022)', () => {
-    expect(() => parseEnv(apiEnvSchema, productionEnv)).toThrow(/RESTRICTED_COUNTRIES/);
+    // The counsel-approved list is the default (ADR-0024); it needs the edge headers.
+    expect(() => parseEnv(apiEnvSchema, productionEnv)).toThrow(/GEO_COUNTRY_HEADER/);
+    expect(() => parseEnv(apiEnvSchema, productionEnv)).toThrow(/GEO_REGION_HEADER/);
     expect(() => parseEnv(apiEnvSchema, { ...productionEnv, RESTRICTED_COUNTRIES: 'US' })).toThrow(
       /GEO_COUNTRY_HEADER/,
     );
@@ -120,9 +122,12 @@ describe('apiEnvSchema', () => {
       parseEnv(apiEnvSchema, { ...localEnv, SANCTIONS_OFAC_URL: 'http://plain.invalid/sdn.csv' }),
     ).toThrow(/SANCTIONS_OFAC_URL/);
     const local = parseEnv(apiEnvSchema, localEnv);
+    expect(local.RESTRICTED_COUNTRIES).toEqual(['US', 'CU', 'IR', 'KP']);
+    expect(local.RESTRICTED_SUBDIVISIONS).toEqual(['CA-ON', 'UA-43', 'UA-40', 'UA-14', 'UA-09']);
+    expect(local.GEO_RESTRICTED_MODE).toBe('block_all');
     expect(local.SANCTIONS_SYNC_HOURS).toBe(0);
     expect(local.GEO_COUNTRY_HEADER).toBe('');
-    expect(local.TERMS_VERSION).toBe('draft-1');
+    expect(local.TERMS_VERSION).toBe('draft-2');
   });
 
   it('treats empty strings as unset', () => {
