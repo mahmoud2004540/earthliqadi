@@ -52,6 +52,10 @@ model User {
   walletAddress   String?     @unique @map("wallet_address") @db.Char(42)
   status          UserStatus  @default(PENDING_VERIFICATION)
   accountType     AccountType @default(INDIVIDUAL) @map("account_type")
+  /// Sub-account (ADR-0017): owned by this parent wallet account; no credentials of its own.
+  parentUserId    String?     @map("parent_user_id") @db.Uuid
+  /// Sub-accounts only.
+  label           String?     @db.VarChar(48)
   emailVerifiedAt DateTime?   @map("email_verified_at") @db.Timestamptz(3)
 
   /// AES-256-GCM encrypted TOTP secret (iv|tag|ciphertext). Never returned by the API.
@@ -69,6 +73,8 @@ model User {
   updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   sessions           Session[]
+  parent             User?               @relation("SubAccounts", fields: [parentUserId], references: [id], onDelete: Restrict)
+  subAccounts        User[]              @relation("SubAccounts")
   apiKeys            ApiKey[]
   cancelAllTimer     CancelAllTimer?
   tokens             VerificationToken[]
@@ -257,6 +263,7 @@ enum JournalEntryType {
   WITHDRAWAL_HOLD
   WITHDRAWAL_FINAL
   WITHDRAWAL_RELEASE
+  INTERNAL_TRANSFER
 }
 
 enum ReconciliationStatus {
@@ -478,6 +485,10 @@ model Order {
   timeInForce       TimeInForce @map("time_in_force")
   priceTicks        BigInt?     @map("price_ticks")
   stopPriceTicks    BigInt?     @map("stop_price_ticks")
+  /// Stop orders: 'above' | 'below'; null = classic stop direction.
+  triggerDirection  String?     @map("trigger_direction") @db.VarChar(5)
+  /// Take-profit / stop-loss pair: when one triggers, the other is cancelled.
+  ocoGroupId        String?     @map("oco_group_id") @db.Uuid
   quantityLots      BigInt      @map("quantity_lots")
   filledLots        BigInt      @default(0) @map("filled_lots")
   status            OrderStatus @default(PENDING_NEW)

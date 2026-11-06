@@ -51,6 +51,16 @@ pub enum TimeInForce {
     PostOnly,
 }
 
+/// Which way the last trade price must cross a stop order's stop price.
+/// Absent means the classic stop: buy triggers at or above, sell at or below.
+/// Take-profit orders use the opposite direction (sell above, buy below).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Trigger {
+    Above,
+    Below,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlaceOrder {
     pub order_id: String,
@@ -62,6 +72,10 @@ pub struct PlaceOrder {
     pub price: Option<Price>,
     pub stop_price: Option<Price>,
     pub quantity: Qty,
+    /// Stop orders only. Omitted from the wire when absent, so recorded
+    /// histories replay byte-for-byte.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger: Option<Trigger>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -96,6 +110,7 @@ pub enum RejectReason {
     PostOnlyWouldTake,
     StopWouldTriggerImmediately,
     InvalidReduce,
+    UnexpectedTrigger,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

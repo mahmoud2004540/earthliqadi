@@ -297,3 +297,19 @@ X-API-Signature: base64(ed25519_sign(`${timestamp}\n${METHOD}\n${path_with_query
   - `401 API_KEY_INVALID`: unknown, expired or revoked key, bad signature,
     replayed signature, or a timestamp outside the allowed clock skew.
   - `403 IP_NOT_ALLOWED`: the request came from outside the key's allow-list.
+
+### Part 2: TP/SL, sub-accounts, WebSocket keys
+
+| Method | Path                           | Auth           | Description                                                                     |
+| ------ | ------------------------------ | -------------- | ------------------------------------------------------------------------------- |
+| POST   | `/v1/perp/tpsl`                | session or key | `{market, takeProfit?, stopLoss?}` → OCO pair of reduce-only stop-market orders |
+| GET    | `/v1/me/sub-accounts`          | session        | List                                                                            |
+| POST   | `/v1/me/sub-accounts`          | session        | `{label}` (max 10)                                                              |
+| POST   | `/v1/me/sub-accounts/transfer` | session        | `{from: "main"\|id, to, asset, amount, idempotencyKey}`                         |
+
+- **Stop orders** accept `trigger: "above" | "below"` (take-profit = sell
+  above / buy below). Orders expose `trigger`.
+- **`X-Sub-Account: <id>`** makes a trading/read request act as that
+  sub-account.
+- **WebSocket with an API key:** connect to `/ws` with the signed `X-API-*`
+  headers over `` `${ts}\nGET\n/ws\n` ``.

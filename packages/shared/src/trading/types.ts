@@ -46,6 +46,12 @@ export const placeOrderSchema = z.object({
   quantity: amountStringSchema,
   /** Perpetuals only: the order may only reduce the current position. */
   reduceOnly: z.boolean().optional(),
+  /**
+   * Stop orders only: trigger when the last price rises to (`above`) or falls
+   * to (`below`) the stop price. Default: buy above, sell below (stop-loss).
+   * Take-profit: a sell `above` or a buy `below`.
+   */
+  trigger: z.enum(['above', 'below']).optional(),
 });
 export type PlaceOrderInput = z.input<typeof placeOrderSchema>;
 
@@ -128,6 +134,20 @@ export const leverageSchema = z.object({
   market: marketSymbolSchema,
   leverage: z.number().int().min(1).max(125),
 });
+
+/**
+ * Take-profit / stop-loss for the whole open position (ADR-0017): reduce-only
+ * stop-market orders in a one-cancels-the-other pair. Replaces any existing pair.
+ */
+export const tpslSchema = z
+  .object({
+    market: marketSymbolSchema,
+    takeProfit: amountStringSchema.optional(),
+    stopLoss: amountStringSchema.optional(),
+  })
+  .refine((v) => v.takeProfit !== undefined || v.stopLoss !== undefined, {
+    message: 'Set a takeProfit, a stopLoss, or both',
+  });
 
 /** Adds margin to an isolated position (from the available balance). */
 export const addMarginSchema = z.object({
@@ -226,6 +246,8 @@ export interface OrderDto {
   timeInForce: TimeInForceDto;
   price: string | null;
   stopPrice: string | null;
+  /** Stop orders: effective trigger direction. */
+  trigger: 'above' | 'below' | null;
   quantity: string;
   filledQuantity: string;
   remainingQuantity: string;

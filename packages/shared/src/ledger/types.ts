@@ -18,6 +18,7 @@ export const JOURNAL_ENTRY_TYPES = [
   'WITHDRAWAL_HOLD',
   'WITHDRAWAL_FINAL',
   'WITHDRAWAL_RELEASE',
+  'INTERNAL_TRANSFER',
 ] as const;
 export type JournalEntryType = (typeof JOURNAL_ENTRY_TYPES)[number];
 

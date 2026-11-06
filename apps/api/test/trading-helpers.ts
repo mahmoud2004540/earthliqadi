@@ -133,14 +133,20 @@ export class WsClient {
 
   static connect(
     port: number,
-    opts: { origin?: string; cookie?: string; ip?: string } = {},
+    opts: {
+      origin?: string | null;
+      cookie?: string;
+      ip?: string;
+      headers?: Record<string, string>;
+    } = {},
   ): Promise<WsClient> {
     return new Promise((resolve, reject) => {
       const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, {
         headers: {
-          Origin: opts.origin ?? 'http://localhost:3000',
+          ...(opts.origin === null ? {} : { Origin: opts.origin ?? 'http://localhost:3000' }),
           'X-Forwarded-For': opts.ip ?? `10.251.${randomBytes(1)[0]}.${randomBytes(1)[0]}`,
           ...(opts.cookie ? { Cookie: opts.cookie } : {}),
+          ...(opts.headers ?? {}),
         },
       });
       socket.once('open', () => resolve(new WsClient(socket)));

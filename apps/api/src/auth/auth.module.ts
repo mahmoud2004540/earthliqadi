@@ -24,6 +24,7 @@ import { SessionService } from './session.service';
   ],
   exports: [
     AuthService,
+    ApiKeysService,
     SessionService,
     CsrfService,
     MfaService,

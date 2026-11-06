@@ -12,6 +12,7 @@ import { ApiError, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { InboxPanel, SupportPanel } from './account-panels';
 import { ApiKeysPanel } from './api-keys-panel';
+import { SubAccountsPanel } from './sub-accounts-panel';
 import { SecurityPanel } from './security-panel';
 import { VaultPanel } from './vault-panel';
 import { WalletPanel } from './wallet-panel';
@@ -116,6 +117,11 @@ export function Dashboard({ t }: { t: Dictionary }) {
       ) : tab === 'api' ? (
         <div className="mt-8">
           <ApiKeysPanel t={t} walletAddress={user.walletAddress} />
+          {user.walletAddress && (
+            <div className="mt-6">
+              <SubAccountsPanel t={t} />
+            </div>
+          )}
         </div>
       ) : tab === 'support' ? (
         <div className="mt-8">

@@ -93,6 +93,30 @@ export function PositionsPanel({
 }) {
   const open = positions.filter((p) => p.side !== 'flat');
   const [amount, setAmount] = useState('');
+  const [takeProfit, setTakeProfit] = useState('');
+  const [stopLoss, setStopLoss] = useState('');
+
+  async function setTpSl(event: FormEvent, symbol: string) {
+    event.preventDefault();
+    setMessage(null);
+    try {
+      await api('/v1/perp/tpsl', {
+        method: 'POST',
+        body: {
+          market: symbol,
+          ...(takeProfit ? { takeProfit } : {}),
+          ...(stopLoss ? { stopLoss } : {}),
+        },
+      });
+      setMessage({ tone: 'success', text: tp.tpslSet });
+      onChanged();
+    } catch (err) {
+      setMessage({
+        tone: 'error',
+        text: err instanceof ApiError ? (err.details?.[0]?.message ?? err.message) : String(err),
+      });
+    }
+  }
   const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
 
   async function addMargin(event: FormEvent, symbol: string) {
@@ -118,7 +142,7 @@ export function PositionsPanel({
         <p className="text-sm text-muted">{tp.noPositions}</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-xs">
+          <table className="w-full min-w-[1100px] text-xs">
             <thead>
               <tr className="border-b border-border text-muted">
                 {[
@@ -132,6 +156,7 @@ export function PositionsPanel({
                   tp.realized,
                   tp.fundingPnl,
                   tp.addMargin,
+                  tp.tpsl,
                 ].map((h) => (
                   <th key={h} className="py-1.5 text-start font-medium">
                     {h}
@@ -180,6 +205,42 @@ export function PositionsPanel({
                         />
                         <Button type="submit" size="sm" variant="outline" disabled={!amount}>
                           {tp.add}
+                        </Button>
+                      </form>
+                    )}
+                  </td>
+                  <td>
+                    {p.market === market.symbol && (
+                      <form
+                        className="flex gap-1"
+                        onSubmit={(e) => void setTpSl(e, p.market)}
+                        data-testid="tpsl-form"
+                      >
+                        <Input
+                          aria-label={tp.takeProfit}
+                          placeholder="TP"
+                          inputMode="decimal"
+                          value={takeProfit}
+                          onChange={(e) => setTakeProfit(e.target.value.trim())}
+                          className="h-7 w-20 text-xs"
+                          dir="ltr"
+                        />
+                        <Input
+                          aria-label={tp.stopLoss}
+                          placeholder="SL"
+                          inputMode="decimal"
+                          value={stopLoss}
+                          onChange={(e) => setStopLoss(e.target.value.trim())}
+                          className="h-7 w-20 text-xs"
+                          dir="ltr"
+                        />
+                        <Button
+                          type="submit"
+                          size="sm"
+                          variant="outline"
+                          disabled={!takeProfit && !stopLoss}
+                        >
+                          {tp.set}
                         </Button>
                       </form>
                     )}

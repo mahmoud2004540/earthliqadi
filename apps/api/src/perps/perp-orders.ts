@@ -84,6 +84,10 @@ export interface PerpOrderCheck {
   priceTicks: bigint;
   quantityLots: bigint;
   reduceOnly: boolean;
+  /** Stop order: the band applies when it triggers, not at placement. */
+  isStop?: boolean;
+  /** Member of a take-profit / stop-loss pair (sized to the whole position). */
+  oco?: boolean;
   /** Current mark price (quote minor units per whole base unit), or null when unavailable. */
   mark: bigint | null;
 }
@@ -105,7 +109,9 @@ export async function checkPerpOrder(
   const reduces = pos.size !== 0n && (pos.size > 0n ? dir < 0n : dir > 0n);
 
   // Price band around the mark. Without a reliable mark only reducing orders are accepted.
-  if (c.mark === null) {
+  if (c.isStop) {
+    // Protection price is derived from the stop price; nothing to check against the mark now.
+  } else if (c.mark === null) {
     if (!c.reduceOnly)
       throw conflict(
         'No reliable index/mark price right now; only reduce-only orders are accepted',
@@ -130,12 +136,13 @@ export async function checkPerpOrder(
         marketId: c.market.id,
         side: c.side,
         reduceOnly: true,
+        ocoGroupId: null,
         status: { in: [...OPEN_ORDER_STATUSES] },
       },
       _sum: { quantityLots: true, filledLots: true },
     });
     const open = (pending._sum.quantityLots ?? 0n) - (pending._sum.filledLots ?? 0n);
-    if (open + c.quantityLots > absBig(pos.size))
+    if ((c.oco ? 0n : open) + c.quantityLots > absBig(pos.size))
       throw invalid('quantity', 'Reduce-only quantity exceeds the open position');
   }
 

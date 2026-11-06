@@ -20,6 +20,7 @@ fn place(
         price,
         stop_price: stop,
         quantity: qty,
+        trigger: None,
     })
 }
 
@@ -559,4 +560,86 @@ fn wire_format_is_stable() {
         json,
         r#"{"type":"cancelled","order_id":"o","remaining":3,"reason":"self_trade_prevention"}"#
     );
+}
+
+fn with_trigger(cmd: Command, trigger: Trigger) -> Command {
+    match cmd {
+        Command::Place(mut o) => {
+            o.trigger = Some(trigger);
+            Command::Place(o)
+        }
+        other => other,
+    }
+}
+
+#[test]
+fn take_profit_triggers_in_the_opposite_direction() {
+    let mut book = OrderBook::new();
+    book.apply(&limit("s1", "a", Side::Sell, 100, 1));
+    book.apply(&limit("b1", "b", Side::Buy, 100, 1)); // last = 100
+    book.apply(&limit("bid", "m", Side::Buy, 109, 5));
+    // A sell take-profit at 110 waits for the price to RISE to 110.
+    let tp = with_trigger(
+        place(
+            "tp",
+            "c",
+            Side::Sell,
+            OrderKind::StopMarket,
+            TimeInForce::Ioc,
+            None,
+            Some(110),
+            1,
+        ),
+        Trigger::Above,
+    );
+    assert!(matches!(
+        book.apply(&tp).as_slice(),
+        [Event::Accepted { .. }]
+    ));
+    // A fall in price does not trigger it.
+    book.apply(&limit("s2", "a", Side::Sell, 109, 1));
+    assert_eq!(book.pending_stop_count(), 1);
+    // A trade at 110 does.
+    book.apply(&limit("s3", "a", Side::Sell, 110, 1));
+    let events = book.apply(&limit("b2", "d", Side::Buy, 110, 1));
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, Event::StopTriggered { order_id, .. } if order_id == "tp")));
+    assert_eq!(book.pending_stop_count(), 0);
+    // An "above" take-profit that is already reached is rejected, never fired at once.
+    let late = with_trigger(
+        place(
+            "late",
+            "c",
+            Side::Sell,
+            OrderKind::StopMarket,
+            TimeInForce::Ioc,
+            None,
+            Some(105),
+            1,
+        ),
+        Trigger::Above,
+    );
+    assert_eq!(
+        book.apply(&late),
+        vec![Event::Rejected {
+            order_id: "late".into(),
+            reason: RejectReason::StopWouldTriggerImmediately
+        }]
+    );
+    // A trigger on a non-stop order is malformed.
+    let bad = with_trigger(limit("bad", "c", Side::Buy, 1, 1), Trigger::Below);
+    assert_eq!(
+        book.apply(&bad),
+        vec![Event::Rejected {
+            order_id: "bad".into(),
+            reason: RejectReason::UnexpectedTrigger
+        }]
+    );
+}
+
+#[test]
+fn trigger_is_omitted_from_the_wire_when_absent() {
+    let json = serde_json::to_string(&limit("x", "a", Side::Buy, 1, 1)).unwrap();
+    assert!(!json.contains("trigger"));
 }

@@ -58,6 +58,7 @@ fn arb_command(max_id: u32) -> impl Strategy<Value = Command> {
                 price,
                 stop_price,
                 quantity: qty,
+                trigger: None,
             })
         });
     let cancel = (0..max_id, 0..4usize).prop_map(|(id, acct)| Command::Cancel {
@@ -215,6 +216,7 @@ fn hash_changes_with_any_difference() {
             price: Some(price),
             stop_price: None,
             quantity: 1,
+            trigger: None,
         })
     };
     let (a, _) = run(&[cmd(100)]);

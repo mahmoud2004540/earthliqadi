@@ -632,12 +632,16 @@ export class ChainService {
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(${STATE_LOCK_KEY})`;
           const index = (await this.latestStateIndex(tx, d)) + 1n;
           const rows = await tx.$queryRaw<{ wallet: string; token: string; balance: string }[]>`
-            SELECT u."wallet_address" AS "wallet", a."chain_token_address" AS "token",
+            SELECT COALESCE(u."wallet_address", p."wallet_address") AS "wallet",
+                   a."chain_token_address" AS "token",
                    SUM(la."balance")::text AS "balance"
               FROM "ledger_accounts" la
               JOIN "assets" a ON a."id" = la."asset_id"
               JOIN "users" u ON u."id" = la."owner_user_id"
-             WHERE a."chain_token_address" = ANY(${tokens}::text[]) AND u."wallet_address" IS NOT NULL
+              -- Sub-accounts belong to their parent's wallet leaf (ADR-0017).
+              LEFT JOIN "users" p ON p."id" = u."parent_user_id"
+             WHERE a."chain_token_address" = ANY(${tokens}::text[])
+               AND COALESCE(u."wallet_address", p."wallet_address") IS NOT NULL
                AND la."type" IN ('USER_AVAILABLE', 'USER_LOCKED', 'USER_MARGIN')
              GROUP BY 1, 2 HAVING SUM(la."balance") > 0`;
           const last = await tx.chainDeposit.aggregate({

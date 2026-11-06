@@ -6,7 +6,8 @@ import {
   type ExecutionContext,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { isStaffPermission, type Permission } from '@platform/shared';
+import { PERMISSIONS, isStaffPermission, type Permission } from '@platform/shared';
+import { PrismaService } from '../infrastructure/prisma/prisma.service';
 import type { Request } from 'express';
 import { BlockList, isIP } from 'node:net';
 import { AuditService } from '../audit/audit.service';
@@ -69,6 +70,7 @@ export class SessionAuthGuard implements CanActivate {
     private readonly sessions: SessionService,
     private readonly rbac: RbacService,
     private readonly apiKeys: ApiKeysService,
+    private readonly prisma: PrismaService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
@@ -113,6 +115,7 @@ export class SessionAuthGuard implements CanActivate {
           `This endpoint needs an API key with the "${scope}" scope`,
         );
       req.auth = auth;
+      await this.applySubAccount(req, scope);
       return true;
     }
     const token = readCookie(req, cookieNames(this.config).session);
@@ -127,7 +130,49 @@ export class SessionAuthGuard implements CanActivate {
       roles,
       permissions,
     };
+    await this.applySubAccount(
+      req,
+      this.reflector.get<'read' | 'trade' | undefined>(API_KEY_SCOPE_KEY, context.getHandler()),
+    );
     return true;
+  }
+
+  /**
+   * X-Sub-Account: act as an own sub-account on trading and read routes only
+   * (the same allow-list as API keys). Permissions never widen.
+   */
+  private async applySubAccount(req: Request, scope: 'read' | 'trade' | undefined) {
+    const header = req.headers['x-sub-account'];
+    if (header === undefined || !req.auth) return;
+    if (!scope)
+      throw new AppError(
+        HttpStatus.FORBIDDEN,
+        'FORBIDDEN',
+        'This endpoint cannot be used for a sub-account',
+      );
+    const id = typeof header === 'string' ? header : '';
+    const sub = /^[0-9a-f-]{36}$/.test(id)
+      ? await this.prisma.user.findFirst({
+          where: { id, parentUserId: req.auth.user.id, status: 'ACTIVE' },
+        })
+      : null;
+    if (!sub) throw AppError.notFound('Sub-account not found');
+    const allowed = new Set<string>([PERMISSIONS.ACCOUNT_SELF_READ, PERMISSIONS.TRADING_TRADE]);
+    req.auth = {
+      ...req.auth,
+      user: {
+        id: sub.id,
+        email: null,
+        walletAddress: null,
+        status: sub.status,
+        accountType: sub.accountType,
+        emailVerifiedAt: null,
+        mfaEnabledAt: null,
+        createdAt: sub.createdAt,
+      },
+      permissions: req.auth.permissions.filter((p) => allowed.has(p)),
+      actingAsSubAccount: { parentUserId: req.auth.user.id },
+    };
   }
 }
 

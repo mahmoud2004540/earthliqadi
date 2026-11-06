@@ -17,6 +17,7 @@ process.env.RATE_LIMIT_DEFAULT_PER_MINUTE = '600';
 process.env.LEDGER_RECONCILIATION_INTERVAL_SECONDS = '0';
 process.env.SETTLEMENT_POLL_MS = '0';
 process.env.PERP_RISK_POLL_MS = '0';
+process.env.CANCEL_TIMER_POLL_MS = '0';
 // Most suites exercise staff endpoints without MFA; admin.e2e-spec turns enforcement on.
 process.env.STAFF_MFA_REQUIRED = 'false';
 // The KYC module is off by default (ADR-0013); its suite exercises it enabled.

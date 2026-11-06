@@ -283,6 +283,61 @@ describe('perpetual trading', () => {
     await expectReconciled();
   });
 
+  it('take-profit / stop-loss: one-cancels-the-other pair sized to the position', async () => {
+    const p = await perpMarket();
+    await setMark(p, 100n * USD);
+    const a = await funded(p);
+    const b = await funded(p);
+    await placed(a, { market: p.symbol, side: 'buy', type: 'limit', price: '100', quantity: '1' });
+    const s = await placed(b, {
+      market: p.symbol,
+      side: 'sell',
+      type: 'limit',
+      price: '100',
+      quantity: '1',
+    });
+    await fx.until(async () => (await fx.status(s)) === 'FILLED');
+
+    // Wrong side of the mark is refused; a flat account cannot set TP/SL.
+    const wrong = await a.client.post('/v1/perp/tpsl', { market: p.symbol, stopLoss: '101' });
+    expect(wrong.status).toBe(400);
+    const flat = await funded(p);
+    expect(
+      (await flat.client.post('/v1/perp/tpsl', { market: p.symbol, stopLoss: '95' })).status,
+    ).toBe(409);
+
+    // A first stop-loss, then replaced by a full pair (the first one is cancelled).
+    const first = await a.client.post('/v1/perp/tpsl', { market: p.symbol, stopLoss: '96' });
+    expect(first.status).toBe(201);
+    const firstId = first.body.orders[0].id as string;
+    const pair = await a.client.post('/v1/perp/tpsl', {
+      market: p.symbol,
+      takeProfit: '105',
+      stopLoss: '95',
+    });
+    expect(pair.status).toBe(201);
+    const [tp, sl] = pair.body.orders as { id: string; trigger: string; reduceOnly: boolean }[];
+    expect(tp).toMatchObject({ trigger: 'above', reduceOnly: true, type: 'stop_market' });
+    expect(sl).toMatchObject({ trigger: 'below', reduceOnly: true });
+    await fx.until(async () => (await fx.status(firstId)) === 'CANCELLED');
+    await fx.until(async () => (await fx.status(sl!.id)) === 'PENDING_TRIGGER');
+
+    // The price trades up to 105: the take-profit fires and closes the long.
+    const c = await funded(p);
+    const d = await funded(p);
+    await placed(c, { market: p.symbol, side: 'buy', type: 'limit', price: '104', quantity: '1' });
+    await placed(c, { market: p.symbol, side: 'buy', type: 'limit', price: '105', quantity: '1' });
+    await placed(d, { market: p.symbol, side: 'sell', type: 'limit', price: '105', quantity: '1' });
+    await fx.until(async () => (await fx.status(tp!.id)) === 'FILLED');
+    const pa = (await position(p, a.userId))!;
+    expect(pa.sizeLots).toBe(0n);
+    expect(toMinorUnits(pa.realizedPnl)).toBe(4n * USD); // filled at the 104 bid
+    // The stop-loss is cancelled by the one-cancels-the-other rule.
+    expect(await risk.cancelOcoSiblings(p.market)).toBe(1);
+    await fx.until(async () => (await fx.status(sl!.id)) === 'CANCELLED');
+    await expectReconciled();
+  });
+
   it('enforces reduce-only size, the bankruptcy price and leverage rules', async () => {
     const p = await perpMarket();
     await setMark(p, 100n * USD);

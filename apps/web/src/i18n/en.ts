@@ -315,6 +315,11 @@ export const en = {
       add: 'Add',
       liquidating: 'Liquidating',
       marginAdded: 'Margin added.',
+      tpsl: 'TP / SL',
+      takeProfit: 'Take-profit price',
+      stopLoss: 'Stop-loss price',
+      set: 'Set',
+      tpslSet: 'Take-profit / stop-loss set for the whole position (one cancels the other).',
       leverageSet: 'Leverage updated.',
       riskNotice:
         'Perpetuals are leveraged and can lose your whole margin quickly. Margin is held in the vault; the index price comes from the sources listed for the market.',
@@ -466,6 +471,22 @@ export const en = {
       generic: 'Something went wrong. Please try again.',
     },
   },
+  subAccounts: {
+    title: 'Sub-accounts',
+    intro:
+      'Separate balances, orders and positions under the same wallet, for different strategies. Bots act as a sub-account with the X-Sub-Account header. Everything stays claimable by your wallet in the vault.',
+    none: 'No sub-accounts yet.',
+    label: 'Name',
+    create: 'Create sub-account',
+    direction: 'Direction',
+    toSub: 'Main → sub-account',
+    toMain: 'Sub-account → main',
+    subAccount: 'Sub-account',
+    asset: 'Asset',
+    amount: 'Amount',
+    transfer: 'Transfer',
+    transferred: 'Transfer completed.',
+  },
   apiKeys: {
     title: 'API keys for trading bots',
     intro:
@@ -613,6 +634,7 @@ export const en = {
       WITHDRAWAL_HOLD: 'Withdrawal reserved',
       WITHDRAWAL_FINAL: 'Withdrawal executed (testnet)',
       WITHDRAWAL_RELEASE: 'Withdrawal expired (funds returned)',
+      INTERNAL_TRANSFER: 'Transfer between own accounts',
     },
     bucketAvailable: 'available',
     bucketLocked: 'locked',

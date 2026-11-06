@@ -149,6 +149,9 @@ impl OrderBook {
             OrderKind::Limit | OrderKind::Market if o.stop_price.is_some() => {
                 return Err(RejectReason::UnexpectedStopPrice)
             }
+            OrderKind::Limit | OrderKind::Market if o.trigger.is_some() => {
+                return Err(RejectReason::UnexpectedTrigger)
+            }
             _ => {}
         }
         let tif_ok = match o.kind {
@@ -187,7 +190,7 @@ impl OrderBook {
             let stop = o.stop_price.expect("validated");
             if self
                 .last_trade_price
-                .is_some_and(|last| Self::stop_triggered(o.side, stop, last))
+                .is_some_and(|last| Self::stop_triggered(o.side, o.trigger, stop, last))
             {
                 events.push(Event::Rejected {
                     order_id: o.order_id.clone(),
@@ -250,10 +253,14 @@ impl OrderBook {
         }
     }
 
-    fn stop_triggered(side: Side, stop: Price, last: Price) -> bool {
-        match side {
-            Side::Buy => last >= stop,
-            Side::Sell => last <= stop,
+    fn stop_triggered(side: Side, trigger: Option<Trigger>, stop: Price, last: Price) -> bool {
+        let direction = trigger.unwrap_or(match side {
+            Side::Buy => Trigger::Above,
+            Side::Sell => Trigger::Below,
+        });
+        match direction {
+            Trigger::Above => last >= stop,
+            Trigger::Below => last <= stop,
         }
     }
 
@@ -420,7 +427,12 @@ impl OrderBook {
                 .stops
                 .iter()
                 .find(|(_, s)| {
-                    Self::stop_triggered(s.order.side, s.order.stop_price.expect("stop"), last)
+                    Self::stop_triggered(
+                        s.order.side,
+                        s.order.trigger,
+                        s.order.stop_price.expect("stop"),
+                        last,
+                    )
                 })
                 .map(|(arrival, _)| *arrival);
             let Some(arrival) = next else { return };

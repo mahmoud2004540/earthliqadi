@@ -13,6 +13,7 @@ import {
   type WsChannel,
   type WsServerMessage,
 } from '@platform/shared';
+import { ApiKeysService } from '../api-keys/api-keys.service';
 import { diffLevels } from './book-diff';
 import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
@@ -55,6 +56,8 @@ interface Client {
   ip: string;
   userId: string | null;
   sessionToken: string | null;
+  /** Agent API key used at the handshake (ADR-0017), rechecked like sessions. */
+  apiKeyId: string | null;
   sessionCheckedAt: number;
   alive: boolean;
   subscriptions: Map<string, Subscription>;
@@ -99,6 +102,7 @@ export class MarketDataGateway implements OnApplicationBootstrap, OnApplicationS
     private readonly sessions: SessionService,
     private readonly orders: OrdersService,
     private readonly prisma: PrismaService,
+    private readonly apiKeys: ApiKeysService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
@@ -148,16 +152,44 @@ export class MarketDataGateway implements OnApplicationBootstrap, OnApplicationS
   private async handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
     const path = (req.url ?? '').split('?')[0];
     if (path !== WS_PATH || !this.wss) return; // not ours (other upgrade handlers may exist)
-    if (req.headers.origin !== new URL(this.config.WEB_ORIGIN).origin) {
+    // Bots authenticate with a signed agent key instead of a browser session.
+    // Browsers cannot set these headers on a WebSocket, so the origin check is
+    // not needed for them; cookies are ignored on such connections.
+    const keyHeader = req.headers['x-api-key'];
+    const usesKey = typeof keyHeader === 'string';
+    if (!usesKey && req.headers.origin !== new URL(this.config.WEB_ORIGIN).origin) {
       return this.reject(socket, 403, 'Forbidden');
     }
     const ip = this.clientIp(req);
     if ((this.perIp.get(ip) ?? 0) >= WS_LIMITS.maxConnectionsPerIp)
       return this.reject(socket, 429, 'Too Many Requests');
 
-    const token = parseCookies(req.headers.cookie)[cookieNames(this.config).session] ?? null;
+    const token = usesKey
+      ? null
+      : (parseCookies(req.headers.cookie)[cookieNames(this.config).session] ?? null);
     let userId: string | null = null;
-    if (token) {
+    let apiKeyId: string | null = null;
+    if (usesKey) {
+      const h = (name: string) => {
+        const v = req.headers[name];
+        return typeof v === 'string' ? v : '';
+      };
+      try {
+        const { auth } = await this.apiKeys.authenticate({
+          keyId: keyHeader,
+          timestamp: h('x-api-timestamp'),
+          signature: h('x-api-signature'),
+          method: 'GET',
+          pathWithQuery: req.url ?? '',
+          body: '',
+          ip,
+        });
+        userId = auth.user.id;
+        apiKeyId = keyHeader;
+      } catch {
+        return this.reject(socket, 401, 'Unauthorized');
+      }
+    } else if (token) {
       try {
         userId = (await this.sessions.validate(token))?.user.id ?? null;
       } catch (err) {
@@ -171,6 +203,7 @@ export class MarketDataGateway implements OnApplicationBootstrap, OnApplicationS
         ip,
         userId,
         sessionToken: userId ? token : null,
+        apiKeyId,
         sessionCheckedAt: Date.now(),
         alive: true,
         subscriptions: new Map(),
@@ -402,9 +435,13 @@ export class MarketDataGateway implements OnApplicationBootstrap, OnApplicationS
       for (const client of [...this.clients]) {
         if (client.userId && now - client.sessionCheckedAt > WS_LIMITS.sessionRecheckMs) {
           client.sessionCheckedAt = now;
-          const valid = client.sessionToken
-            ? await this.sessions.validate(client.sessionToken)
-            : null;
+          const valid = client.apiKeyId
+            ? await this.prisma.apiKey.findFirst({
+                where: { id: client.apiKeyId, revokedAt: null, expiresAt: { gt: new Date() } },
+              })
+            : client.sessionToken
+              ? await this.sessions.validate(client.sessionToken)
+              : null;
           if (!valid) {
             this.error(client, 'UNAUTHENTICATED', 'Session ended');
             client.socket.close(4401, 'session ended');

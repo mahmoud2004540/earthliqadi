@@ -152,11 +152,8 @@ See [`docs/product/product-brief.md`](../product/product-brief.md).
       oracle index source; insurance fund funded from fees only ([ADR-0016](../decisions/0016-real-markets-only.md))
 - [x] Step B part 1: agent API keys (wallet-authorised Ed25519, read/trade only),
       batch orders, cancel-all, dead-man switch ([ADR-0017](../decisions/0017-professional-trading-tools.md))
-- [ ] Step B part 2:
-  - order-book diffs with sequence numbers;
-  - TP/SL;
-  - sub-accounts;
-  - API-key WebSocket auth.
+- [x] Step B part 2: order-book diffs with sequence numbers, trigger direction +
+      TP/SL (OCO), sub-accounts, API-key WebSocket auth (ADR-0017)
 - [ ] Step C: fee tiers, maker rebates, referral fee share, activity points
 - [ ] Step D: leader vaults, track records, leaderboard
 - [ ] Step E: whale tools (TWAP, iceberg, RFQ, cross margin) and proof pages

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { amountStringSchema, assetCodeSchema } from '../money/amount';
 import { marketSymbolSchema, placeOrderSchema, type OrderDto } from '../trading/types';
 
 /** Agent API key scopes (ADR-0017). There is deliberately no withdrawal scope. */
@@ -64,4 +65,25 @@ export interface BatchOrderResultDto {
   status: number;
   order?: OrderDto;
   error?: { code: string; message: string };
+}
+
+/** Sub-accounts (ADR-0017): act as one with the `X-Sub-Account: <id>` header. */
+export const createSubAccountSchema = z.object({ label: z.string().trim().min(2).max(48) });
+
+const accountRef = z.union([z.literal('main'), z.uuid()]);
+export const subTransferSchema = z
+  .object({
+    from: accountRef,
+    to: accountRef,
+    asset: assetCodeSchema,
+    amount: amountStringSchema,
+    /** Client-chosen key; a retry with the same key never transfers twice. */
+    idempotencyKey: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/),
+  })
+  .refine((t) => t.from !== t.to, { message: 'from and to must differ', path: ['to'] });
+
+export interface SubAccountDto {
+  id: string;
+  label: string;
+  createdAt: string;
 }

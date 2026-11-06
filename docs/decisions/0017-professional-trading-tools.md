@@ -1,6 +1,6 @@
 # ADR-0017: Professional trading tools — agent API keys, batch orders, cancel-all, dead-man switch
 
-- Status: Accepted (part 1 of product step B)
+- Status: Accepted (product step B, parts 1 and 2)
 - Date: 2026-11-06
 - Context: product brief rev 2 — professional and algorithmic traders need
   programmatic access that is safe for a self-custody venue.
@@ -75,11 +75,72 @@ stores a deadline. Clients refresh it while they are healthy. A scheduler
 cancels all of that user's orders and audits the event. It is safe with
 several API instances.
 
-## Not in this part
+## Part 2
 
-These follow in part 2 of step B:
+### 5. Trigger direction and take-profit / stop-loss
 
-- order-book diffs with sequence numbers over WebSocket;
-- take-profit / stop-loss on positions;
-- sub-accounts;
-- API-key authentication for the private WebSocket.
+**Engine.** Stop orders take an optional `trigger` (`above` / `below`):
+
+- **Without it:** the classic stop (buy at or above, sell at or below). The
+  field is omitted from the wire when absent, so recorded histories replay
+  byte for byte.
+- **With it:** a take-profit is a sell `above` or a buy `below`.
+- **Already met at placement:** the order is rejected and never fired at
+  once.
+- **On a non-stop order:** the order is rejected with `unexpected_trigger`.
+
+**`POST /v1/perp/tpsl {market, takeProfit?, stopLoss?}`** places reduce-only
+stop-market orders for the whole position as one one-cancels-the-other
+(OCO) pair:
+
+- **Replacement:** any earlier pair is cancelled first.
+- **Validation:** each trigger must be on the right side of the mark.
+- **Protection price:** allows half the market's price band of slippage.
+- **Bankruptcy rule:** a stop-loss beyond the bankruptcy price is refused.
+  Set it before liquidation, or add margin.
+- **Size:** the pair counts once against the reduce-only size. It is excluded
+  from the generic sum, and the risk tick counts it as the maximum of its
+  members.
+- **Cancellation:** when one member has triggered or ended, the risk tick
+  cancels the other (`cancelOcoSiblings`).
+- **Known window:** until that tick runs (≤ `PERP_RISK_POLL_MS`), the other
+  stop is still pending. If the price crosses it in that window, the
+  existing reduce-only race applies (ADR-0011 known issue).
+
+### 6. Sub-accounts
+
+`users.parent_user_id` + `label`. A sub-account has no credentials. The
+database CHECK and trigger enforce that:
+
+- the parent is a wallet account and not itself a sub-account;
+- the link is permanent.
+
+**Acting as a sub-account.** The parent's session or API keys act as it with
+`X-Sub-Account: <id>`. This works only on the API-key route allow-list
+(trading and read routes), with read/trade permissions only.
+
+**Funding.** Funds move only between own accounts:
+`POST /v1/me/sub-accounts/transfer {from, to, asset, amount, idempotencyKey}`
+posts an `INTERNAL_TRANSFER`, which is idempotent per client key.
+
+**Vault.** The vault state puts sub-account balances into the **parent
+wallet's leaf**, so the escape hatch covers them. On vault-backed markets,
+a sub-account trades under its parent's wallet.
+
+### 7. API keys on the WebSocket
+
+A bot opens `/ws` with the same signed headers over
+`timestamp\nGET\n/ws\n` (empty body).
+
+- **Origin:** no browser origin is required, because browsers cannot set
+  these headers on a WebSocket.
+- **Cookies:** ignored on these connections.
+- **Rechecks:** the key is rechecked every 30 s, like sessions; revoking it
+  closes the connection.
+
+## Not yet
+
+- **Sub-account WebSocket channels:** the private channel serves the
+  authenticated account only.
+- **Data export of sub-accounts:** each sub-account's data is exported
+  separately.

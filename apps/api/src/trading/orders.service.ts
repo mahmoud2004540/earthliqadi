@@ -40,6 +40,7 @@ export interface PlaceOrderRequest {
   stopPrice?: string;
   quantity: string;
   reduceOnly?: boolean;
+  trigger?: 'above' | 'below';
 }
 
 type OrderWithMarket = Order & { market: MarketWithAssets };
@@ -81,7 +82,7 @@ export class OrdersService {
     userId: string,
     req: PlaceOrderRequest,
     ctx: RequestContext,
-    opts: { rateChecked?: boolean } = {},
+    opts: { rateChecked?: boolean; ocoGroupId?: string } = {},
   ): Promise<{ order: OrderDto; replayed: boolean }> {
     const market = await this.markets.require(req.market);
     const u = unitsOf(market);
@@ -118,6 +119,8 @@ export class OrdersService {
     if (isStop && !req.stopPrice) throw invalid('stopPrice', 'A stop price is required');
     if (!isStop && req.stopPrice)
       throw invalid('stopPrice', 'stopPrice is only valid for stop orders');
+    if (!isStop && req.trigger) throw invalid('trigger', 'trigger is only valid for stop orders');
+    const trigger = isStop ? (req.trigger ?? null) : null;
 
     const priceTicks = req.price ? priceToTicks(req.price, u) : null;
     const stopPriceTicks = req.stopPrice ? priceToTicks(req.stopPrice, u, 'stopPrice') : null;
@@ -138,6 +141,7 @@ export class OrdersService {
       stopPriceTicks,
       quantityLots,
       reduceOnly,
+      trigger,
     };
     const existing = await this.prisma.order.findUnique({
       where: { userId_clientOrderId: { userId, clientOrderId: req.clientOrderId } },
@@ -163,10 +167,12 @@ export class OrdersService {
     if (market.status !== 'ACTIVE')
       throw new AppError(HttpStatus.CONFLICT, 'CONFLICT', `Market ${market.symbol} is halted`);
     if (market.baseAsset.chainTokenAddress || market.quoteAsset.chainTokenAddress) {
-      const { walletAddress } = await this.prisma.user.findUniqueOrThrow({
+      const u = await this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
-        select: { walletAddress: true },
+        select: { walletAddress: true, parent: { select: { walletAddress: true } } },
       });
+      // Sub-accounts settle under their parent's wallet (ADR-0017).
+      const walletAddress = u.walletAddress ?? u.parent?.walletAddress ?? null;
       if (!walletAddress) {
         throw new AppError(
           HttpStatus.FORBIDDEN,
@@ -209,6 +215,8 @@ export class OrdersService {
               quantityLots,
               reduceOnly,
               mark,
+              isStop,
+              oco: opts.ocoGroupId !== undefined,
             });
             hold = perpHold(market, priceTicks!, quantityLots, leverage, reduceOnly);
           }
@@ -229,6 +237,8 @@ export class OrdersService {
               lockedRemaining: hold.toString(),
               reduceOnly,
               leverage,
+              triggerDirection: trigger,
+              ocoGroupId: opts.ocoGroupId ?? null,
             },
             include: { market: { include: { baseAsset: true, quoteAsset: true } } },
           });
@@ -260,6 +270,7 @@ export class OrdersService {
             price: priceTicks === null ? null : Number(priceTicks),
             stop_price: stopPriceTicks === null ? null : Number(stopPriceTicks),
             quantity: Number(quantityLots),
+            ...(trigger ? { trigger } : {}),
           });
           return created;
         },
@@ -340,6 +351,23 @@ export class OrdersService {
       });
     }
     return { cancelRequested: open.length };
+  }
+
+  /** Requests cancellation of specific own orders without counting against the rate limit. */
+  async cancelOwned(userId: string, ids: string[]): Promise<void> {
+    for (const id of ids) {
+      const order = await this.ownOrder(userId, id);
+      if (isTerminal(order.status) || order.cancelRequestedAt) continue;
+      await this.prisma.$transaction(async (tx) => {
+        const seq = await this.nextCommandSeq(tx, order.marketId, false);
+        await this.enqueue(tx, order.marketId, seq, 'cancel', {
+          type: 'cancel',
+          order_id: order.id,
+          account: userId,
+        });
+        await tx.order.update({ where: { id: order.id }, data: { cancelRequestedAt: new Date() } });
+      });
+    }
   }
 
   /**
@@ -557,7 +585,8 @@ export class OrdersService {
       existing.priceTicks === f.priceTicks &&
       existing.stopPriceTicks === f.stopPriceTicks &&
       existing.quantityLots === f.quantityLots &&
-      existing.reduceOnly === f.reduceOnly;
+      existing.reduceOnly === f.reduceOnly &&
+      existing.triggerDirection === f.trigger;
     if (!same) {
       throw new AppError(
         HttpStatus.CONFLICT,
@@ -579,6 +608,11 @@ export class OrdersService {
       timeInForce: o.timeInForce.toLowerCase() as OrderDto['timeInForce'],
       price: o.priceTicks === null ? null : ticksToPrice(o.priceTicks, u),
       stopPrice: o.stopPriceTicks === null ? null : ticksToPrice(o.stopPriceTicks, u),
+      trigger:
+        o.stopPriceTicks === null
+          ? null
+          : ((o.triggerDirection as 'above' | 'below' | null) ??
+            (o.side === 'BUY' ? 'above' : 'below')),
       quantity: lotsToQuantity(o.quantityLots, u),
       filledQuantity: o.filledLots === 0n ? '0' : lotsToQuantity(o.filledLots, u),
       remainingQuantity:

@@ -18,4 +18,6 @@ export interface AuthContext {
   };
   roles: string[];
   permissions: Permission[];
+  /** Set when the parent account acts as one of its sub-accounts (X-Sub-Account, ADR-0017). */
+  actingAsSubAccount?: { parentUserId: string };
 }

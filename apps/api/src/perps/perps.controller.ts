@@ -3,6 +3,8 @@ import { ApiTags } from '@nestjs/swagger';
 import {
   PERMISSIONS,
   addMarginSchema,
+  tpslSchema,
+  type OrderDto,
   leverageSchema,
   marketSymbolSchema,
   type FundingRoundDto,
@@ -89,5 +91,18 @@ export class PerpsController {
       actorUserId: auth.user.id,
       requestId: ctx.requestId,
     });
+  }
+
+  /** Take-profit / stop-loss for the whole position (one-cancels-the-other). */
+  @Post('tpsl')
+  @ApiKeyScope('trade')
+  @RequirePermissions(PERMISSIONS.TRADING_TRADE)
+  @ApiZodBody(tpslSchema)
+  tpsl(
+    @CurrentAuth() auth: AuthContext,
+    @Body(new ZodValidationPipe(tpslSchema)) body: z.infer<typeof tpslSchema>,
+    @ReqContext() ctx: RequestContext,
+  ): Promise<{ orders: OrderDto[] }> {
+    return this.perps.setTpSl(auth.user.id, body.market, body, ctx);
   }
 }

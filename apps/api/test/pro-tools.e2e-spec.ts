@@ -10,6 +10,7 @@ import { LedgerService } from '../src/ledger/ledger.service';
 import { OrdersService } from '../src/trading/orders.service';
 import { EngineProcess } from './engine';
 import { TestClient, bootApp } from './helpers';
+import { WsClient, portOf } from './trading-helpers';
 import { SYSTEM, TradingFixture } from './trading-helpers';
 
 /** Agent API keys, batch orders, cancel-all and the dead-man switch (ADR-0017). */
@@ -114,6 +115,7 @@ beforeAll(async () => {
   app = await bootApp();
   prisma = app.get(PrismaService);
   fx = new TradingFixture(app, engine);
+  await app.listen(0, '127.0.0.1'); // WebSockets need a listening server
   await engine.start();
 }, 60_000);
 
@@ -248,6 +250,57 @@ describe('agent API keys', () => {
   });
 });
 
+describe('agent API keys on the WebSocket', () => {
+  it('authenticate the private orders channel without a browser origin; bad signatures are refused', async () => {
+    const m = await fx.market();
+    const u = await walletUser();
+    await app.get(LedgerService).simulatedDeposit(
+      {
+        userId: u.userId,
+        assetCode: m.quote,
+        amount: parseAmount('100', 6),
+        idempotencyKey: `dep:${randomUUID()}`,
+      },
+      SYSTEM,
+    );
+    const key = await authorize(u, { scopes: ['read'] });
+    const headers = (privateKey: KeyObject, ts = Date.now()) => ({
+      'X-API-Key': key.id,
+      'X-API-Timestamp': String(ts),
+      'X-API-Signature': sign(
+        null,
+        Buffer.from(canonicalRequest(String(ts), 'GET', '/ws', '')),
+        privateKey,
+      ).toString('base64'),
+    });
+    await expect(
+      WsClient.connect(portOf(app), { origin: null, headers: headers(ed25519().privateKey) }),
+    ).rejects.toThrow(/401/);
+    const ws = await WsClient.connect(portOf(app), {
+      origin: null,
+      headers: headers(key.privateKey),
+    });
+    ws.send({ op: 'subscribe', channel: 'orders', market: m.symbol });
+    expect(await ws.next((x) => x.type === 'orders')).toMatchObject({ data: [] });
+    const placed = await u.client.post('/v1/orders', {
+      market: m.symbol,
+      clientOrderId: randomUUID(),
+      side: 'buy',
+      type: 'limit',
+      price: '10',
+      quantity: '1',
+    });
+    expect(placed.status).toBe(202);
+    await fx.until(async () => (await fx.status(placed.body.id)) === 'OPEN');
+    const update = await ws.next(
+      (x) =>
+        x.type === 'orders' && (x.data as { id: string }[]).some((o) => o.id === placed.body.id),
+    );
+    expect(update).toBeTruthy();
+    ws.close();
+  });
+});
+
 describe('batch orders, cancel-all and the dead-man switch', () => {
   it('places a batch with per-order results and cancels everything at once', async () => {
     const m = await fx.market();
@@ -302,5 +355,107 @@ describe('batch orders, cancel-all and the dead-man switch', () => {
     expect((await t.client.post('/v1/orders/cancel-after', { timeoutSeconds: 0 })).body).toEqual({
       deadline: null,
     });
+  });
+});
+
+describe('sub-accounts', () => {
+  it('trade separately under one wallet, funded only by own transfers', async () => {
+    const m = await fx.market();
+    const u = await walletUser();
+    await app.get(LedgerService).simulatedDeposit(
+      {
+        userId: u.userId,
+        assetCode: m.quote,
+        amount: parseAmount('1000', 6),
+        idempotencyKey: `dep:${randomUUID()}`,
+      },
+      SYSTEM,
+    );
+    const created = await u.client.post('/v1/me/sub-accounts', { label: 'market making' });
+    expect(created.status).toBe(201);
+    const subId = created.body.id as string;
+    expect((await u.client.get('/v1/me/sub-accounts')).body.subAccounts).toEqual([
+      expect.objectContaining({ id: subId, label: 'market making' }),
+    ]);
+
+    // Move 300 to the sub-account; a retry with the same key does not move it twice.
+    const xfer = {
+      from: 'main',
+      to: subId,
+      asset: m.quote,
+      amount: '300',
+      idempotencyKey: 'xfer-0001',
+    };
+    expect((await u.client.post('/v1/me/sub-accounts/transfer', xfer)).body.replayed).toBe(false);
+    expect((await u.client.post('/v1/me/sub-accounts/transfer', xfer)).body.replayed).toBe(true);
+    const asSub = (path: string) => u.client.get(path).set('X-Sub-Account', subId);
+    const subBal = (await asSub('/v1/me/balances')).body.balances.find(
+      (b: { asset: string }) => b.asset === m.quote,
+    );
+    expect(subBal.available).toBe('300.000000');
+    const mainBal = (await u.client.get('/v1/me/balances')).body.balances.find(
+      (b: { asset: string }) => b.asset === m.quote,
+    );
+    expect(mainBal.available).toBe('700.000000');
+
+    // Orders placed as the sub-account hold the sub-account's funds.
+    const csrf = await u.client.csrf();
+    const placed = await u.client.agent
+      .post('/v1/orders')
+      .set('X-Forwarded-For', u.client.ip)
+      .set('X-CSRF-Token', csrf)
+      .set('X-Sub-Account', subId)
+      .send({
+        market: m.symbol,
+        clientOrderId: randomUUID(),
+        side: 'buy',
+        type: 'limit',
+        price: '100',
+        quantity: '1',
+      });
+    expect(placed.status).toBe(202);
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: placed.body.id } });
+    expect(order.userId).toBe(subId);
+    expect(
+      (await asSub('/v1/me/balances')).body.balances.find(
+        (b: { asset: string }) => b.asset === m.quote,
+      ).locked,
+    ).toBe('100.000000');
+
+    // Not on account routes; not someone else's sub-account; not more than the balance.
+    expect((await asSub('/v1/me/sessions')).status).toBe(403);
+    const other = await walletUser();
+    expect((await other.client.get('/v1/me/balances').set('X-Sub-Account', subId)).status).toBe(
+      404,
+    );
+    const tooMuch = await u.client.post('/v1/me/sub-accounts/transfer', {
+      ...xfer,
+      amount: '5000',
+      idempotencyKey: 'xfer-0002',
+    });
+    expect(tooMuch.status).toBeGreaterThanOrEqual(400);
+    expect(
+      (
+        await other.client.post('/v1/me/sub-accounts/transfer', {
+          ...xfer,
+          idempotencyKey: 'xfer-0003',
+        })
+      ).status,
+    ).toBe(404);
+  });
+
+  it('the database keeps sub-accounts credential-free, one level deep and permanently owned', async () => {
+    const u = await walletUser();
+    const sub = (await u.client.post('/v1/me/sub-accounts', { label: 'one' })).body.id as string;
+    await expect(
+      prisma.user.update({ where: { id: sub }, data: { email: 'x@example.test' } }),
+    ).rejects.toThrow(/users_credential_chk/);
+    await expect(
+      prisma.user.create({ data: { parentUserId: sub, label: 'nested', status: 'ACTIVE' } }),
+    ).rejects.toThrow(/sub-account parent/);
+    const other = await walletUser();
+    await expect(
+      prisma.user.update({ where: { id: sub }, data: { parentUserId: other.userId } }),
+    ).rejects.toThrow(/immutable/);
   });
 });

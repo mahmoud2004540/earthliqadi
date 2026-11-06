@@ -3,6 +3,7 @@ import {
   formatAmountTrimmed,
   parseAmount,
   type FundingRoundDto,
+  type OrderDto,
   type PerpStatsDto,
   type PositionDto,
 } from '@platform/shared';
@@ -12,7 +13,10 @@ import { PrismaService } from '../infrastructure/prisma/prisma.service';
 import { toMinorUnits } from '../ledger/ledger-domain';
 import { LedgerService, type LedgerActor } from '../ledger/ledger.service';
 import { MarketsService, unitsOf, type MarketWithAssets } from '../trading/markets.service';
-import { lotsToQuantity, ticksToPrice } from '../trading/order-math';
+import { lotsToQuantity, priceToTicks, ticksToPrice } from '../trading/order-math';
+import { OrdersService } from '../trading/orders.service';
+import type { RequestContext } from '../common/request-context';
+import { randomUUID } from 'node:crypto';
 import { parsePerpConfig, type PerpConfig } from './perp-config';
 import {
   absBig,
@@ -23,7 +27,7 @@ import {
   unrealizedPnl,
 } from './perp-math';
 import { lockPosition, OPEN_ORDER_STATUSES, positionState } from './perp-orders';
-import { markMaxAgeMs } from './perp-prices';
+import { currentMark, markMaxAgeMs } from './perp-prices';
 
 function conflict(message: string): AppError {
   return new AppError(HttpStatus.CONFLICT, 'CONFLICT', message);
@@ -45,7 +49,103 @@ export class PerpsService {
     private readonly markets: MarketsService,
     private readonly ledger: LedgerService,
     private readonly audit: AuditService,
+    private readonly orders: OrdersService,
   ) {}
+
+  /**
+   * Take-profit / stop-loss for the whole position (ADR-0017). Places
+   * reduce-only stop-market orders in a one-cancels-the-other pair; the
+   * protection price allows half the market's price band of slippage. Any
+   * previous pair on this market is cancelled first.
+   */
+  async setTpSl(
+    userId: string,
+    symbol: string,
+    input: { takeProfit?: string; stopLoss?: string },
+    ctx: RequestContext,
+  ): Promise<{ orders: OrderDto[] }> {
+    const { market, config } = await this.perpMarket(symbol);
+    const u = unitsOf(market);
+    const pos = await this.prisma.position.findUnique({
+      where: { userId_marketId: { userId, marketId: market.id } },
+    });
+    if (!pos || pos.sizeLots === 0n) throw conflict('Open a position before setting TP/SL');
+    const long = pos.sizeLots > 0n;
+    const side = long ? 'sell' : 'buy';
+    const mark = await currentMark(this.prisma, market.id, config);
+    const markTicks = mark === null ? null : mark / u.tickSize;
+    const legs: { kind: 'tp' | 'sl'; stopTicks: bigint; trigger: 'above' | 'below' }[] = [];
+    if (input.takeProfit)
+      legs.push({
+        kind: 'tp',
+        stopTicks: priceToTicks(input.takeProfit, u, 'takeProfit'),
+        trigger: long ? 'above' : 'below',
+      });
+    if (input.stopLoss)
+      legs.push({
+        kind: 'sl',
+        stopTicks: priceToTicks(input.stopLoss, u, 'stopLoss'),
+        trigger: long ? 'below' : 'above',
+      });
+    for (const l of legs) {
+      if (markTicks === null) continue;
+      const ok = l.trigger === 'above' ? l.stopTicks > markTicks : l.stopTicks < markTicks;
+      if (!ok)
+        throw new AppError(
+          HttpStatus.BAD_REQUEST,
+          'VALIDATION_FAILED',
+          `${l.kind === 'tp' ? 'Take-profit' : 'Stop-loss'} must be ${l.trigger} the mark price`,
+          [
+            {
+              path: l.kind === 'tp' ? 'takeProfit' : 'stopLoss',
+              message: 'wrong side of the mark',
+            },
+          ],
+        );
+    }
+    const previous = await this.prisma.order.findMany({
+      where: {
+        userId,
+        marketId: market.id,
+        ocoGroupId: { not: null },
+        status: { in: [...OPEN_ORDER_STATUSES] },
+      },
+      select: { id: true },
+    });
+    await this.orders.cancelOwned(
+      userId,
+      previous.map((o) => o.id),
+    );
+    const group = randomUUID();
+    const slip = BigInt(Math.max(1, Math.floor(config.priceBandBps / 2)));
+    const size = pos.sizeLots < 0n ? -pos.sizeLots : pos.sizeLots;
+    const placed: OrderDto[] = [];
+    for (const l of legs) {
+      const protect =
+        side === 'sell'
+          ? (l.stopTicks * (10_000n - slip)) / 10_000n
+          : (l.stopTicks * (10_000n + slip) + 9_999n) / 10_000n;
+      const { order } = await this.orders.place(
+        userId,
+        {
+          market: market.symbol,
+          clientOrderId: `tpsl-${group}-${l.kind}`,
+          side,
+          type: 'stop_market',
+          timeInForce: 'ioc',
+          price: ticksToPrice(protect < 1n ? 1n : protect, u),
+          stopPrice: ticksToPrice(l.stopTicks, u),
+          quantity: lotsToQuantity(size, u),
+          reduceOnly: true,
+          trigger: l.trigger,
+        },
+        ctx,
+        { rateChecked: true, ocoGroupId: group },
+      );
+      placed.push(order);
+    }
+    return { orders: placed };
+  }
 
   private async perpMarket(
     symbol: string,

@@ -156,6 +156,7 @@ export class PerpRiskService {
       await this.sample(market, config, now);
       await this.settleFunding(market, config, now);
       await this.liquidate(market, config, now);
+      await this.cancelOcoSiblings(market);
       await this.cleanReduceOnly(market);
     }
   }
@@ -557,6 +558,31 @@ export class PerpRiskService {
   }
 
   /**
+   * One-cancels-the-other: once a member of a take-profit / stop-loss pair has
+   * triggered (or ended), the members still waiting for their trigger are
+   * cancelled.
+   */
+  async cancelOcoSiblings(market: MarketWithAssets): Promise<number> {
+    const rows = await this.prisma.$queryRaw<
+      { id: string; user_id: string; cancel_requested_at: Date | null }[]
+    >`
+      SELECT w."id", w."user_id", w."cancel_requested_at" FROM "orders" w
+       WHERE w."market_id" = ${market.id}::uuid AND w."oco_group_id" IS NOT NULL
+         AND w."status" = 'PENDING_TRIGGER' AND w."cancel_requested_at" IS NULL
+         AND EXISTS (SELECT 1 FROM "orders" o
+                      WHERE o."oco_group_id" = w."oco_group_id" AND o."id" <> w."id"
+                        AND o."status" NOT IN ('PENDING_NEW', 'PENDING_TRIGGER'))`;
+    for (const r of rows) {
+      await this.prisma.$transaction(async (tx) => {
+        await this.cancelAll(tx, market.id, r.user_id, [
+          { id: r.id, cancelRequestedAt: r.cancel_requested_at },
+        ]);
+      });
+    }
+    return rows.length;
+  }
+
+  /**
    * Reduce-only orders that no longer fit the position (it shrank or flipped
    * through other fills) are cancelled, so they cannot open a position.
    */
@@ -584,9 +610,17 @@ export class PerpRiskService {
     for (const [userId, orders] of byUser) {
       const size = positions.get(userId)?.sizeLots ?? 0n;
       const closingSide = size > 0n ? 'SELL' : size < 0n ? 'BUY' : null;
-      const remaining = orders
-        .filter((o) => o.side === closingSide)
-        .reduce((a, o) => a + o.quantityLots - o.filledLots, 0n);
+      // A take-profit / stop-loss pair can only ever execute once: count it once.
+      const groups = new Map<string, bigint>();
+      let remaining = 0n;
+      for (const o of orders.filter((x) => x.side === closingSide)) {
+        const left = o.quantityLots - o.filledLots;
+        if (o.ocoGroupId) {
+          const prev = groups.get(o.ocoGroupId) ?? 0n;
+          groups.set(o.ocoGroupId, left > prev ? left : prev);
+        } else remaining += left;
+      }
+      for (const v of groups.values()) remaining += v;
       const abs = size < 0n ? -size : size;
       const invalid = orders.filter((o) => o.side !== closingSide || remaining > abs);
       if (invalid.length === 0) continue;
