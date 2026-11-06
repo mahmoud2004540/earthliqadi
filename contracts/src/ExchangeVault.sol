@@ -97,6 +97,10 @@ contract ExchangeVault {
     error NotDepositor();
     error TransferFailed();
     error Reentrancy();
+    error BadConfig();
+
+    /// Shortest allowed silence before anyone may freeze (stops instant-freeze griefing).
+    uint256 public constant MIN_FREEZE_DELAY = 1 hours;
 
     modifier nonReentrant() {
         _enter();
@@ -114,9 +118,12 @@ contract ExchangeVault {
     }
 
     constructor(address operator_, uint256 freezeDelay_, address[] memory tokens) {
+        // A zero operator could never sign or commit; a tiny delay would let anyone freeze at once.
+        if (operator_ == address(0) || freezeDelay_ < MIN_FREEZE_DELAY || tokens.length == 0) revert BadConfig();
         operator = operator_;
         freezeDelay = freezeDelay_;
         for (uint256 i = 0; i < tokens.length; i++) {
+            if (tokens[i].code.length == 0) revert BadConfig(); // tokens must be contracts
             isToken[tokens[i]] = true;
         }
         lastCommitAt = block.timestamp;
