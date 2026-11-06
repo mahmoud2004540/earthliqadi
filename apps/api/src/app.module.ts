@@ -10,6 +10,7 @@ import { AdminModule } from './admin/admin.module';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { SubAccountsModule } from './sub-accounts/sub-accounts.module';
+import { GrowthModule } from './growth/growth.module';
 import { CsrfGuard, PermissionsGuard, SessionAuthGuard } from './auth/guards';
 import { AUTH_RATE_LIMIT_KEY } from './common/decorators';
 import type { AppConfig } from './config/app-config';
@@ -100,6 +101,7 @@ export class AppModule {
         ChainModule,
         PrivacyModule,
         SubAccountsModule,
+        GrowthModule,
       ],
       controllers: [HealthController],
       providers: [

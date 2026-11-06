@@ -137,7 +137,8 @@ tests/              (reserved) cross-service integration and browser e2e suites
   [0014 non-custodial vault](docs/decisions/0014-non-custodial-vault.md) ·
   [0015 signer, step-up, backups, monitoring](docs/decisions/0015-security-and-operational-readiness.md) ·
   [0016 real markets only](docs/decisions/0016-real-markets-only.md) ·
-  [0017 API keys, batch, cancel-all, dead-man](docs/decisions/0017-professional-trading-tools.md)
+  [0017 API keys, batch, cancel-all, dead-man](docs/decisions/0017-professional-trading-tools.md) ·
+  [0018 fees, referrals, points](docs/decisions/0018-fees-referrals-points.md)
 - Security: [controls & threat model](docs/security/threat-model.md) ·
   [dependency policy](docs/security/dependency-policy.md) ·
   [incident response (draft)](docs/security/incident-response.md)

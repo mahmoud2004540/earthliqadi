@@ -43,20 +43,22 @@ enum AuditOutcome {
 }
 
 model User {
-  id              String      @id @default(uuid()) @db.Uuid
+  id               String      @id @default(uuid()) @db.Uuid
   /// Normalised (trimmed, lower-cased) email.
-  email           String?     @unique @db.VarChar(254)
+  email            String?     @unique @db.VarChar(254)
   /// Null for wallet-only accounts (ADR-0013).
-  passwordHash    String?     @map("password_hash")
+  passwordHash     String?     @map("password_hash")
   /// Lower-case Ethereum address for Sign-In with Ethereum accounts. Immutable.
-  walletAddress   String?     @unique @map("wallet_address") @db.Char(42)
-  status          UserStatus  @default(PENDING_VERIFICATION)
-  accountType     AccountType @default(INDIVIDUAL) @map("account_type")
+  walletAddress    String?     @unique @map("wallet_address") @db.Char(42)
+  status           UserStatus  @default(PENDING_VERIFICATION)
+  accountType      AccountType @default(INDIVIDUAL) @map("account_type")
   /// Sub-account (ADR-0017): owned by this parent wallet account; no credentials of its own.
-  parentUserId    String?     @map("parent_user_id") @db.Uuid
+  parentUserId     String?     @map("parent_user_id") @db.Uuid
   /// Sub-accounts only.
-  label           String?     @db.VarChar(48)
-  emailVerifiedAt DateTime?   @map("email_verified_at") @db.Timestamptz(3)
+  label            String?     @db.VarChar(48)
+  /// Set once at account creation from a referral code (ADR-0018).
+  referredByUserId String?     @map("referred_by_user_id") @db.Uuid
+  emailVerifiedAt  DateTime?   @map("email_verified_at") @db.Timestamptz(3)
 
   /// AES-256-GCM encrypted TOTP secret (iv|tag|ciphertext). Never returned by the API.
   mfaTotpSecretEnc  Bytes?    @map("mfa_totp_secret_enc")
@@ -75,6 +77,11 @@ model User {
   sessions           Session[]
   parent             User?               @relation("SubAccounts", fields: [parentUserId], references: [id], onDelete: Restrict)
   subAccounts        User[]              @relation("SubAccounts")
+  referredBy         User?               @relation("Referrals", fields: [referredByUserId], references: [id], onDelete: Restrict)
+  referrals          User[]              @relation("Referrals")
+  referralCode       ReferralCode?
+  feeTier            UserFeeTier?
+  points             UserPoints[]
   apiKeys            ApiKey[]
   cancelAllTimer     CancelAllTimer?
   tokens             VerificationToken[]
@@ -955,4 +962,66 @@ model CancelAllTimer {
 
   @@index([deadline])
   @@map("cancel_all_timers")
+}
+
+/// Public fee schedule (ADR-0018): discounts on market base fees by 30-day volume.
+model FeeTier {
+  tier             Int      @id
+  minVolume        Decimal  @map("min_volume") @db.Decimal(38, 0)
+  takerDiscountBps Int      @map("taker_discount_bps")
+  makerDiscountBps Int      @map("maker_discount_bps")
+  updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  @@map("fee_tiers")
+}
+
+model UserFeeTier {
+  userId     String   @id @map("user_id") @db.Uuid
+  tier       Int
+  volume30d  Decimal  @map("volume_30d") @db.Decimal(38, 0)
+  computedAt DateTime @map("computed_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@map("user_fee_tiers")
+}
+
+model ReferralCode {
+  code      String   @id @db.VarChar(16)
+  userId    String   @unique @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@map("referral_codes")
+}
+
+/// Maker rebates and referral payouts, each funded by the taker fee of one trade.
+model FeePayout {
+  id           BigInt   @id @default(autoincrement())
+  tradeKey     String   @map("trade_key") @db.VarChar(128)
+  kind         String   @db.VarChar(16)
+  userId       String   @map("user_id") @db.Uuid
+  sourceUserId String   @map("source_user_id") @db.Uuid
+  assetId      String   @map("asset_id") @db.Uuid
+  amount       Decimal  @db.Decimal(38, 0)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([tradeKey, kind], map: "fee_payouts_trade_kind_key")
+  @@index([userId, createdAt])
+  @@map("fee_payouts")
+}
+
+/// Activity points per account and UTC day (ADR-0018). Not a token.
+model UserPoints {
+  userId         String   @map("user_id") @db.Uuid
+  day            DateTime @db.Date
+  points         Decimal  @db.Decimal(38, 0)
+  excludedVolume Decimal  @default(0) @map("excluded_volume") @db.Decimal(38, 0)
+  computedAt     DateTime @map("computed_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@id([userId, day])
+  @@map("user_points")
 }

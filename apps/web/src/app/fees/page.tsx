@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { InfoPage } from '@/components/info-page';
+import { FeeSchedule } from '@/components/growth/fee-schedule';
 import { getDictionary } from '@/i18n';
 
 const t = getDictionary();
@@ -7,5 +7,5 @@ const t = getDictionary();
 export const metadata: Metadata = { title: t.pages.fees.title };
 
 export default function Page() {
-  return <InfoPage {...t.pages.fees} />;
+  return <FeeSchedule t={t} />;
 }

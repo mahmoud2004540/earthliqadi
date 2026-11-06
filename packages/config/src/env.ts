@@ -114,6 +114,25 @@ export const apiEnvSchema = z
     SETTLEMENT_POLL_MS: z.coerce.number().int().min(0).max(60_000).default(250),
     /** Milliseconds between perpetual risk ticks (index/mark, funding, liquidation); 0 disables. */
     PERP_RISK_POLL_MS: z.coerce.number().int().min(0).max(60_000).default(1000),
+    /** Share of a referred account's taker fees paid to its referrer, basis points (ADR-0018). */
+    REFERRAL_FEE_SHARE_BPS: z.coerce.number().int().min(0).max(5000).default(1000),
+    /** Days after the referred account's creation during which the share is paid. */
+    REFERRAL_DURATION_DAYS: z.coerce.number().int().min(1).max(3650).default(365),
+    /**
+     * Quote assets whose traded notional counts towards fee tiers and points
+     * (comma-separated codes; empty = every asset whose code contains "USD").
+     */
+    FEE_VOLUME_QUOTE_ASSETS: z
+      .string()
+      .default('')
+      .transform((s) =>
+        s
+          .split(',')
+          .map((x) => x.trim().toUpperCase())
+          .filter(Boolean),
+      ),
+    /** Seconds between fee-tier and points recomputations; 0 disables the job. */
+    GROWTH_JOB_INTERVAL_SECONDS: z.coerce.number().int().min(0).max(86_400).default(3600),
     /** Milliseconds between dead-man-switch checks (cancel-after timers); 0 disables. */
     CANCEL_TIMER_POLL_MS: z.coerce.number().int().min(0).max(60_000).default(1000),
     LEDGER_RECONCILIATION_INTERVAL_SECONDS: z.coerce.number().int().min(0).max(86400).default(300),

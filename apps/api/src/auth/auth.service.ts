@@ -206,7 +206,7 @@ export class AuthService {
    * or identity documents are involved.
    */
   async walletLogin(
-    input: { message: string; signature: string },
+    input: { message: string; signature: string; referralCode?: string },
     ctx: RequestContext,
   ): Promise<LoginOutcome> {
     const origin = new URL(this.config.WEB_ORIGIN);
@@ -235,8 +235,16 @@ export class AuthService {
     if (!user) {
       try {
         user = await this.prisma.$transaction(async (tx) => {
+          // A referral code only counts when it creates the account; unknown codes are ignored.
+          const referrer = input.referralCode
+            ? await tx.referralCode.findUnique({ where: { code: input.referralCode } })
+            : null;
           const created = await tx.user.create({
-            data: { walletAddress: result.address, status: 'ACTIVE' },
+            data: {
+              walletAddress: result.address,
+              status: 'ACTIVE',
+              referredByUserId: referrer?.userId ?? null,
+            },
           });
           await this.rbac.assignDefaultRole(created.id, tx);
           await this.audit.record(
@@ -248,7 +256,10 @@ export class AuthService {
               targetType: 'user',
               targetId: created.id,
               context: ctx,
-              metadata: { chainId: result.message.chainId },
+              metadata: {
+                chainId: result.message.chainId,
+                referredBy: referrer?.userId ?? null,
+              },
             },
             tx,
           );

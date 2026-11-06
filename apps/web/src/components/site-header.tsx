@@ -8,6 +8,7 @@ export function SiteHeader({ t }: { t: Dictionary }) {
     { href: 'markets', label: t.nav.markets },
     { href: 'trade', label: t.nav.trade },
     { href: 'fees', label: t.nav.fees },
+    { href: 'leaderboard', label: t.nav.leaderboard },
     { href: 'security', label: t.nav.security },
     { href: 'trust', label: t.nav.trust },
     { href: 'api-docs', label: t.nav.api },

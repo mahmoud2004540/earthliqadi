@@ -55,7 +55,10 @@ interface Perp {
   spot: string;
 }
 
-async function perpMarket(overrides: Partial<PerpConfigInput> = {}): Promise<Perp> {
+async function perpMarket(
+  overrides: Partial<PerpConfigInput> = {},
+  fees = { makerFeeBps: 0, takerFeeBps: 0 },
+): Promise<Perp> {
   const base = code('PB');
   const quote = code('PQ');
   await ledger.createAsset({ code: base, name: `Base ${base}`, scale: 8 }, SYSTEM);
@@ -71,8 +74,7 @@ async function perpMarket(overrides: Partial<PerpConfigInput> = {}): Promise<Per
       quote,
       tickSize: '0.01',
       lotSize: '0.0001',
-      makerFeeBps: 0,
-      takerFeeBps: 0,
+      ...fees,
       kind: 'perpetual',
       perp: perpConfig(overrides, spot.symbol),
     },
@@ -335,6 +337,44 @@ describe('perpetual trading', () => {
     // The stop-loss is cancelled by the one-cancels-the-other rule.
     expect(await risk.cancelOcoSiblings(p.market)).toBe(1);
     await fx.until(async () => (await fx.status(sl!.id)) === 'CANCELLED');
+    await expectReconciled();
+  });
+
+  it('pays a tier maker rebate out of the taker fee (ADR-0018)', async () => {
+    const p = await perpMarket({}, { makerFeeBps: 0, takerFeeBps: 10 });
+    await setMark(p, 100n * USD);
+    const maker = await funded(p);
+    const taker = await funded(p);
+    await prisma.userFeeTier.create({
+      data: { userId: maker.userId, tier: 4, volume30d: '0', computedAt: new Date() },
+    });
+    await placed(maker, {
+      market: p.symbol,
+      side: 'sell',
+      type: 'limit',
+      price: '100',
+      quantity: '1',
+    });
+    const take = await placed(taker, {
+      market: p.symbol,
+      side: 'buy',
+      type: 'limit',
+      price: '100',
+      quantity: '1',
+    });
+    await fx.until(async () => (await fx.status(take)) === 'FILLED');
+    // Taker fee 10 bps of 100 = 0.1; maker rebate 4 bps of 100 = 0.04.
+    const start = 100_000n * USD;
+    expect(await balance(maker.userId, p.quote, 'USER_AVAILABLE')).toBe(
+      start - 10n * USD + 40_000n,
+    );
+    expect(await balance(taker.userId, p.quote, 'USER_AVAILABLE')).toBe(
+      start - 10n * USD - 100_000n,
+    );
+    const rebate = await prisma.feePayout.findFirstOrThrow({
+      where: { userId: maker.userId, kind: 'maker_rebate' },
+    });
+    expect(toMinorUnits(rebate.amount)).toBe(40_000n);
     await expectReconciled();
   });
 

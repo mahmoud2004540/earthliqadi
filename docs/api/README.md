@@ -313,3 +313,18 @@ X-API-Signature: base64(ed25519_sign(`${timestamp}\n${METHOD}\n${path_with_query
   sub-account.
 - **WebSocket with an API key:** connect to `/ws` with the signed `X-API-*`
   headers over `` `${ts}\nGET\n/ws\n` ``.
+
+## Fees, referrals and points (ADR-0018)
+
+| Method | Path                           | Auth           | Description                                                       |
+| ------ | ------------------------------ | -------------- | ----------------------------------------------------------------- |
+| GET    | `/v1/fees/schedule`            | public         | Tier discounts, volume assets, referral terms                     |
+| GET    | `/v1/me/fees`                  | session or key | Your tier and 30-day volume                                       |
+| PUT    | `/v1/admin/fees/schedule`      | staff, step-up | `{tiers:[{tier,minVolume30d,takerDiscountBps,makerDiscountBps}]}` |
+| POST   | `/v1/me/referrals/code`        | session        | Creates your code (wallet accounts)                               |
+| GET    | `/v1/me/referrals`             | session        | Code, accounts referred, earnings per asset                       |
+| GET    | `/v1/points/leaderboard?days=` | public         | Top 100 by points (not a token)                                   |
+| GET    | `/v1/me/points?days=`          | session or key | Your points and excluded volume                                   |
+
+- `POST /v1/auth/wallet/login` accepts an optional `referralCode`. It is used
+  only when that sign-in creates the account.

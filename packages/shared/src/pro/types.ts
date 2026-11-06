@@ -87,3 +87,53 @@ export interface SubAccountDto {
   label: string;
   createdAt: string;
 }
+
+/** Public fee schedule (ADR-0018). */
+export interface FeeScheduleDto {
+  /** Volume counts traded notional in these quote assets (normalised to 6 decimals). */
+  volumeAssets: string;
+  tiers: {
+    tier: number;
+    minVolume30d: string;
+    takerDiscountBps: number;
+    makerDiscountBps: number;
+  }[];
+  referralShareBps: number;
+  referralDurationDays: number;
+  notes: string[];
+}
+
+export interface MyFeesDto {
+  tier: number;
+  volume30d: string;
+  takerDiscountBps: number;
+  makerDiscountBps: number;
+  computedAt: string | null;
+}
+
+export interface ReferralSummaryDto {
+  code: string | null;
+  referred: number;
+  earnings: { asset: string; amount: string }[];
+}
+
+export interface PointsEntryDto {
+  rank: number;
+  account: string;
+  points: string;
+}
+
+/** Replaces the whole fee schedule (tier 0 must be the zero tier). */
+export const feeScheduleSchema = z.object({
+  tiers: z
+    .array(
+      z.object({
+        tier: z.number().int().min(0).max(20),
+        minVolume30d: amountStringSchema,
+        takerDiscountBps: z.number().int().min(0).max(1000),
+        makerDiscountBps: z.number().int().min(0).max(1000),
+      }),
+    )
+    .min(1)
+    .max(21),
+});

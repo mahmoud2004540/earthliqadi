@@ -57,6 +57,13 @@ export const stepUpSchema = z.object({
 export const walletLoginSchema = z.object({
   message: z.string().min(50).max(2048),
   signature: z.string().regex(/^0x[0-9a-fA-F]{130}$/, 'Invalid signature'),
+  /** Referral code; only used when this sign-in creates the account (ADR-0018). */
+  referralCode: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9]{6,16}$/)
+    .optional(),
 });
 
 export const loginMfaSchema = z.object({

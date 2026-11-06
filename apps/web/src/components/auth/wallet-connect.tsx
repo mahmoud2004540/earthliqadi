@@ -64,9 +64,12 @@ export function WalletConnect({ t }: { t: Dictionary }) {
         method: 'personal_sign',
         params: [toHex(message), address],
       })) as string;
+      // A referral link (?ref=code) only counts when this sign-in creates the account.
+      const ref = new URLSearchParams(window.location.search).get('ref');
+      const referralCode = ref && /^[a-z0-9]{6,16}$/i.test(ref) ? ref.toLowerCase() : undefined;
       const result = await api<LoginResultDto>('/v1/auth/wallet/login', {
         method: 'POST',
-        body: { message, signature },
+        body: { message, signature, ...(referralCode ? { referralCode } : {}) },
       });
       if (result.status === 'authenticated') {
         router.replace('/dashboard');

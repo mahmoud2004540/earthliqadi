@@ -154,6 +154,6 @@ See [`docs/product/product-brief.md`](../product/product-brief.md).
       batch orders, cancel-all, dead-man switch ([ADR-0017](../decisions/0017-professional-trading-tools.md))
 - [x] Step B part 2: order-book diffs with sequence numbers, trigger direction +
       TP/SL (OCO), sub-accounts, API-key WebSocket auth (ADR-0017)
-- [ ] Step C: fee tiers, maker rebates, referral fee share, activity points
+- [x] Step C: fee tiers, maker rebates, referral fee share, activity points with wash filters ([ADR-0018](../decisions/0018-fees-referrals-points.md))
 - [ ] Step D: leader vaults, track records, leaderboard
 - [ ] Step E: whale tools (TWAP, iceberg, RFQ, cross margin) and proof pages

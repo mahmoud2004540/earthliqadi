@@ -11,6 +11,7 @@ import type { Dictionary } from '@/i18n';
 import { ApiError, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { InboxPanel, SupportPanel } from './account-panels';
+import { ReferralPanel } from '@/components/growth/referral-panel';
 import { ApiKeysPanel } from './api-keys-panel';
 import { SubAccountsPanel } from './sub-accounts-panel';
 import { SecurityPanel } from './security-panel';
@@ -147,6 +148,7 @@ export function Dashboard({ t }: { t: Dictionary }) {
             )}
             <Stat label={d.memberSince} value={dateFmt.format(new Date(user.createdAt))} />
           </div>
+          <ReferralPanel t={t} wallet={user.walletAddress !== null} />
           <section>
             <h2 className="text-lg font-semibold">{d.modulesTitle}</h2>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">

@@ -289,7 +289,11 @@ describe('WebSocket gateway', () => {
       quantity: '2',
     });
     await fx.until(async () => (await fx.status(ask.body.id)) === 'OPEN');
-    apply(await ws.next((x) => x.type === 'book_diff'));
+    // Diffs may be empty (seq advanced without a level change); keep applying.
+    for (;;) {
+      apply(await ws.next((x) => x.type === 'book_diff'));
+      if (view.asks.length === 1) break;
+    }
     expect(view.asks).toEqual([['10', '2']]);
     const bid = await fx.place(buyer, {
       market: m.symbol,

@@ -15,6 +15,7 @@ export const en = {
     markets: 'Markets',
     trade: 'Trade',
     fees: 'Fees',
+    leaderboard: 'Leaderboard',
     security: 'Security',
     trust: 'Trust Center',
     api: 'API',
@@ -471,6 +472,40 @@ export const en = {
       generic: 'Something went wrong. Please try again.',
     },
   },
+  growth: {
+    feesTitle: 'Fees',
+    feesIntro:
+      'Every fee is published here and applied by the same rules to everyone. Volume tiers lower the base fees; there are no private fee deals.',
+    marketFees: 'Base fees per market',
+    market: 'Market',
+    maker: 'Maker',
+    taker: 'Taker',
+    tiers: 'Volume tiers (30 days)',
+    volumeIn: 'Volume counts traded notional in:',
+    tier: 'Tier',
+    minVolume: 'Minimum 30-day volume',
+    makerDiscount: 'Maker discount',
+    takerDiscount: 'Taker discount',
+    referralNote:
+      'Referrals: {share}% of the taker fees paid by an account you referred goes to you, for {days} days after that account was created. It is paid from those fees only.',
+    noDepositFee:
+      'Deposits and withdrawals carry no platform fee; the network (gas) fee is paid by your wallet.',
+    leaderboardTitle: 'Points leaderboard',
+    leaderboardIntro:
+      'Points for real activity over the last 30 days: 1 per unit of taker volume, 2 per unit of maker volume. Trades between linked accounts and wash-trading pairs earn nothing.',
+    account: 'Account',
+    points: 'Points',
+    noPoints: 'No points yet.',
+    pointsNote: 'Points are not a token and carry no promise of one.',
+    referralsTitle: 'Referrals',
+    referralsIntro:
+      'Share your link. When someone creates an account with it, you receive a share of the taker fees they pay.',
+    createCode: 'Create my referral link',
+    referred: 'Accounts referred',
+    earnings: 'Earned',
+    yourTier: 'Your fee tier',
+    volume30d: '30-day volume',
+  },
   subAccounts: {
     title: 'Sub-accounts',
     intro:
@@ -527,7 +562,7 @@ export const en = {
     modulesTitle: 'Account modules',
     modules: [
       { name: 'Leader vaults (copy-trading)', phase: 'D' },
-      { name: 'Fee tiers & maker rebates', phase: 'C' },
+      { name: 'TWAP, iceberg & RFQ block trades', phase: 'E' },
     ],
     apiTab: 'API keys',
     verificationTab: 'Verification',

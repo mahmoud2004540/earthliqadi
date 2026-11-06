@@ -25,6 +25,14 @@ import {
 } from '../ledger/ledger.service';
 import { unitsOf, type MarketWithAssets } from './markets.service';
 import { baseAmount, feeFor, quoteAmount } from './order-math';
+import {
+  NO_DISCOUNT,
+  makerBps,
+  splitTakerFee,
+  takerBps,
+  type FeeProfile,
+} from '../growth/fee-math';
+import { loadFeeProfiles } from '../growth/fee-profiles';
 import { isTerminal, nextStatus } from './order-state';
 import { parsePerpConfig, type PerpConfig } from '../perps/perp-config';
 import { applyFill, initialMargin, type PositionState } from '../perps/perp-math';
@@ -105,6 +113,18 @@ interface BatchContext {
   entries: EntryRequest[];
   trades: TradeDraft[];
   perp: PerpBatch | null;
+  /** Fee discounts and referrers of the batch's users (ADR-0018). */
+  fees: Map<string, FeeProfile>;
+  payouts: PayoutDraft[];
+}
+
+interface PayoutDraft {
+  tradeKey: string;
+  kind: 'maker_rebate' | 'referral';
+  userId: string;
+  sourceUserId: string;
+  assetId: string;
+  amount: bigint;
 }
 
 /** Accumulates transfers and nets them per account (an entry lists each account once). */
@@ -151,6 +171,7 @@ export class SettlementService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
   /** Settles all pending events for all markets. Returns the number of events processed. */
@@ -216,6 +237,8 @@ export class SettlementService {
           entries: [],
           trades: [],
           perp: null,
+          fees: await loadFeeProfiles(tx, [...new Set(rows.map((o) => o.userId))], this.config),
+          payouts: [],
         };
         if (market.kind === 'PERPETUAL') {
           ctx.perp = await this.loadPositions(tx, market, rows);
@@ -235,6 +258,11 @@ export class SettlementService {
         if (ctx.trades.length > 0) {
           await tx.trade.createMany({
             data: ctx.trades.map((t) => ({ ...t.data, journalEntryId: posted.get(t.key)!.id })),
+          });
+        }
+        if (ctx.payouts.length > 0) {
+          await tx.feePayout.createMany({
+            data: ctx.payouts.map((p) => ({ ...p, amount: p.amount.toString() })),
           });
         }
         await this.writeOrders(tx, ctx);
@@ -429,10 +457,23 @@ export class SettlementService {
     }
     const quote = quoteAmount(priceTicks, lots, u);
     const base = baseAmount(lots, u);
-    const buyerBps = buyer === maker ? market.makerFeeBps : market.takerFeeBps;
-    const sellerBps = seller === maker ? market.makerFeeBps : market.takerFeeBps;
-    const buyerFee = feeFor(base, buyerBps); // buyer receives base
-    const sellerFee = feeFor(quote, sellerBps); // seller receives quote
+    // Effective fees (ADR-0018): tier discounts; a negative maker fee is a
+    // rebate paid out of this trade's taker fee, in the taker fee's asset.
+    const takerP = ctx.fees.get(taker.row.userId) ?? NO_DISCOUNT;
+    const makerP = ctx.fees.get(maker.row.userId) ?? NO_DISCOUNT;
+    const tBps = takerBps(market.takerFeeBps, takerP);
+    const mBps = makerBps(market.makerFeeBps, makerP);
+    const buyerIsTaker = buyer === taker;
+    const buyerFee = feeFor(base, buyerIsTaker ? tBps : Math.max(0, mBps)); // buyer receives base
+    const sellerFee = feeFor(quote, buyerIsTaker ? Math.max(0, mBps) : tBps); // seller receives quote
+    const takerFeeAsset = buyerIsTaker ? market.baseAssetId : market.quoteAssetId;
+    const split = splitTakerFee(
+      buyerIsTaker ? buyerFee : sellerFee,
+      buyerIsTaker ? base : quote,
+      mBps,
+      this.config.REFERRAL_FEE_SHARE_BPS,
+      takerP.referrerId !== null,
+    );
     if (buyer.locked < quote || seller.locked < base) {
       throw new SettlementInvariantError(
         `Insufficient held funds for trade ${market.symbol}#${event.seq}`,
@@ -461,21 +502,40 @@ export class SettlementService {
         amount: base - buyerFee,
       },
     ];
-    if (sellerFee > 0n) {
-      postings.push({
-        accountId: await acc.id(market.quoteAssetId, 'FEE_REVENUE', null),
-        direction: 'CREDIT',
-        amount: sellerFee,
-      });
-    }
-    if (buyerFee > 0n) {
-      postings.push({
-        accountId: await acc.id(market.baseAssetId, 'FEE_REVENUE', null),
-        direction: 'CREDIT',
-        amount: buyerFee,
-      });
-    }
     const key = `trade:${market.id}:${event.seq}`;
+    // Fee credits, merged per account (an entry lists each account once).
+    const credits = new Map<string, bigint>();
+    const credit = (accountId: string, amount: bigint) => {
+      if (amount > 0n) credits.set(accountId, (credits.get(accountId) ?? 0n) + amount);
+    };
+    const makerFee = buyerIsTaker ? sellerFee : buyerFee;
+    const makerFeeAsset = buyerIsTaker ? market.quoteAssetId : market.baseAssetId;
+    credit(await acc.id(makerFeeAsset, 'FEE_REVENUE', null), makerFee);
+    credit(await acc.id(takerFeeAsset, 'FEE_REVENUE', null), split.revenue);
+    if (split.rebate > 0n) {
+      credit(await acc.id(takerFeeAsset, 'USER_AVAILABLE', maker.row.userId), split.rebate);
+      ctx.payouts.push({
+        tradeKey: key,
+        kind: 'maker_rebate',
+        userId: maker.row.userId,
+        sourceUserId: taker.row.userId,
+        assetId: takerFeeAsset,
+        amount: split.rebate,
+      });
+    }
+    if (split.referral > 0n) {
+      credit(await acc.id(takerFeeAsset, 'USER_AVAILABLE', takerP.referrerId), split.referral);
+      ctx.payouts.push({
+        tradeKey: key,
+        kind: 'referral',
+        userId: takerP.referrerId!,
+        sourceUserId: taker.row.userId,
+        assetId: takerFeeAsset,
+        amount: split.referral,
+      });
+    }
+    for (const [accountId, amount] of credits)
+      postings.push({ accountId, direction: 'CREDIT', amount });
     ctx.entries.push({
       type: 'TRADE',
       idempotencyKey: key,
@@ -626,8 +686,8 @@ export class SettlementService {
       const feeBps = isLiq
         ? perp.config.liquidationFeeBps
         : order === maker
-          ? market.makerFeeBps
-          : market.takerFeeBps;
+          ? Math.max(0, makerBps(market.makerFeeBps, ctx.fees.get(userId) ?? NO_DISCOUNT))
+          : takerBps(market.takerFeeBps, ctx.fees.get(userId) ?? NO_DISCOUNT);
       const feeDue = feeFor(notional, feeBps);
       const feeFromHold = feeDue < budget ? feeDue : budget;
       t.move(locked, feeAccount, feeFromHold);
@@ -682,12 +742,46 @@ export class SettlementService {
       this.transition(order, nextStatus(order.status, 'trade'));
     }
 
+    const key = `trade:${market.id}:${event.seq}`;
+    // Maker rebate and referral share out of the collected taker fee (ADR-0018).
+    if (!taker.row.isLiquidation && !maker.row.isLiquidation) {
+      const takerP = ctx.fees.get(taker.row.userId) ?? NO_DISCOUNT;
+      const split = splitTakerFee(
+        taker === buyer ? fees[0]! : fees[1]!,
+        notional,
+        makerBps(market.makerFeeBps, ctx.fees.get(maker.row.userId) ?? NO_DISCOUNT),
+        this.config.REFERRAL_FEE_SHARE_BPS,
+        takerP.referrerId !== null,
+      );
+      const revenue = await id('FEE_REVENUE', null);
+      if (split.rebate > 0n) {
+        t.move(revenue, await id('USER_AVAILABLE', maker.row.userId), split.rebate);
+        ctx.payouts.push({
+          tradeKey: key,
+          kind: 'maker_rebate',
+          userId: maker.row.userId,
+          sourceUserId: taker.row.userId,
+          assetId: quoteId,
+          amount: split.rebate,
+        });
+      }
+      if (split.referral > 0n) {
+        t.move(revenue, await id('USER_AVAILABLE', takerP.referrerId), split.referral);
+        ctx.payouts.push({
+          tradeKey: key,
+          kind: 'referral',
+          userId: takerP.referrerId!,
+          sourceUserId: taker.row.userId,
+          assetId: quoteId,
+          amount: split.referral,
+        });
+      }
+    }
     const postings = t.postings();
     if (postings.length < 2)
       throw new SettlementInvariantError(
         `Perpetual fill ${market.symbol}#${event.seq} moved nothing`,
       );
-    const key = `trade:${market.id}:${event.seq}`;
     ctx.entries.push({
       type: 'TRADE',
       idempotencyKey: key,
