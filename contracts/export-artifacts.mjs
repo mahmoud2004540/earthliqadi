@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-for (const name of ['ExchangeVault', 'TestToken']) {
+for (const name of ['ExchangeVault', 'TestToken', 'TestPriceFeed']) {
   const built = JSON.parse(readFileSync(join(here, 'out', `${name}.sol`, `${name}.json`), 'utf8'));
   const out = { contractName: name, abi: built.abi, bytecode: built.bytecode.object };
   writeFileSync(

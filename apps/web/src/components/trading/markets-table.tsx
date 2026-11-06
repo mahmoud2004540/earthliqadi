@@ -56,11 +56,6 @@ export function MarketsTable({ t }: { t: Dictionary['terminal'] }) {
                     {t.perp.badge}
                   </Badge>
                 )}
-                {tk.paper && (
-                  <Badge tone="warning" className="ms-2">
-                    {t.paper}
-                  </Badge>
-                )}
               </td>
               <td className="px-4 font-mono">{tk.last ?? '—'}</td>
               <td

@@ -79,51 +79,33 @@ engine backlog and settlement lag.
 `pnpm test:integration` builds the engine (`cargo build`) and spawns it against
 the test database. It needs a Rust toolchain.
 
-## Paper trading and engine replay
+## Engine replay
 
 ```bash
-# Paper assets (faucet amount required) and a paper market (admin API, markets:configure)
-docker compose exec api node dist/cli/ledger.js create-asset --code PBTC --name "Paper BTC" --scale 8 --paper --faucet 1
-docker compose exec api node dist/cli/ledger.js create-asset --code PUSD --name "Paper USD" --scale 6 --paper --faucet 10000
 # Verify the running engine build reproduces all recorded history (exit 0 = identical)
 docker compose exec engine engine-replay
 ```
 
-## Perpetual futures (paper)
+## Markets
 
-A perpetual market needs paper assets and a `perp` configuration (admin API,
-`markets:configure`). Example request body for `POST /api/v1/admin/markets`:
+`chain deploy` (next section) creates the vault-backed markets:
 
-```json
-{
-  "base": "PBTC",
-  "quote": "PUSD",
-  "tickSize": "0.01",
-  "lotSize": "0.0001",
-  "makerFeeBps": 2,
-  "takerFeeBps": 5,
-  "kind": "perpetual",
-  "perp": {
-    "defaultLeverage": 10,
-    "tiers": [{ "maxNotional": "100000", "maxLeverage": 20, "mmrBps": 250 }],
-    "fundingIntervalSeconds": 3600,
-    "fundingClampBps": 75,
-    "maxBasisBps": 50,
-    "liquidationFeeBps": 50,
-    "priceBandBps": 1000,
-    "index": {
-      "sources": [{ "type": "spot", "market": "PBTC-PUSD" }],
-      "staleSeconds": 30,
-      "outlierBps": 500,
-      "minSources": 1
-    }
-  }
-}
-```
+- `TBTC-TUSD` (spot);
+- `TBTC-TUSD-PERP` (perpetual, index = spot mid).
 
-The risk engine (index/mark, funding, liquidation) runs every
-`PERP_RISK_POLL_MS` (0 disables it). Seed the paper insurance fund with
-`POST /api/v1/admin/perp/insurance-fund {"asset":"PUSD","amount":"10000"}`.
+Further perpetuals use `POST /api/v1/admin/markets` with `kind: "perpetual"` and a
+`perp` configuration (see `perpConfigSchema`). Index sources can be:
+
+- `spot` (a market here);
+- `oracle` (`{"type":"oracle","address":"0x…","label":"BTC / USD"}`, a
+  Chainlink-compatible feed on the configured chain);
+- `simulated` (automated tests only).
+
+The risk engine runs every `PERP_RISK_POLL_MS` (0 disables it). The insurance fund grows from
+liquidation fees and from maker-checker top-ups of collected fees
+(`insurance_fund.seed`).
+
+Paper trading is retired (ADR-0016).
 
 ## Vault on the local chain (ADR-0014)
 

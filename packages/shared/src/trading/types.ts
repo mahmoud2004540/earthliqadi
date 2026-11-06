@@ -63,7 +63,16 @@ export const MARKET_KINDS = ['spot', 'perpetual'] as const;
 const indexSourceSchema = z.discriminatedUnion('type', [
   /** Mid price (or recent last trade) of a market on this exchange. */
   z.object({ type: z.literal('spot'), market: marketSymbolSchema }),
-  /** Clearly labelled simulated feed (deterministic random walk); paper only. */
+  /**
+   * Chainlink-compatible price feed (AggregatorV3Interface) on the configured
+   * chain; the answer is converted to quote units using the feed's decimals.
+   */
+  z.object({
+    type: z.literal('oracle'),
+    address: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+    label: z.string().trim().min(2).max(48),
+  }),
+  /** Deterministic random walk for automated tests only (refused outside local/ci). */
   z.object({
     type: z.literal('simulated'),
     start: amountStringSchema,
@@ -80,7 +89,7 @@ export const riskTierSchema = z.object({
   mmrBps: z.number().int().min(1).max(5000),
 });
 
-/** Perpetual risk parameters (ADR-0011). Perpetual markets are paper-only. */
+/** Perpetual risk parameters (ADR-0011). Settled against real collateral. */
 export const perpConfigSchema = z.object({
   defaultLeverage: z.number().int().min(1).max(125),
   tiers: z.array(riskTierSchema).min(1).max(10),
@@ -143,8 +152,8 @@ export interface MarketDto {
   makerFeeBps: number;
   takerFeeBps: number;
   status: (typeof MARKET_STATUSES)[number];
-  /** Paper trading market (simulated funds only). */
-  paper: boolean;
+  /** Both sides settle against tokens held in the on-chain vault. */
+  vaultBacked: boolean;
   kind: (typeof MARKET_KINDS)[number];
   /** Perpetuals only. */
   perp: PerpMarketInfoDto | null;

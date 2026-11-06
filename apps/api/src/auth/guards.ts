@@ -11,7 +11,13 @@ import type { Request } from 'express';
 import { BlockList, isIP } from 'node:net';
 import { AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
-import { IS_PUBLIC_KEY, PERMISSIONS_KEY, STEP_UP_KEY } from '../common/decorators';
+import { ApiKeysService } from '../api-keys/api-keys.service';
+import {
+  API_KEY_SCOPE_KEY,
+  IS_PUBLIC_KEY,
+  PERMISSIONS_KEY,
+  STEP_UP_KEY,
+} from '../common/decorators';
 import { requestContextFrom } from '../common/request-context';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { RbacService } from '../rbac/rbac.service';
@@ -38,6 +44,9 @@ export class CsrfGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest<Request>();
     if (SAFE_METHODS.has(req.method)) return true;
+    // API-key requests carry no cookies and are signed per request; a browser
+    // cannot attach these headers cross-site without a CORS preflight (none is allowed).
+    if (req.headers['x-api-key'] !== undefined) return true;
 
     const origin = req.headers.origin;
     if (origin !== undefined && origin !== new URL(this.config.WEB_ORIGIN).origin) {
@@ -59,6 +68,7 @@ export class SessionAuthGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly sessions: SessionService,
     private readonly rbac: RbacService,
+    private readonly apiKeys: ApiKeysService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
@@ -70,6 +80,41 @@ export class SessionAuthGuard implements CanActivate {
     if (isPublic) return true;
 
     const req = context.switchToHttp().getRequest<Request>();
+    const keyId = req.headers['x-api-key'];
+    if (keyId !== undefined) {
+      const scope = this.reflector.get<'read' | 'trade' | undefined>(
+        API_KEY_SCOPE_KEY,
+        context.getHandler(),
+      );
+      if (!scope)
+        throw new AppError(
+          HttpStatus.FORBIDDEN,
+          'API_KEY_NOT_ALLOWED',
+          'This endpoint cannot be used with an API key',
+        );
+      const header = (name: string) => {
+        const v = req.headers[name];
+        return typeof v === 'string' ? v : '';
+      };
+      const raw = (req as Request & { rawBody?: Buffer }).rawBody;
+      const { auth, scopes } = await this.apiKeys.authenticate({
+        keyId: typeof keyId === 'string' ? keyId : '',
+        timestamp: header('x-api-timestamp'),
+        signature: header('x-api-signature'),
+        method: req.method,
+        pathWithQuery: req.originalUrl,
+        body: raw ? raw.toString('utf8') : '',
+        ip: req.ip,
+      });
+      if (!scopes.includes(scope))
+        throw new AppError(
+          HttpStatus.FORBIDDEN,
+          'API_KEY_NOT_ALLOWED',
+          `This endpoint needs an API key with the "${scope}" scope`,
+        );
+      req.auth = auth;
+      return true;
+    }
     const token = readCookie(req, cookieNames(this.config).session);
     const result = token ? await this.sessions.validate(token) : null;
     if (!result) throw AppError.unauthenticated();

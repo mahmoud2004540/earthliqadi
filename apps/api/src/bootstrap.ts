@@ -18,6 +18,8 @@ export async function createApp(config: AppConfig): Promise<INestApplication> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule.forRoot(config), {
     bufferLogs: true,
     bodyParser: false,
+    // Signed API-key requests are verified over the exact bytes received (ADR-0017).
+    rawBody: true,
   });
   app.useLogger(app.get(Logger));
   app.set('trust proxy', config.TRUST_PROXY_HOPS);

@@ -1,3 +1,4 @@
+import { MarketDataService } from '../src/market-data/market-data.service';
 import type { INestApplication } from '@nestjs/common';
 import { Logger } from '@nestjs/common';
 import request from 'supertest';
@@ -256,6 +257,56 @@ describe('WebSocket gateway', () => {
 
     ws.send({ op: 'unsubscribe', channel: 'book', market: m.symbol });
     expect(await ws.next((x) => x.type === 'unsubscribed')).toMatchObject({ channel: 'book' });
+    ws.close();
+  });
+
+  it('streams sequenced book diffs that rebuild the book exactly (book_diff)', async () => {
+    const { applyLevels } = await import('../src/market-data/book-diff');
+    const m = await fx.market();
+    const seller = await fx.trader([{ asset: m.base, amount: '5', scale: 8 }]);
+    const buyer = await fx.trader([{ asset: m.quote, amount: '1000', scale: 6 }]);
+    const ws = await WsClient.connect(port);
+    ws.send({ op: 'subscribe', channel: 'book_diff', market: m.symbol });
+    const snap = (await ws.next((x) => x.type === 'book')).data as {
+      seq: string;
+      bids: [string, string][];
+      asks: [string, string][];
+    };
+    let view = { seq: snap.seq, bids: snap.bids, asks: snap.asks };
+    const apply = (d: Record<string, unknown>) => {
+      expect(d.prevSeq).toBe(view.seq); // chained: no gap
+      view = {
+        seq: d.seq as string,
+        bids: applyLevels(view.bids, d.bids as [string, string][], 'bids'),
+        asks: applyLevels(view.asks, d.asks as [string, string][], 'asks'),
+      };
+    };
+    const ask = await fx.place(seller, {
+      market: m.symbol,
+      side: 'sell',
+      type: 'limit',
+      price: '10',
+      quantity: '2',
+    });
+    await fx.until(async () => (await fx.status(ask.body.id)) === 'OPEN');
+    apply(await ws.next((x) => x.type === 'book_diff'));
+    expect(view.asks).toEqual([['10', '2']]);
+    const bid = await fx.place(buyer, {
+      market: m.symbol,
+      side: 'buy',
+      type: 'limit',
+      price: '9',
+      quantity: '1',
+    });
+    await fx.until(async () => (await fx.status(bid.body.id)) === 'OPEN');
+    for (;;) {
+      apply(await ws.next((x) => x.type === 'book_diff'));
+      if (view.bids.length === 1) break;
+    }
+    expect(view.bids).toEqual([['9', '1']]);
+    // The rebuilt view equals a fresh snapshot.
+    const fresh = await app.get(MarketDataService).book(m.symbol, 50);
+    expect({ bids: view.bids, asks: view.asks }).toEqual({ bids: fresh.bids, asks: fresh.asks });
     ws.close();
   });
 

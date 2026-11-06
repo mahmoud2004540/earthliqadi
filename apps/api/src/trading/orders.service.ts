@@ -8,6 +8,7 @@ import {
 } from '@prisma/client';
 import { formatAmountTrimmed, type OrderDto, type TradeDto } from '@platform/shared';
 import { randomUUID } from 'node:crypto';
+import { AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { REDIS } from '../infrastructure/redis/redis.module';
@@ -56,6 +57,7 @@ export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly markets: MarketsService,
+    private readonly audit: AuditService,
     private readonly ledger: LedgerService,
     @Inject(REDIS) private readonly redis: Redis,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
@@ -79,6 +81,7 @@ export class OrdersService {
     userId: string,
     req: PlaceOrderRequest,
     ctx: RequestContext,
+    opts: { rateChecked?: boolean } = {},
   ): Promise<{ order: OrderDto; replayed: boolean }> {
     const market = await this.markets.require(req.market);
     const u = unitsOf(market);
@@ -142,7 +145,7 @@ export class OrdersService {
     });
     if (existing) return { order: this.replayOrConflict(existing, fingerprint), replayed: true };
 
-    await this.checkRate(userId);
+    if (!opts.rateChecked) await this.checkRate(userId);
     const open = await this.prisma.order.count({
       where: {
         userId,
@@ -181,7 +184,7 @@ export class OrdersService {
         throw new AppError(
           HttpStatus.FORBIDDEN,
           'KYC_REQUIRED',
-          'Verify your identity before trading on this market (paper markets are open to everyone)',
+          'Verify your identity before trading on this market',
         );
       }
     }
@@ -273,6 +276,110 @@ export class OrdersService {
       }
       throw err;
     }
+  }
+
+  /**
+   * Places up to 20 orders; each succeeds or fails on its own (no partial
+   * hold is ever left behind: every order is its own transaction). The batch
+   * counts as one request for the per-user rate limit.
+   */
+  async placeBatch(
+    userId: string,
+    reqs: PlaceOrderRequest[],
+    ctx: RequestContext,
+  ): Promise<
+    {
+      clientOrderId: string;
+      status: number;
+      order?: OrderDto;
+      error?: { code: string; message: string };
+    }[]
+  > {
+    await this.checkRate(userId);
+    const out = [];
+    for (const req of reqs) {
+      try {
+        const { order, replayed } = await this.place(userId, req, ctx, { rateChecked: true });
+        out.push({ clientOrderId: req.clientOrderId, status: replayed ? 200 : 202, order });
+      } catch (err) {
+        if (!(err instanceof AppError)) throw err;
+        out.push({
+          clientOrderId: req.clientOrderId,
+          status: err.getStatus(),
+          error: { code: err.code, message: err.message },
+        });
+      }
+    }
+    return out;
+  }
+
+  /** Requests cancellation of every open order (optionally one market). Counts as one request. */
+  async cancelAll(userId: string, market?: string, opts: { rateChecked?: boolean } = {}) {
+    if (!opts.rateChecked) await this.checkRate(userId);
+    const marketId = market ? (await this.markets.require(market)).id : undefined;
+    const open = await this.prisma.order.findMany({
+      where: {
+        userId,
+        ...(marketId ? { marketId } : {}),
+        status: { in: ['PENDING_NEW', 'PENDING_TRIGGER', 'OPEN', 'PARTIALLY_FILLED'] },
+        cancelRequestedAt: null,
+      },
+      select: { id: true, marketId: true },
+      orderBy: { createdAt: 'asc' },
+      take: 5000,
+    });
+    for (const o of open) {
+      await this.prisma.$transaction(async (tx) => {
+        const seq = await this.nextCommandSeq(tx, o.marketId, false);
+        await this.enqueue(tx, o.marketId, seq, 'cancel', {
+          type: 'cancel',
+          order_id: o.id,
+          account: userId,
+        });
+        await tx.order.update({ where: { id: o.id }, data: { cancelRequestedAt: new Date() } });
+      });
+    }
+    return { cancelRequested: open.length };
+  }
+
+  /**
+   * Dead-man switch: cancel everything if not refreshed within `timeoutSeconds`.
+   * 0 disables it. Clients refresh it periodically while they are healthy.
+   */
+  async setCancelAfter(userId: string, timeoutSeconds: number, now = new Date()) {
+    if (timeoutSeconds === 0) {
+      await this.prisma.cancelAllTimer.deleteMany({ where: { userId } });
+      return { deadline: null };
+    }
+    const deadline = new Date(now.getTime() + timeoutSeconds * 1000);
+    await this.prisma.cancelAllTimer.upsert({
+      where: { userId },
+      create: { userId, deadline },
+      update: { deadline, updatedAt: now },
+    });
+    return { deadline: deadline.toISOString() };
+  }
+
+  /** Fires expired dead-man switches (any API instance; rows are claimed with SKIP LOCKED). */
+  async fireCancelTimers(now = new Date()): Promise<number> {
+    const due = await this.prisma.$queryRaw<{ user_id: string }[]>`
+      DELETE FROM "cancel_all_timers"
+       WHERE "user_id" IN (SELECT "user_id" FROM "cancel_all_timers" WHERE "deadline" <= ${now}
+                            ORDER BY "deadline" LIMIT 100 FOR UPDATE SKIP LOCKED)
+      RETURNING "user_id"`;
+    for (const { user_id } of due) {
+      const { cancelRequested } = await this.cancelAll(user_id, undefined, { rateChecked: true });
+      await this.audit.recordSafe({
+        action: 'trading.cancel_after.fired',
+        outcome: 'SUCCESS',
+        actorType: 'SYSTEM',
+        targetType: 'user',
+        targetId: user_id,
+        context: { requestId: 'dead-man-switch' },
+        metadata: { cancelRequested },
+      });
+    }
+    return due.length;
   }
 
   async cancel(userId: string, orderId: string): Promise<OrderDto> {

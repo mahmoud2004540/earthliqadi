@@ -282,7 +282,11 @@ export class PerpsService {
     return this.toPositionDto(row, market, config, null);
   }
 
-  /** Paper only: funds the insurance fund from the paper faucet account (audited). */
+  /**
+   * Moves collected trading fees into the insurance fund (maker-checker
+   * approved, audited). The fund only ever holds real fee income and
+   * liquidation fees; nothing is minted.
+   */
   async seedInsuranceFund(
     assetCode: string,
     amount: string,
@@ -290,7 +294,7 @@ export class PerpsService {
     idempotencyKey = `insurance-seed:${assetCode}:${Date.now()}`,
   ): Promise<string> {
     const asset = await this.ledger.requireAsset(assetCode);
-    if (!asset.isPaper) throw conflict('Insurance fund seeding is only available for paper assets');
+    if (asset.isPaper) throw conflict('Paper trading is retired');
     let value: bigint;
     try {
       value = parseAmount(amount, asset.scale);
@@ -299,15 +303,15 @@ export class PerpsService {
     }
     if (value <= 0n)
       throw new AppError(HttpStatus.BAD_REQUEST, 'VALIDATION_FAILED', 'Amount must be positive');
-    const faucet = await this.ledger.accountId(asset.id, 'PAPER_FAUCET', null);
+    const fees = await this.ledger.accountId(asset.id, 'FEE_REVENUE', null);
     const fund = await this.ledger.accountId(asset.id, 'INSURANCE_FUND', null);
     const result = await this.ledger.post(
       {
         type: 'INSURANCE_FUND_SEED',
         idempotencyKey,
-        description: `Paper insurance fund seed ${asset.code} (simulated, no value)`,
+        description: `Insurance fund top-up from fee revenue: ${formatAmountTrimmed(value, asset.scale)} ${asset.code}`,
         postings: [
-          { accountId: faucet, direction: 'DEBIT', amount: value },
+          { accountId: fees, direction: 'DEBIT', amount: value },
           { accountId: fund, direction: 'CREDIT', amount: value },
         ],
       },
@@ -326,7 +330,7 @@ export class PerpsService {
     return formatAmountTrimmed(value, asset.scale);
   }
 
-  /** Insurance fund balance per paper asset (public transparency). */
+  /** Insurance fund balance per asset (public transparency). */
   async insuranceFunds(): Promise<{ asset: string; balance: string }[]> {
     const accounts = await this.prisma.ledgerAccount.findMany({
       where: { type: 'INSURANCE_FUND' },

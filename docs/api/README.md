@@ -139,37 +139,41 @@ The `Origin` header must match the web origin.
   per second, 4 KB per message, heartbeat every 20 s. Private subscriptions are
   closed (code `4401`) when the session ends.
 - After reconnecting, re-subscribe: the server answers with fresh snapshots
-  (there are no deltas to stitch).
+  (there are no deltas to stitch on the `book` channel).
+- `book_diff` channel (ADR-0017):
+  - the server first sends one `book` snapshot (top 50 levels, with `seq`);
+  - after that, it sends
+    `{type:"book_diff", prevSeq, seq, bids, asks, status}` with only the
+    changed levels;
+  - a quantity of `"0"` means the level left the view;
+  - apply a diff only if `prevSeq` equals the `seq` you hold. If it does not,
+    resubscribe to get a fresh snapshot.
 
-## Paper trading (Phase 5)
+## Order limits
 
-| Method | Path               | Auth | Permission      | Description                                                                                     |
-| ------ | ------------------ | ---- | --------------- | ----------------------------------------------------------------------------------------------- |
-| POST   | `/v1/paper/faucet` | ✔    | `trading:trade` | `{asset}`: grants the paper asset's faucet amount; once per asset per UTC day (`429` otherwise) |
+- `429 RATE_LIMITED` above `ORDER_RATE_LIMIT_PER_SECOND` (default 10 per
+  user, for place/cancel/reduce).
+- `409 LIMIT_EXCEEDED` at `MAX_OPEN_ORDERS_PER_MARKET` (default 200).
+- Paper trading (`/v1/paper/faucet`) is retired (ADR-0016).
+- Markets expose `vaultBacked`; assets expose `chainToken`.
 
-- `GET /v1/assets` and `GET /v1/markets` include `paper` (and `faucetAmount` for assets).
-- Tickers and balances include `paper`.
-- Order limits: `429 RATE_LIMITED` above `ORDER_RATE_LIMIT_PER_SECOND` (default
-  10 per user, for place/cancel/reduce); `409 LIMIT_EXCEEDED` at
-  `MAX_OPEN_ORDERS_PER_MARKET` (default 200).
-- Admin asset creation accepts `paper: true` with `faucetAmount`. The CLI
-  equivalent is `ledger create-asset … --paper --faucet <amount>`.
-
-## Perpetual futures (Phase 6, paper only)
+## Perpetual futures
 
 | Method | Path                               | Auth | Permission          | Description                                                            |
 | ------ | ---------------------------------- | ---- | ------------------- | ---------------------------------------------------------------------- |
 | GET    | `/v1/perp/markets/:symbol/stats`   |      | public              | Mark, index, predicted/last funding, next funding, `indexStale`        |
 | GET    | `/v1/perp/markets/:symbol/funding` |      | public              | Funding history (`?limit=`)                                            |
-| GET    | `/v1/perp/insurance-fund`          |      | public              | Insurance fund balances (paper)                                        |
+| GET    | `/v1/perp/insurance-fund`          |      | public              | Insurance fund balances                                                |
 | GET    | `/v1/perp/positions`               | ✔    | `account:self:read` | Positions with entry, mark, estimated liquidation and bankruptcy price |
 | POST   | `/v1/perp/leverage`                | ✔    | `trading:trade`     | `{market, leverage}`; only while flat with no open orders (`409`)      |
 | POST   | `/v1/perp/margin`                  | ✔    | `trading:trade`     | `{market, amount}`: adds isolated margin from the available balance    |
-| POST   | `/v1/admin/perp/insurance-fund`    | ✔    | `markets:configure` | `{asset, amount}`: paper only, funded from the paper faucet account    |
 
 - Perpetual symbols end in `-PERP`. `POST /v1/admin/markets` accepts
   `kind: "perpetual"` with a `perp` configuration (tiers, funding, index
-  sources, bands; see `perpConfigSchema`). Real assets are refused.
+  sources, bands; see `perpConfigSchema`). Outside local/ci the quote asset
+  must be vault-backed. Index sources: `spot`, `oracle` (Chainlink-compatible
+  feed), and `simulated` (local/ci tests only). Insurance fund top-ups go
+  through the `insurance_fund.seed` approval and move collected fees.
 - `POST /v1/orders` on a perpetual market requires `price` (a limit price, or a
   protection price for market orders), accepts `reduceOnly`, and returns:
   - `400` outside the price band, beyond the bankruptcy price, or above the
@@ -263,3 +267,33 @@ curl -s -c jar -b jar -H "X-CSRF-Token: $CSRF" -H 'Content-Type: application/jso
 
 Planned for later phases: scoped API keys with HMAC signing, public market data
 REST/WebSocket, trading endpoints, and FIX readiness.
+
+## Professional trading (ADR-0017)
+
+| Method | Path                        | Auth           | Description                                                             |
+| ------ | --------------------------- | -------------- | ----------------------------------------------------------------------- |
+| GET    | `/v1/me/api-keys`           | session        | List keys                                                               |
+| POST   | `/v1/me/api-keys/challenge` | session        | `{label, publicKey, scopes, allowedIps?, expiresInDays}` → text to sign |
+| POST   | `/v1/me/api-keys`           | session        | `{challengeId, signature}` (wallet `personal_sign`) → key               |
+| DELETE | `/v1/me/api-keys/:id`       | session        | Revoke (permanent)                                                      |
+| POST   | `/v1/orders/batch`          | session or key | `{orders: [...]}` up to 20; per-item `status`, `order` or `error`       |
+| POST   | `/v1/orders/cancel-all`     | session or key | `{market?}` → `{cancelRequested}`                                       |
+| POST   | `/v1/orders/cancel-after`   | session or key | `{timeoutSeconds}` (0 disables, 5–86400) → `{deadline}`                 |
+
+Signed requests (agent keys) use these headers:
+
+```
+X-API-Key: <key id>
+X-API-Timestamp: <unix ms>            # within ±30 s of server time
+X-API-Signature: base64(ed25519_sign(`${timestamp}\n${METHOD}\n${path_with_query}\n${raw_body}`))
+```
+
+- **Scopes.** `read` covers orders, trades, balances, ledger history and
+  positions. `trade` adds placing, cancelling and reducing orders, batch,
+  cancel-all, cancel-after, leverage and margin.
+- **Refused routes.** Any other route answers `403 API_KEY_NOT_ALLOWED`. This
+  includes withdrawals and key management.
+- **Errors.**
+  - `401 API_KEY_INVALID`: unknown, expired or revoked key, bad signature,
+    replayed signature, or a timestamp outside the allowed clock skew.
+  - `403 IP_NOT_ALLOWED`: the request came from outside the key's allow-list.

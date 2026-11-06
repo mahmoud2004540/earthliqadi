@@ -12,7 +12,7 @@ import {
 import { z } from 'zod';
 import type { AuthContext } from '../auth/auth-context';
 import { CurrentAuth } from '../auth/current-auth.decorator';
-import { Public, RequirePermissions } from '../common/decorators';
+import { ApiKeyScope, Public, RequirePermissions } from '../common/decorators';
 import { ApiZodBody } from '../common/openapi';
 import { ReqContext, type RequestContext } from '../common/request-context';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -21,7 +21,7 @@ import { PerpsService } from './perps.service';
 const symbolParam = z.object({ symbol: marketSymbolSchema });
 const limitQuery = z.object({ limit: z.coerce.number().int().min(1).max(200).default(50) });
 
-/** Perpetual futures (paper only; ADR-0011). */
+/** Perpetual futures on real collateral (ADR-0011, ADR-0016). */
 @ApiTags('perpetuals')
 @Controller({ path: 'perp', version: '1' })
 export class PerpsController {
@@ -45,7 +45,7 @@ export class PerpsController {
     return { rounds: await this.perps.fundingHistory(p.symbol, q.limit) };
   }
 
-  /** Insurance fund balances (paper). Published for transparency. */
+  /** Insurance fund balances. Published for transparency. */
   @Public()
   @Get('insurance-fund')
   async insurance(): Promise<{ funds: { asset: string; balance: string }[] }> {
@@ -53,12 +53,14 @@ export class PerpsController {
   }
 
   @Get('positions')
+  @ApiKeyScope('read')
   @RequirePermissions(PERMISSIONS.ACCOUNT_SELF_READ)
   async positions(@CurrentAuth() auth: AuthContext): Promise<{ positions: PositionDto[] }> {
     return { positions: await this.perps.positions(auth.user.id) };
   }
 
   @Post('leverage')
+  @ApiKeyScope('trade')
   @RequirePermissions(PERMISSIONS.TRADING_TRADE)
   @ApiZodBody(leverageSchema)
   leverage(
@@ -74,6 +76,7 @@ export class PerpsController {
   }
 
   @Post('margin')
+  @ApiKeyScope('trade')
   @RequirePermissions(PERMISSIONS.TRADING_TRADE)
   @ApiZodBody(addMarginSchema)
   addMargin(

@@ -234,9 +234,9 @@ export function Terminal({ symbol, t }: { symbol: string; t: Dictionary }) {
               {tt.perp.badge}
             </Badge>
           )}
-          {market?.paper && (
-            <Badge tone="warning" data-testid="paper-badge">
-              {tt.paper}
+          {market?.vaultBacked && (
+            <Badge tone="positive" data-testid="vault-badge">
+              {tt.vaultBadge}
             </Badge>
           )}
           <span className="flex items-center gap-1.5 text-[11px] text-muted">

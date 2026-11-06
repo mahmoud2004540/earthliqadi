@@ -67,26 +67,27 @@ not described as implemented in the docs should be treated as absent.
 - The private WebSocket channel carries order updates only. Balances are
   refreshed over REST when an order update arrives.
 
-### Paper trading and simulation (Sprint 5)
+### Order limits and replay (Sprint 5; paper trading retired by ADR-0016)
 
 - The open-order cap is checked outside the order transaction, so a concurrent
   burst can exceed it by the number of in-flight requests (abuse control, not a
   financial invariant).
 - `engine-replay` re-runs whole histories. Snapshot-based incremental replay
   will be needed as logs grow.
-- Paper markets currently use the same fee schedule mechanism as real markets
-  (configurable per market). No paper leaderboard or reset feature yet.
-- Reports and Proof of Reserves (later phases) must filter `is_paper = false`.
+- Retired paper rows remain as history. Reports and Proof of Reserves must
+  filter `is_paper = false`.
 
-### Perpetual futures (Sprint 6, paper only)
+### Perpetual futures
 
-- **Paper only by design.** Real-money derivatives are refused by the database.
+- Perpetuals settle on vault collateral (ADR-0016), on a test chain only.
+  Counsel review is needed before any mainnet use.
 - **ADL and an insurance-fund backstop are not live.** They are specified and
   property-tested in the simulation harness only. If a fill ever realises a
   loss larger than the margin plus the insurance fund, that market's
   settlement halts for investigation.
-- Index sources are internal spot markets or labelled **simulated** feeds;
-  external feeds arrive with integrations (Phase 8).
+- Index sources are internal spot markets and Chainlink-compatible oracle
+  feeds. Simulated feeds are refused outside local/ci. Direct exchange price
+  APIs are not integrated.
 - Isolated margin only: no cross margin, no margin removal, no TP/SL
   attached orders.
 - The risk engine runs on a timer inside the API process. Liquidation latency

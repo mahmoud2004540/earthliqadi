@@ -10,10 +10,10 @@ tests, security review and documentation are done.
 | 2     | Financial ledger and accounting                                | **Complete** |
 | 3     | Spot matching engine (Rust)                                    | **Complete** |
 | 4     | Market data and professional trading terminal                  | **Complete** |
-| 5     | Spot paper trading and simulation                              | **Complete** |
-| 6     | Perpetual futures and risk simulation (paper only)             | **Complete** |
+| 5     | Spot paper trading and simulation (paper retired, ADR-0016)    | **Complete** |
+| 6     | Perpetual futures (on vault collateral since ADR-0016)         | **Complete** |
 | 7     | Admin, compliance and monitoring                               | **Complete** |
-| 8     | Non-custodial vault, deposits/withdrawals (testnet), liquidity | Next         |
+| 8     | Non-custodial vault, deposits/withdrawals (testnet), liquidity | **Complete** |
 | 9     | Security audits and regulatory readiness                       | Planned      |
 | 10    | Controlled production launch, after all required approvals     | Planned      |
 
@@ -143,3 +143,20 @@ tests, security review and documentation are done.
 4. **Launch gates:** audit findings fixed, pen-test retest, legal sign-off,
    geo-restriction live, on-call staffed, incident drill done. Real assets
    only behind explicit per-asset limits, starting very small.
+
+## Product track (product brief rev 2)
+
+See [`docs/product/product-brief.md`](../product/product-brief.md).
+
+- [x] Step A: paper trading retired; real spot and perpetuals on vault collateral;
+      oracle index source; insurance fund funded from fees only ([ADR-0016](../decisions/0016-real-markets-only.md))
+- [x] Step B part 1: agent API keys (wallet-authorised Ed25519, read/trade only),
+      batch orders, cancel-all, dead-man switch ([ADR-0017](../decisions/0017-professional-trading-tools.md))
+- [ ] Step B part 2:
+  - order-book diffs with sequence numbers;
+  - TP/SL;
+  - sub-accounts;
+  - API-key WebSocket auth.
+- [ ] Step C: fee tiers, maker rebates, referral fee share, activity points
+- [ ] Step D: leader vaults, track records, leaderboard
+- [ ] Step E: whale tools (TWAP, iceberg, RFQ, cross margin) and proof pages

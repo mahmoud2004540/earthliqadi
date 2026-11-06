@@ -8,10 +8,12 @@ import {
 import { HttpAdapterHost } from '@nestjs/core';
 import {
   wsClientMessageSchema,
+  type BookLevel,
   type CandleInterval,
   type WsChannel,
   type WsServerMessage,
 } from '@platform/shared';
+import { diffLevels } from './book-diff';
 import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
@@ -44,6 +46,8 @@ interface Subscription {
   ordersSince?: Date;
   /** Last freshness state sent (book/ticker), so staleness is pushed even when seq is stuck. */
   state?: string;
+  /** book_diff: the view the client holds, and its seq. */
+  view?: { seq: string; bids: BookLevel[]; asks: BookLevel[] };
 }
 
 interface Client {
@@ -296,6 +300,23 @@ export class MarketDataGateway implements OnApplicationBootstrap, OnApplicationS
         sub.state = book.status.state;
         return this.send(client, { type: 'book', data: book });
       }
+      case 'book_diff': {
+        const book = await this.marketData.book(sub.market, 50);
+        sub.seq = BigInt(book.seq);
+        sub.state = book.status.state;
+        const prev = sub.view;
+        sub.view = { seq: book.seq, bids: book.bids, asks: book.asks };
+        if (initial || !prev) return this.send(client, { type: 'book', data: book });
+        return this.send(client, {
+          type: 'book_diff',
+          market: sub.market,
+          prevSeq: prev.seq,
+          seq: book.seq,
+          bids: diffLevels(prev.bids, book.bids),
+          asks: diffLevels(prev.asks, book.asks),
+          status: book.status,
+        });
+      }
       case 'ticker': {
         const ticker = await this.marketData.ticker(sub.market);
         sub.seq = BigInt(ticker.seq);
@@ -396,7 +417,7 @@ export class MarketDataGateway implements OnApplicationBootstrap, OnApplicationS
           if (!marketId) continue;
           const seq = sequences.get(marketId) ?? 0n;
           const freshnessChanged =
-            (sub.channel === 'book' || sub.channel === 'ticker') &&
+            (sub.channel === 'book' || sub.channel === 'book_diff' || sub.channel === 'ticker') &&
             (await stateOf(sub.market)) !== sub.state;
           if (seq !== sub.seq || freshnessChanged) {
             await this.push(client, sub, marketId, false);

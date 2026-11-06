@@ -58,14 +58,8 @@ interface Perp {
 async function perpMarket(overrides: Partial<PerpConfigInput> = {}): Promise<Perp> {
   const base = code('PB');
   const quote = code('PQ');
-  await ledger.createAsset(
-    { code: base, name: `Paper ${base}`, scale: 8, paper: true, faucetAmount: '10' },
-    SYSTEM,
-  );
-  await ledger.createAsset(
-    { code: quote, name: `Paper ${quote}`, scale: 6, paper: true, faucetAmount: '100000' },
-    SYSTEM,
-  );
+  await ledger.createAsset({ code: base, name: `Base ${base}`, scale: 8 }, SYSTEM);
+  await ledger.createAsset({ code: quote, name: `Quote ${quote}`, scale: 6 }, SYSTEM);
   const markets = app.get(MarketsService);
   const spot = await markets.create(
     { base, quote, tickSize: '0.01', lotSize: '0.0001', makerFeeBps: 0, takerFeeBps: 0 },
@@ -101,10 +95,12 @@ async function setMark(p: Perp, price: bigint, at = new Date(), premiumRate: big
   });
 }
 
-async function funded(p: Perp): Promise<Trader> {
-  const t = await fx.trader();
-  await ledger.paperFaucet(t.userId, p.quote, SYSTEM);
-  return t;
+/** A trader with 100 000 quote (simulated custody: local/ci test fixture only). */
+async function funded(p: Perp, base = false): Promise<Trader> {
+  return fx.trader([
+    { asset: p.quote, amount: '100000', scale: 6 },
+    ...(base ? [{ asset: p.base, amount: '10', scale: 8 }] : []),
+  ]);
 }
 
 async function balance(userId: string, asset: string, type: 'USER_AVAILABLE' | 'USER_MARGIN') {
@@ -151,34 +147,19 @@ afterAll(async () => {
 });
 
 describe('perpetual markets', () => {
-  it('are paper-only, validated, and described in the market DTO', async () => {
-    const real = code('R');
-    const realQ = code('R');
-    await ledger.createAsset({ code: real, name: 'Real', scale: 8 }, SYSTEM);
-    await ledger.createAsset({ code: realQ, name: 'Real', scale: 6 }, SYSTEM);
+  it('settle on real assets, are validated, and are described in the market DTO', async () => {
     const markets = app.get(MarketsService);
-    const base = {
-      base: real,
-      quote: realQ,
-      tickSize: '0.01',
-      lotSize: '0.0001',
-      makerFeeBps: 0,
-      takerFeeBps: 0,
-    };
-    await expect(
-      markets.create({ ...base, kind: 'perpetual', perp: perpConfig() }, SYSTEM),
-    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
-
-    // Database backstop: a real-asset perpetual cannot be inserted even bypassing the service.
-    const spot = await markets.create(base, SYSTEM);
+    // The market kind is immutable once created (database trigger).
+    const spot = await fx.market();
     await expect(
       prisma.$executeRaw`UPDATE "markets" SET "kind" = 'PERPETUAL', "perp_config" = '{}' WHERE "id" = ${spot.id}::uuid`,
-    ).rejects.toThrow(/immutable|perp_paper_only/);
+    ).rejects.toThrow(/immutable/);
 
     const p = await perpMarket();
     expect(p.symbol).toBe(`${p.base}-${p.quote}-PERP`);
+    expect(p.market.isPaper).toBe(false);
     const dto = markets.toDto(p.market);
-    expect(dto).toMatchObject({ kind: 'perpetual', paper: true });
+    expect(dto).toMatchObject({ kind: 'perpetual', vaultBacked: false });
     expect(dto.perp).toMatchObject({ defaultLeverage: 10, maxLeverage: 10, liquidationFeeBps: 50 });
 
     await expect(
@@ -188,20 +169,16 @@ describe('perpetual markets', () => {
     ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
   });
 
-  it('refuses derivative ledger accounts for real assets (database trigger)', async () => {
+  it('allows derivative ledger accounts for real assets', async () => {
     const real = code('R');
     await ledger.createAsset({ code: real, name: 'Real', scale: 6 }, SYSTEM);
     const asset = await ledger.requireAsset(real);
-    await expect(ledger.ensureAccount(asset.id, 'INSURANCE_FUND', null)).rejects.toThrow(
-      /paper-only|only allowed for paper/,
-    );
+    await expect(ledger.ensureAccount(asset.id, 'INSURANCE_FUND', null)).resolves.toBeTruthy();
   });
 
   it('derives index and mark from the spot book and labels simulated feeds', async () => {
     const p = await perpMarket();
-    const mm = await fx.trader();
-    await ledger.paperFaucet(mm.userId, p.quote, SYSTEM);
-    await ledger.paperFaucet(mm.userId, p.base, SYSTEM);
+    const mm = await funded(p, true);
     await placed(mm, { market: p.spot, side: 'buy', type: 'limit', price: '99', quantity: '0.1' });
     await placed(mm, {
       market: p.spot,
@@ -222,7 +199,10 @@ describe('perpetual markets', () => {
       { type: 'simulated', start: 100n * USD, volatilityBps: 1, seed: 's' },
       6,
     );
-    expect(label).toMatch(/^SIMULATED feed .*not a real price/);
+    expect(label).toMatch(/^TEST-ONLY SIMULATED feed .*not a real price/);
+    expect(
+      sourceLabel({ type: 'oracle', address: '0x' + 'ab'.repeat(20), label: 'BTC / USD' }, 6),
+    ).toMatch(/^Oracle feed BTC \/ USD/);
   });
 });
 
@@ -464,15 +444,31 @@ describe('liquidation', () => {
     await expectReconciled();
   });
 
-  it('seeds the paper insurance fund from the faucet account (paper only)', async () => {
-    const p = await perpMarket();
-    expect(await perps.seedInsuranceFund(p.quote, '1000', SYSTEM)).toBe('1000');
-    const real = code('R');
-    await ledger.createAsset({ code: real, name: 'Real', scale: 6 }, SYSTEM);
-    await expect(perps.seedInsuranceFund(real, '1', SYSTEM)).rejects.toMatchObject({
-      code: 'CONFLICT',
+  it('tops up the insurance fund from collected fees only (nothing is minted)', async () => {
+    const m = await fx.market({ makerFeeBps: 0, takerFeeBps: 100 });
+    const seller = await fx.trader([{ asset: m.base, amount: '1', scale: 8 }]);
+    const buyer = await fx.trader([{ asset: m.quote, amount: '1000', scale: 6 }]);
+    const ask = await placed(buyer, {
+      market: m.symbol,
+      side: 'buy',
+      type: 'limit',
+      price: '100',
+      quantity: '1',
     });
-    expect(parseAmount('1000', 6)).toBe(1000n * USD);
+    const taker = await fx.place(seller, {
+      market: m.symbol,
+      side: 'sell',
+      type: 'market',
+      quantity: '1',
+    });
+    expect(taker.status).toBe(202);
+    await fx.until(async () => (await fx.status(ask)) === 'FILLED');
+    // The taker (seller) paid 1% of 100 in the quote asset.
+    await expect(perps.seedInsuranceFund(m.quote, '1000', SYSTEM)).rejects.toThrow();
+    expect(await perps.seedInsuranceFund(m.quote, '0.6', SYSTEM)).toBe('0.6');
+    const funds = await perps.insuranceFunds();
+    expect(funds.find((f) => f.asset === m.quote)?.balance).toBe('0.6');
+    expect(parseAmount('0.6', 6)).toBe(600_000n);
     await expectReconciled();
   });
 });

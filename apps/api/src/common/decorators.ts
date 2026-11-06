@@ -20,5 +20,13 @@ export const AUTH_RATE_LIMIT_KEY = 'ratelimit:auth';
 export const STEP_UP_KEY = 'requireStepUp';
 export const RequireStepUp = (): MethodDecorator => SetMetadata(STEP_UP_KEY, true);
 
+/**
+ * Route may be called with an agent API key carrying this scope (ADR-0017).
+ * Allow-list: every route WITHOUT this decorator refuses API-key requests.
+ */
+export const API_KEY_SCOPE_KEY = 'auth:apiKeyScope';
+export const ApiKeyScope = (scope: 'read' | 'trade'): MethodDecorator =>
+  SetMetadata(API_KEY_SCOPE_KEY, scope);
+
 export const AuthRateLimit = (): MethodDecorator & ClassDecorator =>
   SetMetadata(AUTH_RATE_LIMIT_KEY, true);

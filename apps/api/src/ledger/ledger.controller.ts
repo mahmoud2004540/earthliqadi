@@ -15,7 +15,6 @@ import {
   assetCodeSchema,
   assetStatusSchema,
   createAssetSchema,
-  faucetRequestSchema,
   ledgerHistoryQuerySchema,
   type AssetDto,
   type BalanceDto,
@@ -25,7 +24,7 @@ import { z } from 'zod';
 import { AuditService } from '../audit/audit.service';
 import type { AuthContext } from '../auth/auth-context';
 import { CurrentAuth } from '../auth/current-auth.decorator';
-import { Public, RequirePermissions, RequireStepUp } from '../common/decorators';
+import { ApiKeyScope, Public, RequirePermissions, RequireStepUp } from '../common/decorators';
 import { ApiZodBody } from '../common/openapi';
 import { ReqContext, type RequestContext } from '../common/request-context';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -50,35 +49,6 @@ export class AssetsController {
   }
 }
 
-/** Paper trading faucet (simulated funds for paper assets only, ADR-0010). */
-@ApiTags('ledger')
-@Controller({ path: 'paper', version: '1' })
-export class PaperController {
-  constructor(private readonly ledger: LedgerService) {}
-
-  @Post('faucet')
-  @HttpCode(HttpStatus.CREATED)
-  @RequirePermissions(PERMISSIONS.TRADING_TRADE)
-  @ApiZodBody(faucetRequestSchema)
-  async faucet(
-    @CurrentAuth() auth: AuthContext,
-    @Body(new ZodValidationPipe(faucetRequestSchema)) body: z.infer<typeof faucetRequestSchema>,
-    @ReqContext() ctx: RequestContext,
-  ): Promise<{ asset: string; amount: string; entryId: string }> {
-    const asset = await this.ledger.requireAsset(body.asset);
-    const { entry } = await this.ledger.paperFaucet(auth.user.id, body.asset, {
-      actorType: 'USER',
-      actorUserId: auth.user.id,
-      requestId: ctx.requestId,
-    });
-    return {
-      asset: asset.code,
-      amount: this.ledger.toAssetDto(asset).faucetAmount ?? '0',
-      entryId: entry.id.toString(),
-    };
-  }
-}
-
 /** The authenticated user's own balances and ledger history. */
 @ApiTags('ledger')
 @Controller({ path: 'me', version: '1' })
@@ -86,12 +56,14 @@ export class MyLedgerController {
   constructor(private readonly ledger: LedgerService) {}
 
   @Get('balances')
+  @ApiKeyScope('read')
   @RequirePermissions(PERMISSIONS.ACCOUNT_SELF_READ)
   async balances(@CurrentAuth() auth: AuthContext): Promise<{ balances: BalanceDto[] }> {
     return { balances: await this.ledger.balancesForUser(auth.user.id) };
   }
 
   @Get('ledger-entries')
+  @ApiKeyScope('read')
   @RequirePermissions(PERMISSIONS.ACCOUNT_SELF_READ)
   history(
     @CurrentAuth() auth: AuthContext,

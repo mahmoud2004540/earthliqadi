@@ -62,8 +62,6 @@ export interface CandleDto {
 
 export interface TickerDto {
   market: string;
-  /** Paper trading market. */
-  paper: boolean;
   seq: string;
   last: string | null;
   open24h: string | null;
@@ -91,7 +89,8 @@ export const candlesQuerySchema = z.object({
 
 // --------------------------------------------------------------- WebSocket
 
-export const WS_PUBLIC_CHANNELS = ['book', 'trades', 'ticker', 'candles'] as const;
+/** `book_diff`: one `book` snapshot, then `book_diff` messages chained by seq (ADR-0017). */
+export const WS_PUBLIC_CHANNELS = ['book', 'book_diff', 'trades', 'ticker', 'candles'] as const;
 export const WS_CHANNELS = [...WS_PUBLIC_CHANNELS, 'orders'] as const;
 export type WsChannel = (typeof WS_CHANNELS)[number];
 
@@ -112,6 +111,20 @@ export type WsServerMessage =
   | { type: 'subscribed'; channel: WsChannel; market: string; interval?: CandleInterval }
   | { type: 'unsubscribed'; channel: WsChannel; market: string }
   | { type: 'book'; data: OrderBookDto }
+  | {
+      /**
+       * Changes to the top-50 view since `prevSeq` ("0" quantity = level left
+       * the view). Apply only if `prevSeq` equals the seq you hold; otherwise
+       * resubscribe for a fresh snapshot.
+       */
+      type: 'book_diff';
+      market: string;
+      prevSeq: string;
+      seq: string;
+      bids: BookLevel[];
+      asks: BookLevel[];
+      status: MarketDataStatus;
+    }
   | { type: 'trades'; market: string; snapshot: boolean; data: PublicTradeDto[] }
   | { type: 'ticker'; data: TickerDto }
   | { type: 'candles'; market: string; interval: CandleInterval; seq: string; data: CandleDto[] }

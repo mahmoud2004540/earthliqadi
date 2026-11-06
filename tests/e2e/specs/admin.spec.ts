@@ -77,8 +77,8 @@ test('support conversation through the admin console; KYC is switched off', asyn
   const user = await signUp(browser, 'e2e-support');
   await expect(user.getByRole('tab', { name: 'Verification' })).toHaveCount(0);
   await user.getByRole('tab', { name: 'Support' }).click();
-  await user.fill('#ticket-subject', 'Question about paper funds');
-  await user.fill('#ticket-body', 'How often can I use the faucet?');
+  await user.fill('#ticket-subject', 'Question about withdrawals');
+  await user.fill('#ticket-body', 'How long does a vault withdrawal take?');
   await user.getByRole('button', { name: 'Open ticket' }).click();
   await expect(user.getByTestId('ticket-message')).toHaveCount(1);
 
@@ -89,7 +89,7 @@ test('support conversation through the admin console; KYC is switched off', asyn
   await expect(agent.getByText('Identity verification is not enabled')).toBeVisible();
   await agent.getByRole('tab', { name: 'Support' }).click();
   await agent
-    .getByRole('button', { name: /Question about paper funds/ })
+    .getByRole('button', { name: /Question about withdrawals/ })
     .last()
     .click();
   await agent.getByLabel('Reply').fill('Once per asset per UTC day.');

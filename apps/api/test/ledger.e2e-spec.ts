@@ -571,8 +571,7 @@ describe('HTTP API', () => {
           name: `Test asset ${code}`,
           scale: 2,
           status: 'ACTIVE',
-          paper: false,
-          faucetAmount: null,
+          chainToken: null,
         },
       ]),
     );
@@ -592,7 +591,6 @@ describe('HTTP API', () => {
           asset: code,
           name: `Test asset ${code}`,
           scale: 8,
-          paper: false,
           available: '0.00000000',
           locked: '0.00000000',
           margin: '0.00000000',
@@ -673,8 +671,7 @@ describe('HTTP API', () => {
       name: 'API asset',
       scale: 6,
       status: 'ACTIVE',
-      paper: false,
-      faucetAmount: null,
+      chainToken: null,
     });
     expect((await risk.post('/v1/admin/assets', { code, name: 'Dup', scale: 6 })).status).toBe(409);
     expect(

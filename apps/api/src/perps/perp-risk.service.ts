@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, type Position } from '@prisma/client';
 import { createHash, randomUUID } from 'node:crypto';
+import { createPublicClient, http, parseAbi, type PublicClient } from 'viem';
 import { AuditService } from '../audit/audit.service';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { PrismaService } from '../infrastructure/prisma/prisma.service';
@@ -36,6 +37,18 @@ import { currentMark } from './perp-prices';
 const RISK_ACTOR: LedgerActor = { actorType: 'SYSTEM', requestId: 'perp-risk' };
 /** Basis EMA period in samples. */
 const BASIS_EMA_PERIOD = 60;
+
+const AGGREGATOR_ABI = parseAbi([
+  'function decimals() view returns (uint8)',
+  'function latestRoundData() view returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)',
+]);
+
+/** Converts an oracle answer with `decimals` to quote minor units (rounded down). */
+export function oracleToQuote(answer: bigint, decimals: number, quoteScale: number): bigint {
+  return decimals >= quoteScale
+    ? answer / 10n ** BigInt(decimals - quoteScale)
+    : answer * 10n ** BigInt(quoteScale - decimals);
+}
 
 type SimulatedState = Record<string, { price: string; second: number }>;
 
@@ -82,7 +95,52 @@ export class PerpRiskService {
     private readonly orders: OrdersService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
+
+  private oracleClient: PublicClient | null = null;
+  private readonly oracleDecimals = new Map<string, number>();
+
+  /**
+   * Chainlink-compatible feed. A failed read, a non-positive answer or an
+   * incomplete round yields no price, so the index falls back to the other
+   * sources or pauses (never a guessed value).
+   */
+  private async oracleSample(
+    address: string,
+    quoteScale: number,
+    now: Date,
+  ): Promise<SourceSample> {
+    if (!this.config.CHAIN_RPC_URL) return { price: null, observedAt: now };
+    this.oracleClient ??= createPublicClient({
+      transport: http(this.config.CHAIN_RPC_URL),
+      cacheTime: 0,
+    }) as PublicClient;
+    try {
+      const feed = address as `0x${string}`;
+      let decimals = this.oracleDecimals.get(address);
+      if (decimals === undefined) {
+        decimals = await this.oracleClient.readContract({
+          address: feed,
+          abi: AGGREGATOR_ABI,
+          functionName: 'decimals',
+        });
+        this.oracleDecimals.set(address, decimals);
+      }
+      const [roundId, answer, , updatedAt, answeredInRound] = await this.oracleClient.readContract({
+        address: feed,
+        abi: AGGREGATOR_ABI,
+        functionName: 'latestRoundData',
+      });
+      if (answer <= 0n || updatedAt === 0n || answeredInRound < roundId)
+        return { price: null, observedAt: now };
+      const price = oracleToQuote(answer, decimals, quoteScale);
+      return { price: price > 0n ? price : null, observedAt: new Date(Number(updatedAt) * 1000) };
+    } catch (err) {
+      this.logger.warn({ feed: address, err: (err as Error).message }, 'PERP_ORACLE_READ_FAILED');
+      return { price: null, observedAt: now };
+    }
+  }
 
   async perpMarkets(): Promise<MarketWithAssets[]> {
     return this.prisma.market.findMany({
@@ -141,7 +199,11 @@ export class PerpRiskService {
     const staleMs = config.index.staleSeconds * 1000;
     const samples: SourceSample[] = [];
     for (const src of config.index.sources)
-      samples.push(await this.sourceSample(src, simulated, second, staleMs, now));
+      samples.push(
+        src.type === 'oracle'
+          ? await this.oracleSample(src.address, market.quoteAsset.scale, now)
+          : await this.sourceSample(src, simulated, second, staleMs, now),
+      );
 
     const index = computeIndex(samples, now, {
       staleMs,
@@ -190,7 +252,7 @@ export class PerpRiskService {
   }
 
   private async sourceSample(
-    src: IndexSource,
+    src: Exclude<IndexSource, { type: 'oracle' }>,
     simulated: SimulatedState,
     second: number,
     staleMs: number,
@@ -283,7 +345,7 @@ export class PerpRiskService {
               {
                 type: 'FUNDING',
                 idempotencyKey: key,
-                description: `Funding ${market.symbol} ${fundingTime.toISOString()} (paper)`,
+                description: `Funding ${market.symbol} ${fundingTime.toISOString()}`,
                 postings,
               },
             ],
@@ -394,7 +456,7 @@ export class PerpRiskService {
                 userId: cur.userId,
                 kind: 'perp.liquidation',
                 title: `Your ${market.symbol} position is being liquidated`,
-                body: 'Equity fell below the maintenance margin. Open orders on this market were cancelled and the position is being closed (paper).',
+                body: 'Equity fell below the maintenance margin. Open orders on this market were cancelled and the position is being closed.',
                 data: { market: market.symbol },
               },
               tx,

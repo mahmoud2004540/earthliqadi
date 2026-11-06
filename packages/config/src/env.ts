@@ -114,6 +114,8 @@ export const apiEnvSchema = z
     SETTLEMENT_POLL_MS: z.coerce.number().int().min(0).max(60_000).default(250),
     /** Milliseconds between perpetual risk ticks (index/mark, funding, liquidation); 0 disables. */
     PERP_RISK_POLL_MS: z.coerce.number().int().min(0).max(60_000).default(1000),
+    /** Milliseconds between dead-man-switch checks (cancel-after timers); 0 disables. */
+    CANCEL_TIMER_POLL_MS: z.coerce.number().int().min(0).max(60_000).default(1000),
     LEDGER_RECONCILIATION_INTERVAL_SECONDS: z.coerce.number().int().min(0).max(86400).default(300),
 
     /** Display name used as the TOTP issuer and in emails. Temporary until the brand is final. */

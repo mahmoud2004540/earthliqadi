@@ -41,16 +41,17 @@ database identifiers.
   end-to-end tests in CI; a load baseline. See
   [ADR-0009](docs/decisions/0009-market-data.md) and
   [performance](docs/operations/performance.md).
-- **Paper trading & simulation** (Phase 5): paper assets and markets in a
-  database-isolated ledger namespace, a daily faucet, per-user order limits,
-  batched settlement (~5× throughput), and `engine-replay` to verify engine
-  builds against recorded history. See
-  [ADR-0010](docs/decisions/0010-paper-trading-and-replay.md).
-- **Perpetual futures** (Phase 6, **paper only**, database-enforced): isolated
-  margin, leverage tiers, reduce-only orders, index and mark price (never last
-  trade), funding, liquidation protected at the bankruptcy price, a paper
-  insurance fund, and a risk simulation harness (ADL specified, not live). See
-  [ADR-0011](docs/decisions/0011-perpetual-futures.md).
+- **Throughput and replay** (Phase 5): per-user order limits, batched
+  settlement (~5× throughput), and `engine-replay` to verify engine builds
+  against recorded history. Paper trading from this phase is **retired**
+  ([ADR-0016](docs/decisions/0016-real-markets-only.md)).
+- **Perpetual futures on vault collateral**: isolated margin, leverage
+  tiers, reduce-only orders, index and mark price (never last trade) from
+  spot and on-chain oracle feeds, zero-sum funding, liquidation protected at
+  the bankruptcy price, an insurance fund funded only from fees, and a risk
+  simulation harness (ADL specified, not live). See
+  [ADR-0011](docs/decisions/0011-perpetual-futures.md) and
+  [ADR-0016](docs/decisions/0016-real-markets-only.md).
 - **Admin, compliance & monitoring** (Phase 7): staff MFA enforcement,
   maker-checker approvals for sensitive actions (database-enforced four eyes),
   identity verification with encrypted profiles (no KYC/sanctions provider is
@@ -134,7 +135,9 @@ tests/              (reserved) cross-service integration and browser e2e suites
   [0012 admin, compliance & monitoring](docs/decisions/0012-admin-compliance-monitoring.md) ·
   [0013 wallet sign-in, no KYC](docs/decisions/0013-wallet-sign-in-no-kyc.md) ·
   [0014 non-custodial vault](docs/decisions/0014-non-custodial-vault.md) ·
-  [0015 signer, step-up, backups, monitoring](docs/decisions/0015-security-and-operational-readiness.md)
+  [0015 signer, step-up, backups, monitoring](docs/decisions/0015-security-and-operational-readiness.md) ·
+  [0016 real markets only](docs/decisions/0016-real-markets-only.md) ·
+  [0017 API keys, batch, cancel-all, dead-man](docs/decisions/0017-professional-trading-tools.md)
 - Security: [controls & threat model](docs/security/threat-model.md) ·
   [dependency policy](docs/security/dependency-policy.md) ·
   [incident response (draft)](docs/security/incident-response.md)

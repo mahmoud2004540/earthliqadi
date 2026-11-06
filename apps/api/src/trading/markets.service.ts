@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { Prisma, type Asset, type Market } from '@prisma/client';
 import {
   formatAmountTrimmed,
@@ -8,6 +8,7 @@ import {
 } from '@platform/shared';
 import { AuditService } from '../audit/audit.service';
 import { AppError } from '../common/app-error';
+import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { PrismaService } from '../infrastructure/prisma/prisma.service';
 import type { LedgerActor } from '../ledger/ledger.service';
 import { toMinorUnits } from '../ledger/ledger-domain';
@@ -30,6 +31,7 @@ export class MarketsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
   async create(
@@ -58,12 +60,9 @@ export class MarketsService {
       this.prisma.asset.findUnique({ where: { code: input.quote } }),
     ]);
     if (!base || !quote) throw AppError.notFound('Unknown base or quote asset');
-    if (base.isPaper !== quote.isPaper) {
-      throw new AppError(
-        HttpStatus.BAD_REQUEST,
-        'VALIDATION_FAILED',
-        'A market cannot combine a paper asset with a real asset',
-      );
+    if (base.isPaper || quote.isPaper) {
+      // Also enforced by the database (markets_no_new_paper).
+      throw new AppError(HttpStatus.CONFLICT, 'CONFLICT', 'Paper trading is retired');
     }
     if (base.status !== 'ACTIVE' || quote.status !== 'ACTIVE') {
       throw new AppError(HttpStatus.CONFLICT, 'CONFLICT', 'Both assets must be active');
@@ -94,12 +93,29 @@ export class MarketsService {
         'Perpetual markets need a perp configuration; spot markets must not have one',
       );
     }
-    if (perpetual && !base.isPaper) {
-      // Also enforced by the database (markets_perp_paper_only_chk).
+    const testEnv = this.config.DEPLOY_ENV === 'local' || this.config.DEPLOY_ENV === 'ci';
+    for (const src of input.perp?.index.sources ?? []) {
+      if (src.type === 'simulated' && !testEnv) {
+        throw new AppError(
+          HttpStatus.BAD_REQUEST,
+          'VALIDATION_FAILED',
+          'Simulated index sources are for automated tests only (local/ci)',
+        );
+      }
+      if (src.type === 'oracle' && !this.config.CHAIN_RPC_URL) {
+        throw new AppError(
+          HttpStatus.BAD_REQUEST,
+          'VALIDATION_FAILED',
+          'Oracle index sources need CHAIN_RPC_URL',
+        );
+      }
+    }
+    if (perpetual && quote.chainTokenAddress === null && !testEnv) {
+      // Margin, PnL and funding settle in the quote asset, which must be held in the vault.
       throw new AppError(
         HttpStatus.BAD_REQUEST,
         'VALIDATION_FAILED',
-        'Perpetual markets are paper-only: real-money derivatives need separate authorisation',
+        'Perpetual markets need a vault-backed quote asset',
       );
     }
     const perpConfig = perpetual ? buildPerpConfig(input.perp!, quote.scale) : undefined;
@@ -135,7 +151,6 @@ export class MarketsService {
             minQuantityLots,
             makerFeeBps: input.makerFeeBps,
             takerFeeBps: input.takerFeeBps,
-            isPaper: base.isPaper,
             kind: perpetual ? 'PERPETUAL' : 'SPOT',
             ...(perpConfig ? { perpConfig } : {}),
           },
@@ -196,6 +211,8 @@ export class MarketsService {
 
   list(): Promise<MarketWithAssets[]> {
     return this.prisma.market.findMany({
+      // Retired paper markets are history only.
+      where: { isPaper: false },
       include: { baseAsset: true, quoteAsset: true },
       orderBy: { symbol: 'asc' },
     });
@@ -222,7 +239,8 @@ export class MarketsService {
       makerFeeBps: m.makerFeeBps,
       takerFeeBps: m.takerFeeBps,
       status: m.status,
-      paper: m.isPaper,
+      vaultBacked:
+        m.baseAsset.chainTokenAddress !== null && m.quoteAsset.chainTokenAddress !== null,
       kind: m.kind === 'PERPETUAL' ? 'perpetual' : 'spot',
       perp:
         m.kind === 'PERPETUAL'

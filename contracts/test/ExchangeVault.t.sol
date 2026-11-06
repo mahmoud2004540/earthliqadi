@@ -3,6 +3,7 @@ pragma solidity 0.8.28;
 
 import {ExchangeVault} from "../src/ExchangeVault.sol";
 import {TestToken} from "../src/TestToken.sol";
+import {TestPriceFeed} from "../src/TestPriceFeed.sol";
 
 /// Minimal Foundry cheatcode interface (self-contained; no external test library).
 interface Vm {
@@ -328,5 +329,25 @@ contract ExchangeVaultInvariantTest is TestBase {
 
     function invariant_vaultHoldsExactlyNetDeposits() public view {
         require(usd.balanceOf(address(vault)) == handler.ghostIn() - handler.ghostOut(), "conservation");
+    }
+}
+
+contract TestPriceFeedTest is TestBase {
+    function testOnlyOwnerPostsAnswersAndRoundsAdvance() public {
+        TestPriceFeed feed = new TestPriceFeed(8, "TEST BTC / USD");
+        (uint80 r0,,, uint256 u0,) = feed.latestRoundData();
+        eq(r0, 0, "no round yet");
+        eq(u0, 0, "never updated");
+        vm.warp(1000);
+        feed.setAnswer(65_000e8);
+        (uint80 r1, int256 a1,, uint256 u1, uint80 ans1) = feed.latestRoundData();
+        eq(r1, 1, "round 1");
+        // forge-lint: disable-next-line(unsafe-typecast)
+        eq(uint256(a1), 65_000e8, "answer");
+        eq(u1, 1000, "updatedAt");
+        eq(ans1, 1, "answeredInRound");
+        vm.prank(address(0xBAD));
+        vm.expectRevert(TestPriceFeed.NotOwner.selector);
+        feed.setAnswer(1);
     }
 }

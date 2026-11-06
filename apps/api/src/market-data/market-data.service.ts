@@ -226,7 +226,6 @@ export class MarketDataService {
       const lastTicks = last?.priceTicks ?? null;
       return {
         market: market.symbol,
-        paper: market.isPaper,
         seq: seq.toString(),
         last: lastTicks === null ? null : ticksToPrice(lastTicks, u),
         open24h: open === null ? null : ticksToPrice(open, u),

@@ -140,8 +140,21 @@ describe('step-up re-authentication (ADR-0015)', () => {
 describe('maker-checker approvals', () => {
   it('requires a different staff member, executes once, and is immutable afterwards', async () => {
     const asset = code('PI');
-    await ledger.createAsset(
-      { code: asset, name: 'Paper', scale: 6, paper: true, faucetAmount: '1' },
+    await ledger.createAsset({ code: asset, name: 'Fee asset', scale: 6 }, SYSTEM);
+    // Fee income to move (test fixture: simulated custody, local/ci only).
+    const a0 = await ledger.requireAsset(asset);
+    const custody = await ledger.ensureAccount(a0.id, 'SIMULATED_CUSTODY', null);
+    const fees = await ledger.ensureAccount(a0.id, 'FEE_REVENUE', null);
+    await ledger.post(
+      {
+        type: 'SIMULATED_DEPOSIT',
+        idempotencyKey: `fee-fixture:${asset}`,
+        description: 'Test fee income',
+        postings: [
+          { accountId: custody.id, direction: 'DEBIT', amount: 600_000_000n },
+          { accountId: fees.id, direction: 'CREDIT', amount: 600_000_000n },
+        ],
+      },
       SYSTEM,
     );
     const a = await person('risk_officer');
@@ -151,7 +164,7 @@ describe('maker-checker approvals', () => {
     const req = await a.client.post('/v1/admin/approvals', {
       action: 'insurance_fund.seed',
       payload: { asset, amount: '500' },
-      reason: 'Seed the paper insurance fund',
+      reason: 'Top up the insurance fund from fees',
     });
     expect(req.status).toBe(201);
     expect(req.body.status).toBe('pending');
@@ -263,12 +276,12 @@ describe('maker-checker approvals', () => {
 
   it('reverses a ledger entry through maker-checker', async () => {
     const asset = code('PR');
-    await ledger.createAsset(
-      { code: asset, name: 'Paper', scale: 2, paper: true, faucetAmount: '10' },
+    await ledger.createAsset({ code: asset, name: 'Reversal asset', scale: 2 }, SYSTEM);
+    const user = await person();
+    const grant = await ledger.simulatedDeposit(
+      { userId: user.id, assetCode: asset, amount: 1000n, idempotencyKey: `rev:${asset}` },
       SYSTEM,
     );
-    const user = await person();
-    const grant = await ledger.paperFaucet(user.id, asset, SYSTEM);
     const a = await person('risk_officer');
     const b = await person('risk_officer');
     const r = await a.client.post('/v1/admin/approvals', {
@@ -378,7 +391,7 @@ describe('identity verification (KYC)', () => {
     });
   });
 
-  it('gates real-asset trading behind KYC when configured (paper stays open)', async () => {
+  it('gates trading behind KYC when configured', async () => {
     const base = code('KB');
     const quote = code('KQ');
     await ledger.createAsset({ code: base, name: 'B', scale: 8 }, SYSTEM);
@@ -444,7 +457,7 @@ describe('support and announcements', () => {
     );
     const a = await agent.client.post('/v1/announcements', {
       title: `Maintenance ${code('W')}`,
-      body: 'Planned maintenance window (paper environment).',
+      body: 'Planned maintenance window.',
     });
     expect(a.status).toBe(201);
     const list = await new TestClient(app).get('/v1/announcements');

@@ -13,9 +13,11 @@ export default async function globalSetup(): Promise<void> {
   process.env.E2E_MARKET = `${base}-${quote}`;
   process.env.E2E_BASE = base;
   process.env.E2E_QUOTE = quote;
-  const [paperBase, paperQuote] = [`PB${run}`, `PQ${run}`];
-  process.env.E2E_PAPER_MARKET = `${paperBase}-${paperQuote}`;
-  process.env.E2E_PERP_MARKET = `${paperBase}-${paperQuote}-PERP`;
+  // The perpetual gets its own spot market for its index, so other tests'
+  // orders cannot move its price.
+  const [ib, iq] = [`IB${run}`, `IQ${run}`];
+  process.env.E2E_INDEX_MARKET = `${ib}-${iq}`;
+  process.env.E2E_PERP_MARKET = `${ib}-${iq}-PERP`;
   process.env.E2E_VAULT_USD = `TUSD${run}`;
   const baseURL = process.env.E2E_BASE_URL ?? 'http://localhost:3000';
   compose(
@@ -29,6 +31,8 @@ export default async function globalSetup(): Promise<void> {
   for (const [code, scale] of [
     [base, '8'],
     [quote, '6'],
+    [ib, '8'],
+    [iq, '6'],
   ] as const) {
     cli(
       'dist/cli/ledger.js',
@@ -39,25 +43,6 @@ export default async function globalSetup(): Promise<void> {
       `E2E test ${code}`,
       '--scale',
       scale,
-    );
-  }
-
-  for (const [code, scale, faucet] of [
-    [paperBase, '8', '2'],
-    [paperQuote, '6', '50000'],
-  ] as const) {
-    cli(
-      'dist/cli/ledger.js',
-      'create-asset',
-      '--code',
-      code,
-      '--name',
-      `E2E paper ${code}`,
-      '--scale',
-      scale,
-      '--paper',
-      '--faucet',
-      faucet,
     );
   }
 
@@ -111,24 +96,24 @@ export default async function globalSetup(): Promise<void> {
       data: { base, quote, tickSize: '0.01', lotSize: '0.0001', makerFeeBps: 10, takerFeeBps: 20 },
     });
     if (!created.ok()) throw new Error(`market creation failed: ${created.status()}`);
-    const paper = await api.post('/api/v1/admin/markets', {
+    const index = await api.post('/api/v1/admin/markets', {
       headers,
       data: {
-        base: paperBase,
-        quote: paperQuote,
+        base: ib,
+        quote: iq,
         tickSize: '0.01',
         lotSize: '0.0001',
         makerFeeBps: 0,
         takerFeeBps: 0,
       },
     });
-    if (!paper.ok()) throw new Error(`paper market creation failed: ${paper.status()}`);
-    // Paper perpetual with a clearly labelled SIMULATED index feed (ADR-0011).
+    if (!index.ok()) throw new Error(`index market creation failed: ${index.status()}`);
+    // Perpetual whose index is the spot mid of the index market (ADR-0016).
     const perp = await api.post('/api/v1/admin/markets', {
       headers,
       data: {
-        base: paperBase,
-        quote: paperQuote,
+        base: ib,
+        quote: iq,
         tickSize: '0.01',
         lotSize: '0.0001',
         makerFeeBps: 2,
@@ -146,8 +131,8 @@ export default async function globalSetup(): Promise<void> {
           liquidationFeeBps: 50,
           priceBandBps: 1000,
           index: {
-            sources: [{ type: 'simulated', start: '100', volatilityBps: 2, seed: `e2e${run}` }],
-            staleSeconds: 30,
+            sources: [{ type: 'spot', market: `${ib}-${iq}` }],
+            staleSeconds: 120,
             outlierBps: 500,
             minSources: 1,
           },

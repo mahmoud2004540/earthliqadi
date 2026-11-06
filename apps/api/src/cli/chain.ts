@@ -1,7 +1,8 @@
 /**
  * Vault CLI (ADR-0014). Testnets and local chains only.
  *
- *   chain deploy [--freeze-delay 604800] [--suffix X]  # test tokens TUSD (6) + TBTC (8) and the vault
+ *   chain deploy [--freeze-delay 604800] [--suffix X]  # test tokens TUSD (6) + TBTC (8), the vault,
+ *                                          # and the markets TBTC-TUSD (spot) and TBTC-TUSD-PERP
  *   chain index                            # one indexer pass
  *   chain commit                           # snapshot + commit the balance root
  *   chain custody                          # ledger vs on-chain custody
@@ -11,6 +12,7 @@ import { NestFactory } from '@nestjs/core';
 import { parseArgs } from 'node:util';
 import { AppModule } from '../app.module';
 import { ChainService } from '../chain/chain.service';
+import { MarketsService } from '../trading/markets.service';
 import { loadAppConfigOrExit } from '../config/app-config';
 
 async function run(): Promise<void> {
@@ -29,6 +31,7 @@ async function run(): Promise<void> {
       VAULT_STATE_INTERVAL_SECONDS: 0,
       SETTLEMENT_POLL_MS: 0,
       PERP_RISK_POLL_MS: 0,
+      CANCEL_TIMER_POLL_MS: 0,
     }),
   );
   const chain = app.get(ChainService);
@@ -46,7 +49,56 @@ async function run(): Promise<void> {
           ],
           freezeDelaySeconds: Number(values['freeze-delay'] ?? 7 * 24 * 3600),
         });
-        process.stdout.write(`${JSON.stringify(r, null, 2)}\n`);
+        // Vault-backed markets on the new tokens. The perpetual's index is the
+        // spot mid price; on public testnets add real oracle feeds via the admin API.
+        const usd = `TUSD${sfx}`;
+        const btc = `TBTC${sfx}`;
+        const actor = { actorType: 'SYSTEM' as const, requestId: 'cli:chain-deploy' };
+        const markets = app.get(MarketsService);
+        const spot = await markets.create(
+          {
+            base: btc,
+            quote: usd,
+            tickSize: '0.01',
+            lotSize: '0.0001',
+            makerFeeBps: 2,
+            takerFeeBps: 5,
+          },
+          actor,
+        );
+        const perp = await markets.create(
+          {
+            base: btc,
+            quote: usd,
+            tickSize: '0.01',
+            lotSize: '0.0001',
+            makerFeeBps: 2,
+            takerFeeBps: 5,
+            kind: 'perpetual',
+            perp: {
+              defaultLeverage: 10,
+              tiers: [
+                { maxNotional: '250000', maxLeverage: 20, mmrBps: 250 },
+                { maxNotional: '2500000', maxLeverage: 10, mmrBps: 500 },
+              ],
+              fundingIntervalSeconds: 3600,
+              fundingClampBps: 75,
+              maxBasisBps: 50,
+              liquidationFeeBps: 50,
+              priceBandBps: 1000,
+              index: {
+                sources: [{ type: 'spot', market: spot.symbol }],
+                staleSeconds: 60,
+                outlierBps: 500,
+                minSources: 1,
+              },
+            },
+          },
+          actor,
+        );
+        process.stdout.write(
+          `${JSON.stringify({ ...r, markets: [spot.symbol, perp.symbol] }, null, 2)}\n`,
+        );
         break;
       }
       case 'index':

@@ -113,7 +113,7 @@ export class ApprovalsService {
       }
       case 'insurance_fund.seed': {
         const a = await this.ledger.requireAsset(input.payload.asset);
-        if (!a.isPaper) throw conflict('Insurance fund seeding is only available for paper assets');
+        if (a.isPaper) throw conflict('Paper trading is retired');
         return;
       }
       case 'ledger.reversal': {

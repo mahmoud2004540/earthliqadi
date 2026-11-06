@@ -72,21 +72,21 @@ introduce withdrawals (8) and trading (3–6).
 | Client IP spoofing on WebSockets                 | Same trusted-hop model as HTTP; the edge repeats `X-Forwarded-For` in the WS location (nginx header inheritance pitfall documented) | review      |
 | Float rounding in the UI                         | Totals and spreads computed with `bigint`; only the chart plots floats (visual only)                                                | unit + e2e  |
 
-## Paper trading and simulation controls (Phase 5)
+## Paper trading and simulation controls (Phase 5; retired by ADR-0016)
 
-| Threat                                          | Control                                                                                              | Verified by |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ----------- |
-| Simulated value leaking into real balances      | Deferred trigger rejects any entry mixing paper and real assets; markets cannot mix; immutable flags | e2e         |
-| Faucet abuse / double grants                    | Once per user/asset/UTC day via idempotency key (race-safe); audited                                 | e2e         |
-| Bypassed triggers (privileged DB access)        | Reconciliation `MIXED_NAMESPACE_ENTRY` finding                                                       | e2e         |
-| Order spam / resource exhaustion by one account | Per-user order rate limit (Redis), open-order cap per market                                         | e2e         |
-| Non-deterministic or regressed engine releases  | `engine-replay` gate against recorded history before deployment                                      | Rust + e2e  |
+| Threat                                          | Control                                                                                       | Verified by |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------- | ----------- |
+| Simulated value leaking into real balances      | No new paper rows or faucet grants (triggers); old paper history cannot mix with real entries | e2e         |
+| Bypassed triggers (privileged DB access)        | Reconciliation `MIXED_NAMESPACE_ENTRY` finding                                                | e2e         |
+| Order spam / resource exhaustion by one account | Per-user order rate limit (Redis), open-order cap per market                                  | e2e         |
+| Non-deterministic or regressed engine releases  | `engine-replay` gate against recorded history before deployment                               | Rust + e2e  |
 
-## Perpetual futures controls (Phase 6, paper only)
+## Perpetual futures controls (vault collateral, ADR-0016)
 
 | Threat                                               | Control                                                                                                                    | Verified by        |
 | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------ |
-| Real-money derivatives offered without authorisation | `markets_perp_paper_only_chk`; derivative account types refused for real assets (trigger)                                  | e2e                |
+| Perpetuals settling on unclaimable balances          | Outside local/ci the quote asset must be vault-backed; simulated index sources refused outside local/ci                    | e2e                |
+| Oracle failure or manipulation                       | Non-positive, incomplete-round or stale answers give no price; median of sources with outlier check; index pauses          | unit + e2e         |
 | Losses beyond margin / negative balances             | Closing orders capped at the bankruptcy price; liquidation orders protected at it; non-negative margin CHECK               | property + e2e     |
 | Mark-price manipulation through a thin book          | Mark = index + clamped basis EMA (`maxBasisBps`); last trade never used; index median with outlier and staleness checks    | unit + e2e         |
 | Stale or missing prices                              | No fresh mark: funding, liquidation and risk-increasing orders pause; UI warning                                           | e2e                |

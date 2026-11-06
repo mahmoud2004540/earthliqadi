@@ -11,6 +11,7 @@ import { validateTiers, type RiskTier } from './perp-math';
 
 export type IndexSource =
   | { type: 'spot'; market: string }
+  | { type: 'oracle'; address: string; label: string }
   | { type: 'simulated'; start: bigint; volatilityBps: number; seed: string };
 
 /** Parsed perpetual risk parameters; amounts in quote minor units. */
@@ -71,12 +72,14 @@ export function buildPerpConfig(input: PerpConfigInput, quoteScale: number): Pri
       sources: input.index.sources.map((s, i) =>
         s.type === 'spot'
           ? { type: 'spot', market: s.market }
-          : {
-              type: 'simulated',
-              start: amount(s.start, quoteScale, `index.sources[${i}].start`).toString(),
-              volatilityBps: s.volatilityBps,
-              seed: s.seed,
-            },
+          : s.type === 'oracle'
+            ? { type: 'oracle', address: s.address.toLowerCase(), label: s.label }
+            : {
+                type: 'simulated',
+                start: amount(s.start, quoteScale, `index.sources[${i}].start`).toString(),
+                volatilityBps: s.volatilityBps,
+                seed: s.seed,
+              },
       ),
       staleSeconds: input.index.staleSeconds,
       outlierBps: input.index.outlierBps,
@@ -96,6 +99,7 @@ type StoredConfig = {
   index: {
     sources: (
       | { type: 'spot'; market: string }
+      | { type: 'oracle'; address: string; label: string }
       | { type: 'simulated'; start: string; volatilityBps: number; seed: string }
     )[];
     staleSeconds: number;
@@ -114,16 +118,16 @@ export function parsePerpConfig(json: Prisma.JsonValue | null): PerpConfig {
     index: {
       ...c.index,
       sources: c.index.sources.map((s) =>
-        s.type === 'spot' ? s : { ...s, start: BigInt(s.start) },
+        s.type === 'simulated' ? { ...s, start: BigInt(s.start) } : s,
       ),
     },
   };
 }
 
 export function sourceLabel(s: IndexSource, quoteScale: number): string {
-  return s.type === 'spot'
-    ? `Exchange market ${s.market} (mid price)`
-    : `SIMULATED feed "${s.seed}" (random walk from ${formatAmountTrimmed(s.start, quoteScale)}, not a real price)`;
+  if (s.type === 'spot') return `Exchange market ${s.market} (mid price)`;
+  if (s.type === 'oracle') return `Oracle feed ${s.label} (${s.address})`;
+  return `TEST-ONLY SIMULATED feed "${s.seed}" (random walk from ${formatAmountTrimmed(s.start, quoteScale)}, not a real price)`;
 }
 
 export function perpInfoDto(c: PerpConfig, quoteScale: number): PerpMarketInfoDto {

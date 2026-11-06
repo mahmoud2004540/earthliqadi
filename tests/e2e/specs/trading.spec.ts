@@ -5,7 +5,11 @@ const E2E_MARKET = process.env.E2E_MARKET!;
 const BASE = process.env.E2E_BASE!;
 const QUOTE = process.env.E2E_QUOTE!;
 
-async function signUp(browser: Browser, tag: string, deposit?: [string, string]): Promise<Page> {
+async function signUp(
+  browser: Browser,
+  tag: string,
+  ...deposits: [string, string][]
+): Promise<Page> {
   const page = await (await browser.newContext()).newPage();
   const email = uniqueEmail(tag);
   await page.goto('/register');
@@ -25,16 +29,16 @@ async function signUp(browser: Browser, tag: string, deposit?: [string, string])
     .not.toBe('');
   await page.goto(verificationLink(email));
   await expect(page.getByText('Your email is verified')).toBeVisible();
-  if (deposit)
+  for (const [asset, amount] of deposits)
     cli(
       'dist/cli/ledger.js',
       'sim-deposit',
       '--email',
       email,
       '--asset',
-      deposit[0],
+      asset,
       '--amount',
-      deposit[1],
+      amount,
     );
   await page.goto('/login');
   await page.fill('#email', email);
@@ -104,58 +108,32 @@ test('signed-out visitors see the market but must sign in to trade', async ({ pa
   await expect(page.getByText('Sign in to trade')).toBeVisible();
 });
 
-test('paper trading: faucet funds and a trade on a paper market', async ({ browser }) => {
-  const market = process.env.E2E_PAPER_MARKET!;
-  const [base, quote] = market.split('-') as [string, string];
-  const seller = await signUp(browser, 'e2e-paper-seller');
-  const buyer = await signUp(browser, 'e2e-paper-buyer');
-  for (const [page, asset] of [
-    [seller, base],
-    [buyer, quote],
-  ] as const) {
-    await page.goto(`/trade/${market}`);
-    await expect(page.getByTestId('paper-badge')).toBeVisible();
-    await page
-      .getByTestId('paper-faucet')
-      .getByRole('button', { name: `Get paper ${asset}` })
-      .click();
-    await expect(page.getByText('Paper funds added.')).toBeVisible();
-  }
-  await seller.getByRole('button', { name: 'Sell', exact: true }).click();
-  await expect(seller.getByTestId('available')).toHaveText(`2.00000000 ${base}`);
-  await seller.fill('#price', '100');
-  await seller.fill('#quantity', '1');
-  await seller.getByTestId('order-form').locator('button[type=submit]').click();
-  await expect(buyer.getByTestId('order-book').getByRole('button', { name: /^100/ })).toBeVisible();
-  await buyer.fill('#price', '100');
-  await buyer.fill('#quantity', '1');
-  await buyer.getByTestId('order-form').locator('button[type=submit]').click();
-  await expect(buyer.getByTestId('recent-trades')).toContainText('100');
-  // The faucet is limited to once per asset per day.
-  await buyer
-    .getByTestId('paper-faucet')
-    .getByRole('button', { name: `Get paper ${quote}` })
-    .click();
-  await expect(buyer.getByText(/already used/)).toBeVisible();
-});
-
-test('perpetuals (paper): mark price, leverage, opening a position', async ({ browser }) => {
+test('perpetuals: index from the spot book, leverage, opening a position', async ({ browser }) => {
   const market = process.env.E2E_PERP_MARKET!;
-  const quote = market.split('-')[1]!;
-  const long = await signUp(browser, 'e2e-perp-long');
-  const short = await signUp(browser, 'e2e-perp-short');
+  const spot = process.env.E2E_INDEX_MARKET!;
+  const [ib, iq] = spot.split('-') as [string, string];
+  // A maker quotes the spot market the perpetual's index is derived from.
+  const maker = await signUp(browser, 'e2e-perp-maker', [iq, '1000'], [ib, '1']);
+  await maker.goto(`/trade/${spot}`);
+  await maker.fill('#price', '99');
+  await maker.fill('#quantity', '0.1');
+  await maker.getByTestId('order-form').locator('button[type=submit]').click();
+  await expect(maker.getByText('Order submitted.')).toBeVisible();
+  await maker.getByRole('button', { name: 'Sell', exact: true }).click();
+  await maker.fill('#price', '101');
+  await maker.fill('#quantity', '0.1');
+  await maker.getByTestId('order-form').locator('button[type=submit]').click();
+  await expect(maker.getByTestId('order-book').getByRole('button', { name: /^101/ })).toBeVisible();
+
+  const long = await signUp(browser, 'e2e-perp-long', [iq, '50000']);
+  const short = await signUp(browser, 'e2e-perp-short', [iq, '50000']);
   for (const page of [long, short]) {
     await page.goto(`/trade/${market}`);
     await expect(page.getByTestId('perp-badge')).toBeVisible();
-    await expect(page.getByTestId('perp-mark')).not.toHaveText('—');
-    await page
-      .getByTestId('paper-faucet')
-      .getByRole('button', { name: `Get paper ${quote}` })
-      .click();
-    await expect(page.getByText('Paper funds added.')).toBeVisible();
+    await expect(page.getByTestId('perp-mark')).toHaveText('100', { timeout: 15_000 });
   }
   await expect(long.getByTestId('leverage')).toHaveText('10x');
-  // A price on the tick grid near the (simulated) mark, inside the 10% band.
+  // A price on the tick grid at the mark, inside the 10% band.
   const mark = (await long.getByTestId('perp-mark').innerText()).trim();
   const [whole, frac = ''] = mark.split('.');
   const price = `${whole}.${frac.padEnd(2, '0').slice(0, 2)}`;

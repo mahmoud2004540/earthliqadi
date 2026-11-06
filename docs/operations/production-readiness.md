@@ -44,9 +44,9 @@ outside engineering. **No item marked external has been done or is claimed.**
 
 ## Product
 
-| Item                                                     | Status                               |
-| -------------------------------------------------------- | ------------------------------------ |
-| Spot matching, settlement, market data, terminal         | Done                                 |
-| Paper trading and paper perpetuals                       | Done                                 |
-| Vault deposits/withdrawals on a test chain, escape hatch | Done (testnet)                       |
-| Mainnet deployment                                       | Blocked by every external item above |
+| Item                                                       | Status                               |
+| ---------------------------------------------------------- | ------------------------------------ |
+| Spot matching, settlement, market data, terminal           | Done                                 |
+| Real spot and perpetuals on vault collateral, oracle index | Done (testnet)                       |
+| Vault deposits/withdrawals on a test chain, escape hatch   | Done (testnet)                       |
+| Mainnet deployment                                         | Blocked by every external item above |

@@ -14,12 +14,16 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import {
   PERMISSIONS,
+  batchOrdersSchema,
+  cancelAfterSchema,
+  cancelAllSchema,
   createMarketSchema,
   marketStatusSchema,
   marketSymbolSchema,
   orderListQuerySchema,
   placeOrderSchema,
   reduceOrderSchema,
+  type BatchOrderResultDto,
   type MarketDto,
   type OrderDto,
   type TradeDto,
@@ -28,7 +32,7 @@ import type { Response } from 'express';
 import { z } from 'zod';
 import type { AuthContext } from '../auth/auth-context';
 import { CurrentAuth } from '../auth/current-auth.decorator';
-import { Public, RequirePermissions, RequireStepUp } from '../common/decorators';
+import { ApiKeyScope, Public, RequirePermissions, RequireStepUp } from '../common/decorators';
 import { ApiZodBody } from '../common/openapi';
 import { ReqContext, type RequestContext } from '../common/request-context';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
@@ -60,6 +64,7 @@ export class OrdersController {
 
   /** 202: the order is funded and queued; the engine decides acceptance asynchronously. */
   @Post()
+  @ApiKeyScope('trade')
   @RequirePermissions(PERMISSIONS.TRADING_TRADE)
   @ApiZodBody(placeOrderSchema)
   async place(
@@ -73,7 +78,48 @@ export class OrdersController {
     return order;
   }
 
+  /** Up to 20 orders; per-item results (202 accepted, 200 replayed, or the error). */
+  @Post('batch')
+  @HttpCode(HttpStatus.OK)
+  @ApiKeyScope('trade')
+  @RequirePermissions(PERMISSIONS.TRADING_TRADE)
+  @ApiZodBody(batchOrdersSchema)
+  async batch(
+    @CurrentAuth() auth: AuthContext,
+    @Body(new ZodValidationPipe(batchOrdersSchema)) body: z.infer<typeof batchOrdersSchema>,
+    @ReqContext() ctx: RequestContext,
+  ): Promise<{ results: BatchOrderResultDto[] }> {
+    return { results: await this.orders.placeBatch(auth.user.id, body.orders, ctx) };
+  }
+
+  /** Cancels every open order (optionally one market). */
+  @Post('cancel-all')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiKeyScope('trade')
+  @RequirePermissions(PERMISSIONS.TRADING_TRADE)
+  @ApiZodBody(cancelAllSchema)
+  cancelAll(
+    @CurrentAuth() auth: AuthContext,
+    @Body(new ZodValidationPipe(cancelAllSchema)) body: z.infer<typeof cancelAllSchema>,
+  ): Promise<{ cancelRequested: number }> {
+    return this.orders.cancelAll(auth.user.id, body.market);
+  }
+
+  /** Dead-man switch: cancel all orders unless refreshed within timeoutSeconds (0 disables). */
+  @Post('cancel-after')
+  @HttpCode(HttpStatus.OK)
+  @ApiKeyScope('trade')
+  @RequirePermissions(PERMISSIONS.TRADING_TRADE)
+  @ApiZodBody(cancelAfterSchema)
+  cancelAfter(
+    @CurrentAuth() auth: AuthContext,
+    @Body(new ZodValidationPipe(cancelAfterSchema)) body: z.infer<typeof cancelAfterSchema>,
+  ): Promise<{ deadline: string | null }> {
+    return this.orders.setCancelAfter(auth.user.id, body.timeoutSeconds);
+  }
+
   @Get()
+  @ApiKeyScope('read')
   @RequirePermissions(PERMISSIONS.ACCOUNT_SELF_READ)
   async list(
     @CurrentAuth() auth: AuthContext,
@@ -83,6 +129,7 @@ export class OrdersController {
   }
 
   @Get(':id')
+  @ApiKeyScope('read')
   @RequirePermissions(PERMISSIONS.ACCOUNT_SELF_READ)
   get(
     @CurrentAuth() auth: AuthContext,
@@ -93,6 +140,7 @@ export class OrdersController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.ACCEPTED)
+  @ApiKeyScope('trade')
   @RequirePermissions(PERMISSIONS.TRADING_TRADE)
   cancel(
     @CurrentAuth() auth: AuthContext,
@@ -104,6 +152,7 @@ export class OrdersController {
   /** Reduce the remaining quantity (keeps time priority). Price changes = cancel and re-place. */
   @Patch(':id')
   @HttpCode(HttpStatus.ACCEPTED)
+  @ApiKeyScope('trade')
   @RequirePermissions(PERMISSIONS.TRADING_TRADE)
   @ApiZodBody(reduceOrderSchema)
   reduce(
@@ -121,6 +170,7 @@ export class MyTradesController {
   constructor(private readonly orders: OrdersService) {}
 
   @Get('trades')
+  @ApiKeyScope('read')
   @RequirePermissions(PERMISSIONS.ACCOUNT_SELF_READ)
   async trades(
     @CurrentAuth() auth: AuthContext,

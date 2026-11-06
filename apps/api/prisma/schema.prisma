@@ -69,6 +69,8 @@ model User {
   updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   sessions           Session[]
+  apiKeys            ApiKey[]
+  cancelAllTimer     CancelAllTimer?
   tokens             VerificationToken[]
   roles              UserRole[]          @relation("UserRoles")
   grantedRoles       UserRole[]          @relation("RoleGrants")
@@ -907,4 +909,39 @@ model VaultStateLeaf {
 
   @@id([chainId, vaultAddress, index, walletAddress, tokenAddress])
   @@map("vault_state_leaves")
+}
+
+/// Agent API key (ADR-0017): Ed25519 public key authorised by a wallet signature.
+model ApiKey {
+  id                     String    @id @db.Uuid
+  userId                 String    @map("user_id") @db.Uuid
+  label                  String    @db.VarChar(48)
+  /// Hex-encoded raw Ed25519 public key (32 bytes).
+  publicKey              String    @unique @map("public_key") @db.Char(64)
+  /// Subset of {read, trade}. No scope can withdraw.
+  scopes                 String[]
+  allowedIps             String[]  @default([]) @map("allowed_ips")
+  authorizationMessage   String    @map("authorization_message")
+  authorizationSignature String    @map("authorization_signature") @db.VarChar(132)
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt              DateTime  @map("expires_at") @db.Timestamptz(3)
+  lastUsedAt             DateTime? @map("last_used_at") @db.Timestamptz(3)
+  revokedAt              DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@map("api_keys")
+}
+
+/// Dead-man switch: cancel every open order when the deadline passes.
+model CancelAllTimer {
+  userId    String   @id @map("user_id") @db.Uuid
+  deadline  DateTime @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([deadline])
+  @@map("cancel_all_timers")
 }

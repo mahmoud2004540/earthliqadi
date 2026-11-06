@@ -42,7 +42,7 @@ event.
 2. A `SettlementInvariantError` is a defect or tampering: halt the market and
    investigate. Never edit engine events.
 3. Insufficient insurance fund on a bankrupt perpetual fill: seed the fund
-   through maker-checker (`insurance_fund.seed`, paper only), then settlement
+   through maker-checker (`insurance_fund.seed`, moves collected fees), then settlement
    resumes by itself.
 
 ## Settlement lag high

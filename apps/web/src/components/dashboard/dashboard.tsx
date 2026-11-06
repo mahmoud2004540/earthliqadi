@@ -11,6 +11,7 @@ import type { Dictionary } from '@/i18n';
 import { ApiError, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { InboxPanel, SupportPanel } from './account-panels';
+import { ApiKeysPanel } from './api-keys-panel';
 import { SecurityPanel } from './security-panel';
 import { VaultPanel } from './vault-panel';
 import { WalletPanel } from './wallet-panel';
@@ -18,7 +19,7 @@ import { WalletPanel } from './wallet-panel';
 export function Dashboard({ t }: { t: Dictionary }) {
   const router = useRouter();
   const [user, setUser] = useState<CurrentUserDto | null>(null);
-  type Tab = 'overview' | 'wallet' | 'support' | 'inbox' | 'security';
+  type Tab = 'overview' | 'wallet' | 'api' | 'support' | 'inbox' | 'security';
   const [tab, setTab] = useState<Tab>('overview');
 
   const [version, setVersion] = useState(0);
@@ -78,7 +79,7 @@ export function Dashboard({ t }: { t: Dictionary }) {
       </div>
 
       <div role="tablist" className="mt-8 flex gap-1 overflow-x-auto border-b border-border">
-        {(['overview', 'wallet', 'support', 'inbox', 'security'] as const).map((key) => (
+        {(['overview', 'wallet', 'api', 'support', 'inbox', 'security'] as const).map((key) => (
           <button
             key={key}
             role="tab"
@@ -95,6 +96,7 @@ export function Dashboard({ t }: { t: Dictionary }) {
               {
                 overview: d.overview,
                 wallet: d.balancesTitle,
+                api: d.apiTab,
                 support: d.supportTab,
                 inbox: d.inboxTab,
                 security: d.securityTab,
@@ -110,6 +112,10 @@ export function Dashboard({ t }: { t: Dictionary }) {
           <div className="mt-6">
             <VaultPanel t={t} walletAddress={user.walletAddress} />
           </div>
+        </div>
+      ) : tab === 'api' ? (
+        <div className="mt-8">
+          <ApiKeysPanel t={t} walletAddress={user.walletAddress} />
         </div>
       ) : tab === 'support' ? (
         <div className="mt-8">
