@@ -58,6 +58,8 @@ model User {
   label            String?     @db.VarChar(48)
   /// Set once at account creation from a referral code (ADR-0018).
   referredByUserId String?     @map("referred_by_user_id") @db.Uuid
+  /// Trading account of a leader vault (ADR-0019).
+  isVault          Boolean     @default(false) @map("is_vault")
   emailVerifiedAt  DateTime?   @map("email_verified_at") @db.Timestamptz(3)
 
   /// AES-256-GCM encrypted TOTP secret (iv|tag|ciphertext). Never returned by the API.
@@ -271,6 +273,8 @@ enum JournalEntryType {
   WITHDRAWAL_FINAL
   WITHDRAWAL_RELEASE
   INTERNAL_TRANSFER
+  VAULT_DEPOSIT
+  VAULT_REDEMPTION
 }
 
 enum ReconciliationStatus {
@@ -496,6 +500,8 @@ model Order {
   triggerDirection  String?     @map("trigger_direction") @db.VarChar(5)
   /// Take-profit / stop-loss pair: when one triggers, the other is cancelled.
   ocoGroupId        String?     @map("oco_group_id") @db.Uuid
+  /// Self-trade-prevention account sent to the engine (null on older rows = user id).
+  engineAccount     String?     @map("engine_account") @db.Uuid
   quantityLots      BigInt      @map("quantity_lots")
   filledLots        BigInt      @default(0) @map("filled_lots")
   status            OrderStatus @default(PENDING_NEW)
@@ -1024,4 +1030,70 @@ model UserPoints {
 
   @@id([userId, day])
   @@map("user_points")
+}
+
+/// Leader vault (ADR-0019): a leader trades followers' pooled collateral.
+model LeaderVault {
+  id                String   @id @db.Uuid
+  leaderUserId      String   @map("leader_user_id") @db.Uuid
+  accountUserId     String   @unique @map("account_user_id") @db.Uuid
+  name              String   @db.VarChar(48)
+  description       String   @default("") @db.VarChar(280)
+  quoteAssetId      String   @map("quote_asset_id") @db.Uuid
+  profitShareBps    Int      @map("profit_share_bps")
+  minLeaderShareBps Int      @default(500) @map("min_leader_share_bps")
+  maxLeverage       Int      @map("max_leverage")
+  maxDrawdownBps    Int      @map("max_drawdown_bps")
+  status            String   @default("OPEN") @db.VarChar(12)
+  peakPpsE18        Decimal  @map("peak_pps_e18") @db.Decimal(78, 0)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  shares      VaultShare[]
+  redemptions VaultRedemption[]
+  snapshots   VaultSnapshot[]
+
+  @@index([leaderUserId])
+  @@map("leader_vaults")
+}
+
+model VaultShare {
+  vaultId   String   @map("vault_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  shares    Decimal  @db.Decimal(38, 0)
+  hwmE18    Decimal  @map("hwm_e18") @db.Decimal(78, 0)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  vault LeaderVault @relation(fields: [vaultId], references: [id], onDelete: Restrict)
+
+  @@id([vaultId, userId])
+  @@map("vault_shares")
+}
+
+model VaultRedemption {
+  id          String    @id @db.Uuid
+  vaultId     String    @map("vault_id") @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  shares      Decimal   @db.Decimal(38, 0)
+  status      String    @default("PENDING") @db.VarChar(10)
+  amount      Decimal?  @db.Decimal(38, 0)
+  profitShare Decimal?  @map("profit_share") @db.Decimal(38, 0)
+  requestedAt DateTime  @default(now()) @map("requested_at") @db.Timestamptz(3)
+  paidAt      DateTime? @map("paid_at") @db.Timestamptz(3)
+
+  vault LeaderVault @relation(fields: [vaultId], references: [id], onDelete: Restrict)
+
+  @@map("vault_redemptions")
+}
+
+model VaultSnapshot {
+  vaultId     String   @map("vault_id") @db.Uuid
+  at          DateTime @db.Timestamptz(3)
+  equity      Decimal  @db.Decimal(38, 0)
+  totalShares Decimal  @map("total_shares") @db.Decimal(38, 0)
+  ppsE18      Decimal  @map("pps_e18") @db.Decimal(78, 0)
+
+  vault LeaderVault @relation(fields: [vaultId], references: [id], onDelete: Restrict)
+
+  @@id([vaultId, at])
+  @@map("vault_snapshots")
 }

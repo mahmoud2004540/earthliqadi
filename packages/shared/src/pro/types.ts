@@ -137,3 +137,29 @@ export const feeScheduleSchema = z.object({
     .min(1)
     .max(21),
 });
+
+/** Leader vaults (ADR-0019). */
+export const createVaultSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(3)
+    .max(48)
+    .regex(/^[A-Za-z0-9 ._-]+$/),
+  description: z.string().trim().max(280).default(''),
+  asset: assetCodeSchema,
+  /** Leader's share of profits above each holder's high-water mark; fixed forever. */
+  profitShareBps: z.number().int().min(0).max(3000),
+  maxLeverage: z.number().int().min(1).max(50),
+  maxDrawdownBps: z.number().int().min(100).max(9000),
+  initialDeposit: amountStringSchema,
+});
+
+export const vaultDepositSchema = z.object({
+  amount: amountStringSchema,
+  idempotencyKey: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/),
+});
+
+export const vaultRedeemSchema = z.object({
+  shares: z.union([z.literal('all'), z.string().regex(/^[1-9][0-9]{0,30}$/)]),
+});

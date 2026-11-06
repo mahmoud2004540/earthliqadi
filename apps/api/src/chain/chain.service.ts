@@ -641,6 +641,7 @@ export class ChainService {
               -- Sub-accounts belong to their parent's wallet leaf (ADR-0017).
               LEFT JOIN "users" p ON p."id" = u."parent_user_id"
              WHERE a."chain_token_address" = ANY(${tokens}::text[])
+               AND NOT u."is_vault"
                AND COALESCE(u."wallet_address", p."wallet_address") IS NOT NULL
                AND la."type" IN ('USER_AVAILABLE', 'USER_LOCKED', 'USER_MARGIN')
              GROUP BY 1, 2 HAVING SUM(la."balance") > 0`;
@@ -648,11 +649,46 @@ export class ChainService {
             where: { chainId: d.chainId, vaultAddress: d.vaultAddress },
             _max: { depositId: true },
           });
-          const leaves: BalanceLeaf[] = rows.map((r) => ({
-            wallet: r.wallet as Hex,
-            token: r.token as Hex,
-            balance: BigInt(r.balance),
-          }));
+          // Leader vaults (ADR-0019): a vault's balances belong to its share
+          // holders pro rata (queued redemptions included), never to the leader.
+          const vaultBalances = await tx.$queryRaw<
+            { vault_id: string; token: string; balance: string }[]
+          >`
+            SELECT lv."id" AS "vault_id", a."chain_token_address" AS "token",
+                   SUM(la."balance")::text AS "balance"
+              FROM "leader_vaults" lv
+              JOIN "ledger_accounts" la ON la."owner_user_id" = lv."account_user_id"
+              JOIN "assets" a ON a."id" = la."asset_id"
+             WHERE a."chain_token_address" = ANY(${tokens}::text[])
+               AND la."type" IN ('USER_AVAILABLE', 'USER_LOCKED', 'USER_MARGIN')
+             GROUP BY 1, 2 HAVING SUM(la."balance") > 0`;
+          const holders = await tx.$queryRaw<
+            { vault_id: string; wallet: string; shares: string }[]
+          >`
+            SELECT h."vault_id", u."wallet_address" AS "wallet", SUM(h."shares")::text AS "shares"
+              FROM (SELECT "vault_id", "user_id", "shares" FROM "vault_shares"
+                    UNION ALL
+                    SELECT "vault_id", "user_id", "shares" FROM "vault_redemptions" WHERE "status" = 'PENDING') h
+              JOIN "users" u ON u."id" = h."user_id"
+             WHERE u."wallet_address" IS NOT NULL
+             GROUP BY 1, 2 HAVING SUM(h."shares") > 0`;
+          const merged = new Map<string, bigint>();
+          for (const r of rows) merged.set(`${r.wallet}|${r.token}`, BigInt(r.balance));
+          for (const vb of vaultBalances) {
+            const hs = holders.filter((h) => h.vault_id === vb.vault_id);
+            const total = hs.reduce((a, h) => a + BigInt(h.shares), 0n);
+            if (total === 0n) continue;
+            for (const h of hs) {
+              const part = (BigInt(vb.balance) * BigInt(h.shares)) / total; // dust stays unclaimed
+              if (part === 0n) continue;
+              const k = `${h.wallet}|${vb.token}`;
+              merged.set(k, (merged.get(k) ?? 0n) + part);
+            }
+          }
+          const leaves: BalanceLeaf[] = [...merged].map(([k, balance]) => {
+            const [wallet, token] = k.split('|') as [string, string];
+            return { wallet: wallet as Hex, token: token as Hex, balance };
+          });
           const { root } = buildTree(leaves);
           const created = await tx.vaultState.create({
             data: {

@@ -9,6 +9,7 @@ import {
 import { formatAmountTrimmed, type OrderDto, type TradeDto } from '@platform/shared';
 import { randomUUID } from 'node:crypto';
 import { AuditService } from '../audit/audit.service';
+import { LeaderVaultsService } from '../leader-vaults/leader-vaults.service';
 import { AppError } from '../common/app-error';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { REDIS } from '../infrastructure/redis/redis.module';
@@ -59,6 +60,7 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly markets: MarketsService,
     private readonly audit: AuditService,
+    private readonly vaults: LeaderVaultsService,
     private readonly ledger: LedgerService,
     @Inject(REDIS) private readonly redis: Redis,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
@@ -166,13 +168,21 @@ export class OrdersService {
     }
     if (market.status !== 'ACTIVE')
       throw new AppError(HttpStatus.CONFLICT, 'CONFLICT', `Market ${market.symbol} is halted`);
+    const account = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: {
+        walletAddress: true,
+        parentUserId: true,
+        isVault: true,
+        parent: { select: { walletAddress: true } },
+      },
+    });
+    // One self-trade-prevention account per parent: a parent, its sub-accounts
+    // and its leader vaults never trade with each other (ADR-0019).
+    const engineAccount = account.parentUserId ?? userId;
     if (market.baseAsset.chainTokenAddress || market.quoteAsset.chainTokenAddress) {
-      const u = await this.prisma.user.findUniqueOrThrow({
-        where: { id: userId },
-        select: { walletAddress: true, parent: { select: { walletAddress: true } } },
-      });
       // Sub-accounts settle under their parent's wallet (ADR-0017).
-      const walletAddress = u.walletAddress ?? u.parent?.walletAddress ?? null;
+      const walletAddress = account.walletAddress ?? account.parent?.walletAddress ?? null;
       if (!walletAddress) {
         throw new AppError(
           HttpStatus.FORBIDDEN,
@@ -220,6 +230,8 @@ export class OrdersService {
             });
             hold = perpHold(market, priceTicks!, quantityLots, leverage, reduceOnly);
           }
+          if (account.isVault)
+            await this.vaults.checkOrder(userId, market, reduceOnly, leverage ?? 1, hold);
           const created = await tx.order.create({
             data: {
               id: orderId,
@@ -239,6 +251,7 @@ export class OrdersService {
               leverage,
               triggerDirection: trigger,
               ocoGroupId: opts.ocoGroupId ?? null,
+              engineAccount,
             },
             include: { market: { include: { baseAsset: true, quoteAsset: true } } },
           });
@@ -263,7 +276,7 @@ export class OrdersService {
           await this.enqueue(tx, market.id, seq, 'place', {
             type: 'place',
             order_id: orderId,
-            account: userId,
+            account: engineAccount,
             side: req.side,
             kind: req.type,
             tif: tif.toLowerCase(),
@@ -335,7 +348,7 @@ export class OrdersService {
         status: { in: ['PENDING_NEW', 'PENDING_TRIGGER', 'OPEN', 'PARTIALLY_FILLED'] },
         cancelRequestedAt: null,
       },
-      select: { id: true, marketId: true },
+      select: { id: true, marketId: true, engineAccount: true },
       orderBy: { createdAt: 'asc' },
       take: 5000,
     });
@@ -345,7 +358,7 @@ export class OrdersService {
         await this.enqueue(tx, o.marketId, seq, 'cancel', {
           type: 'cancel',
           order_id: o.id,
-          account: userId,
+          account: o.engineAccount ?? userId,
         });
         await tx.order.update({ where: { id: o.id }, data: { cancelRequestedAt: new Date() } });
       });
@@ -363,7 +376,7 @@ export class OrdersService {
         await this.enqueue(tx, order.marketId, seq, 'cancel', {
           type: 'cancel',
           order_id: order.id,
-          account: userId,
+          account: order.engineAccount ?? userId,
         });
         await tx.order.update({ where: { id: order.id }, data: { cancelRequestedAt: new Date() } });
       });
@@ -421,7 +434,7 @@ export class OrdersService {
       await this.enqueue(tx, order.marketId, seq, 'cancel', {
         type: 'cancel',
         order_id: order.id,
-        account: userId,
+        account: order.engineAccount ?? userId,
       });
       return tx.order.update({
         where: { id: order.id },
@@ -450,7 +463,7 @@ export class OrdersService {
       await this.enqueue(tx, order.marketId, seq, 'reduce', {
         type: 'reduce',
         order_id: order.id,
-        account: userId,
+        account: order.engineAccount ?? userId,
         remaining: Number(remaining),
       });
     });

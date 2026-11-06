@@ -27,7 +27,7 @@ export class SubAccountsService {
 
   async list(parentId: string): Promise<SubAccountDto[]> {
     const rows = await this.prisma.user.findMany({
-      where: { parentUserId: parentId },
+      where: { parentUserId: parentId, isVault: false },
       orderBy: { createdAt: 'asc' },
     });
     return rows.map((r) => ({
@@ -41,7 +41,10 @@ export class SubAccountsService {
     const parent = await this.prisma.user.findUniqueOrThrow({ where: { id: parentId } });
     if (!parent.walletAddress || parent.parentUserId)
       throw AppError.forbidden('Sub-accounts belong to a wallet account');
-    if ((await this.prisma.user.count({ where: { parentUserId: parentId } })) >= MAX_SUB_ACCOUNTS)
+    if (
+      (await this.prisma.user.count({ where: { parentUserId: parentId, isVault: false } })) >=
+      MAX_SUB_ACCOUNTS
+    )
       throw new AppError(
         HttpStatus.CONFLICT,
         'LIMIT_EXCEEDED',
@@ -73,7 +76,8 @@ export class SubAccountsService {
   /** The sub-account if it belongs to this parent and is active; otherwise 404. */
   async requireOwned(parentId: string, subId: string) {
     const sub = await this.prisma.user.findFirst({
-      where: { id: subId, parentUserId: parentId, status: 'ACTIVE' },
+      // Vault accounts are traded, never transferred out of (ADR-0019).
+      where: { id: subId, parentUserId: parentId, status: 'ACTIVE', isVault: false },
     });
     if (!sub) throw AppError.notFound('Sub-account not found');
     return sub;

@@ -318,4 +318,63 @@ describe('non-custodial vault on the local chain', () => {
     });
     expect(res.status).toBe(403);
   });
+
+  it_('a leader vault is claimable by its share holders, never by the leader alone', async () => {
+    const sfx = randomBytes(3).toString('hex').toUpperCase();
+    const usd = `LV${sfx}`;
+    const { vault, tokens } = await chain.deploy({
+      tokens: [{ code: usd, name: 'Vault USD', decimals: 6, faucetLimit: 10n ** 15n }],
+      freezeDelaySeconds: 3600,
+    });
+    const token = tokens[usd]!;
+    const keys = [generatePrivateKey(), generatePrivateKey()] as const;
+    const users = [];
+    for (const key of keys) {
+      const u = await signInWallet(key);
+      expect((await u.http.post('/v1/vault/faucet', {})).status).toBe(200);
+      const wallet = createWalletClient({
+        account: privateKeyToAccount(key),
+        transport: http(RPC),
+      });
+      for (const [address, abi, fn, args] of [
+        [token, TOKEN_ABI, 'approve', [vault, 2n ** 255n]],
+        [vault, VAULT_ABI, 'deposit', [token, 400_000_000n]],
+      ] as const) {
+        const hash = await wallet.writeContract({
+          address,
+          abi: abi as never,
+          functionName: fn,
+          args: args,
+          chain: null,
+        });
+        await client.waitForTransactionReceipt({ hash });
+      }
+      users.push({ ...u, address: privateKeyToAccount(key).address.toLowerCase() });
+    }
+    await chain.indexOnce();
+    const [leader, follower] = users as [(typeof users)[0], (typeof users)[0]];
+    const created = await leader.http.post('/v1/leader-vaults', {
+      name: `Chain ${sfx}`,
+      asset: usd,
+      profitShareBps: 1000,
+      maxLeverage: 5,
+      maxDrawdownBps: 5000,
+      initialDeposit: '100',
+    });
+    expect(created.status).toBe(201);
+    const dep = await follower.http.post(`/v1/leader-vaults/${created.body.id}/deposit`, {
+      amount: '300',
+      idempotencyKey: 'chain-dep-01',
+    });
+    expect(dep.status).toBe(200);
+    expect(await chain.commitState()).toBe(1n);
+    const leaves = await prisma.vaultStateLeaf.findMany({
+      where: { vaultAddress: vault.toLowerCase(), index: 1n },
+    });
+    const of = (w: string) => leaves.find((l) => l.walletAddress === w)?.balance.toString();
+    // Each keeps own balance plus its share of the vault: leader 300 + 100, follower 100 + 300.
+    expect(of(leader.address)).toBe('400000000');
+    expect(of(follower.address)).toBe('400000000');
+    expect(leaves).toHaveLength(2);
+  });
 });

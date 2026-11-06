@@ -314,6 +314,9 @@ export class PerpsService {
         'VALIDATION_FAILED',
         `Maximum leverage on ${symbol} is ${config.tiers[0]!.maxLeverage}x`,
       );
+    const vault = await this.prisma.leaderVault.findUnique({ where: { accountUserId: userId } });
+    if (vault && leverage > vault.maxLeverage)
+      throw conflict(`The vault's maximum leverage is ${vault.maxLeverage}x`);
     const row = await this.prisma.$transaction(async (tx) => {
       const pos = await lockPosition(tx, userId, market.id, config.defaultLeverage);
       if (pos.sizeLots !== 0n) throw conflict('Close the position before changing leverage');

@@ -328,3 +328,19 @@ X-API-Signature: base64(ed25519_sign(`${timestamp}\n${METHOD}\n${path_with_query
 
 - `POST /v1/auth/wallet/login` accepts an optional `referralCode`. It is used
   only when that sign-in creates the account.
+
+## Leader vaults (ADR-0019)
+
+| Method | Path                            | Auth    | Description                                                                                                       |
+| ------ | ------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------- |
+| GET    | `/v1/leader-vaults`             | public  | Vaults ranked by return over drawdown                                                                             |
+| GET    | `/v1/leader-vaults/:id`         | public  | Terms, stats, share-price curve                                                                                   |
+| POST   | `/v1/leader-vaults`             | session | `{name, description?, asset, profitShareBps, maxLeverage, maxDrawdownBps, initialDeposit}` → includes `accountId` |
+| GET    | `/v1/leader-vaults/:id/me`      | session | Your shares and their value                                                                                       |
+| POST   | `/v1/leader-vaults/:id/deposit` | session | `{amount, idempotencyKey}`                                                                                        |
+| POST   | `/v1/leader-vaults/:id/redeem`  | session | `{shares: "all" \| "<count>"}` → `status: "paid" \| "pending"`                                                    |
+
+- **Trading the vault.** The leader trades it by sending trading requests with
+  `X-Sub-Account: <accountId>`. Only perpetuals of the vault's asset are
+  allowed, within its leverage, margin-usage and drawdown limits.
+- **While exits are queued,** only reduce-only orders are accepted.
