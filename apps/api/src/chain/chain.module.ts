@@ -1,3 +1,4 @@
+import { AccessPolicy } from '../access/access.guard';
 import {
   Body,
   Controller,
@@ -51,6 +52,7 @@ export class VaultController {
 
   /** Holds the amount and returns an operator-signed withdrawal for the user's wallet to submit. */
   @Post('withdrawals')
+  @AccessPolicy('withdraw')
   @RequirePermissions(PERMISSIONS.TRADING_TRADE)
   @ApiZodBody(withdrawalRequestSchema)
   request(

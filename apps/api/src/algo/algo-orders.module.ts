@@ -1,3 +1,4 @@
+import { AccessPolicy } from '../access/access.guard';
 import {
   Body,
   Controller,
@@ -46,6 +47,7 @@ export class AlgoOrdersController {
   }
 
   @Post()
+  @AccessPolicy('open', 'single')
   @ApiKeyScope('trade')
   @RequirePermissions(PERMISSIONS.TRADING_TRADE)
   @ApiZodBody(algoOrderSchema)
@@ -75,6 +77,7 @@ export class RfqController {
   constructor(private readonly rfq: RfqService) {}
 
   @Post()
+  @AccessPolicy('open')
   @ApiKeyScope('trade')
   @RequirePermissions(PERMISSIONS.TRADING_TRADE)
   @ApiZodBody(rfqRequestSchema)
@@ -104,6 +107,7 @@ export class RfqController {
   }
 
   @Post(':id/quotes')
+  @AccessPolicy('open')
   @ApiKeyScope('trade')
   @RequirePermissions(PERMISSIONS.TRADING_TRADE)
   @ApiZodBody(rfqQuoteSchema)
@@ -116,6 +120,7 @@ export class RfqController {
   }
 
   @Post(':id/accept')
+  @AccessPolicy('open')
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiKeyScope('trade')
   @RequirePermissions(PERMISSIONS.TRADING_TRADE)

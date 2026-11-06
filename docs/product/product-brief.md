@@ -200,10 +200,12 @@ monitoring. These are listed in `docs/operations/production-readiness.md`.
 | 8   | Referral links with fee share                                                       | Done (ADR-0018)                                     |
 | 9   | Per-user proof page                                                                 | Done (ADR-0020)                                     |
 | 10  | TWAP, iceberg, RFQ block trades                                                     | Done (ADR-0020)                                     |
-| 10  | Cross margin, portfolio margin, multi-collateral                                    | **Not done**: needs a new account-level risk engine |
+| 10  | Cross margin                                                                        | Done (ADR-0021)                                     |
+| 10  | Portfolio margin, multi-collateral                                                  | **Not done**: needs a new account-level risk engine |
 | 11  | Activity points with wash-trading filters                                           | Done (ADR-0018)                                     |
 | 11  | Listing request board                                                               | **Not done**                                        |
 | 12  | Public proof-of-liabilities page                                                    | Done (ADR-0020)                                     |
+| —   | Access policy: restricted regions, sanctions screening, terms of use                | Done (ADR-0022); list contents need counsel         |
 
 ## 7. What we remove
 

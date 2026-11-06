@@ -1,3 +1,4 @@
+import { AccessPolicy } from '../access/access.guard';
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import {
@@ -45,6 +46,7 @@ export class LeaderVaultsController {
   }
 
   @Post()
+  @AccessPolicy('open')
   @RequirePermissions(PERMISSIONS.TRADING_TRADE)
   @ApiZodBody(createVaultSchema)
   async create(
@@ -66,6 +68,7 @@ export class LeaderVaultsController {
   }
 
   @Post(':id/deposit')
+  @AccessPolicy('open')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions(PERMISSIONS.TRADING_TRADE)
   @ApiZodBody(vaultDepositSchema)
@@ -80,6 +83,7 @@ export class LeaderVaultsController {
 
   /** 200 when paid at once; 202 when queued until the leader frees collateral. */
   @Post(':id/redeem')
+  @AccessPolicy('withdraw')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions(PERMISSIONS.TRADING_TRADE)
   @ApiZodBody(vaultRedeemSchema)

@@ -14,3 +14,6 @@ export function resolveTestDatabaseUrl(): string {
   }
   return url;
 }
+
+/** Terms-of-use version used by the integration suites (ADR-0022). */
+export const TEST_TERMS_VERSION = 'ci-terms-1';

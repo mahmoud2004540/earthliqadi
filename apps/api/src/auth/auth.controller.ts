@@ -1,4 +1,14 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Inject, Post, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Inject,
+  Post,
+  Req,
+  Res,
+} from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   emailOnlySchema,
@@ -11,7 +21,8 @@ import {
   verifyEmailSchema,
   type LoginResultDto,
 } from '@platform/shared';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
+import { AccessService } from '../access/access.service';
 import type { z } from 'zod';
 import { AuthRateLimit, Public } from '../common/decorators';
 import { ApiZodBody } from '../common/openapi';
@@ -35,6 +46,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly csrf: CsrfService,
+    private readonly access: AccessService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
@@ -56,9 +68,10 @@ export class AuthController {
   async walletLogin(
     @Body(new ZodValidationPipe(walletLoginSchema)) body: z.infer<typeof walletLoginSchema>,
     @ReqContext() ctx: RequestContext,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<LoginResultDto> {
-    return this.finish(await this.auth.walletLogin(body, ctx), res);
+    return this.finish(await this.auth.walletLogin(body, ctx, this.access.countryOf(req)), res);
   }
 
   @Public()

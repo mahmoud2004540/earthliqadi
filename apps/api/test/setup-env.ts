@@ -1,4 +1,4 @@
-import { resolveTestDatabaseUrl } from './test-database';
+import { TEST_TERMS_VERSION, resolveTestDatabaseUrl } from './test-database';
 
 process.env.NODE_ENV = 'test';
 process.env.DEPLOY_ENV = 'ci';
@@ -25,3 +25,4 @@ process.env.STAFF_MFA_REQUIRED = 'false';
 // The KYC module is off by default (ADR-0013); its suite exercises it enabled.
 process.env.KYC_ENABLED = 'true';
 process.env.MARKET_DATA_POLL_MS = '50';
+process.env.TERMS_VERSION = TEST_TERMS_VERSION;

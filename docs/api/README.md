@@ -367,3 +367,15 @@ X-API-Signature: base64(ed25519_sign(`${timestamp}\n${METHOD}\n${path_with_query
 | ------ | ---------------------- | -------------- | ------------------------------- |
 | GET    | `/v1/perp/margin-mode` | session or key | `{mode}`                        |
 | POST   | `/v1/perp/margin-mode` | session or key | `{mode: "isolated" \| "cross"}` |
+
+## Access policy (ADR-0022)
+
+| Method | Path                  | Auth           | Description                                                      |
+| ------ | --------------------- | -------------- | ---------------------------------------------------------------- |
+| GET    | `/v1/access`          | public         | `{country, regionRestricted, restrictedCountries, termsVersion}` |
+| GET    | `/v1/me/access`       | session or key | Adds `termsAcceptedVersion`, `termsAccepted`, `sanctioned`       |
+| POST   | `/v1/me/terms/accept` | session        | `{version}`; must equal the current version (409 otherwise)      |
+
+Gated routes answer `451 REGION_RESTRICTED` (new risk from a restricted
+region; reduce-only orders, cancels and withdrawals stay open),
+`403 SANCTIONED_ADDRESS` or `403 TERMS_NOT_ACCEPTED`.

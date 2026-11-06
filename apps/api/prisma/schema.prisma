@@ -43,26 +43,29 @@ enum AuditOutcome {
 }
 
 model User {
-  id               String      @id @default(uuid()) @db.Uuid
+  id                   String      @id @default(uuid()) @db.Uuid
   /// Normalised (trimmed, lower-cased) email.
-  email            String?     @unique @db.VarChar(254)
+  email                String?     @unique @db.VarChar(254)
   /// Null for wallet-only accounts (ADR-0013).
-  passwordHash     String?     @map("password_hash")
+  passwordHash         String?     @map("password_hash")
   /// Lower-case Ethereum address for Sign-In with Ethereum accounts. Immutable.
-  walletAddress    String?     @unique @map("wallet_address") @db.Char(42)
-  status           UserStatus  @default(PENDING_VERIFICATION)
-  accountType      AccountType @default(INDIVIDUAL) @map("account_type")
+  walletAddress        String?     @unique @map("wallet_address") @db.Char(42)
+  status               UserStatus  @default(PENDING_VERIFICATION)
+  accountType          AccountType @default(INDIVIDUAL) @map("account_type")
   /// Sub-account (ADR-0017): owned by this parent wallet account; no credentials of its own.
-  parentUserId     String?     @map("parent_user_id") @db.Uuid
+  parentUserId         String?     @map("parent_user_id") @db.Uuid
   /// Sub-accounts only.
-  label            String?     @db.VarChar(48)
+  label                String?     @db.VarChar(48)
   /// Set once at account creation from a referral code (ADR-0018).
-  referredByUserId String?     @map("referred_by_user_id") @db.Uuid
+  referredByUserId     String?     @map("referred_by_user_id") @db.Uuid
   /// Trading account of a leader vault (ADR-0019).
-  isVault          Boolean     @default(false) @map("is_vault")
+  isVault              Boolean     @default(false) @map("is_vault")
   /// Perpetuals: "isolated" (default) or "cross" (free balance tops up positions, ADR-0021).
-  perpMarginMode   String      @default("isolated") @map("perp_margin_mode") @db.VarChar(8)
-  emailVerifiedAt  DateTime?   @map("email_verified_at") @db.Timestamptz(3)
+  perpMarginMode       String      @default("isolated") @map("perp_margin_mode") @db.VarChar(8)
+  /// Terms-of-use version the account accepted, and when (ADR-0022).
+  termsAcceptedVersion String?     @map("terms_accepted_version") @db.VarChar(32)
+  termsAcceptedAt      DateTime?   @map("terms_accepted_at") @db.Timestamptz(3)
+  emailVerifiedAt      DateTime?   @map("email_verified_at") @db.Timestamptz(3)
 
   /// AES-256-GCM encrypted TOTP secret (iv|tag|ciphertext). Never returned by the API.
   mfaTotpSecretEnc  Bytes?    @map("mfa_totp_secret_enc")
@@ -1163,4 +1166,15 @@ model RfqQuote {
 
   @@unique([requestId, makerUserId], map: "rfq_quotes_request_maker_key")
   @@map("rfq_quotes")
+}
+
+/// Wallet addresses on an operator-loaded sanctions list (ADR-0022). Never seeded by code.
+model SanctionedAddress {
+  address String   @db.Char(42)
+  source  String   @db.VarChar(64)
+  addedAt DateTime @default(now()) @map("added_at") @db.Timestamptz(3)
+
+  @@id([address, source])
+  @@index([address])
+  @@map("sanctioned_addresses")
 }

@@ -120,10 +120,16 @@ not described as implemented in the docs should be treated as absent.
 ### Wallet sign-in and no-KYC model (ADR-0013)
 
 - **Legal review is required before any real funds.** The platform does not
-  verify identities. Operating with real money needs a non-custodial design
-  (Phase 8), jurisdiction-specific legal advice, geo-restrictions and wallet
-  sanctions screening (Phase 9). None of these exist yet.
-- No geo-restriction is enforced (needs a trusted GeoIP signal at the edge).
+  verify identities. Operating with real money needs jurisdiction-specific
+  legal advice. The non-custodial vault exists (ADR-0014), and so do region
+  restrictions, sanctions screening and terms acceptance (ADR-0022). Still
+  open: the restricted list, the sanctions lists to load and the final terms
+  text are counsel decisions.
+- **Region checks are best-effort.** They rely on a country header from the
+  edge/CDN and are defeated by VPNs. The terms forbid circumvention.
+- **Sanctions lists are loaded manually** (`cli:sanctions import`). There is
+  no automatic list updater and no screening provider. The escape hatch
+  cannot be blocked by the operator.
 - Ethereum (EIP-4361) only; no Solana or other chains, and no
   smart-contract wallet signatures (ERC-1271) yet.
 - There is no account recovery for wallet accounts by design.

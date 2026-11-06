@@ -36,8 +36,10 @@ outside engineering. **No item marked external has been done or is claimed.**
 | Item                                                    | Status                     |
 | ------------------------------------------------------- | -------------------------- |
 | Jurisdiction analysis for a no-KYC, non-custodial venue | External (counsel)         |
-| Geo-restriction (trusted GeoIP signal at the edge)      | To do after counsel        |
-| Wallet sanctions screening provider                     | External (contract)        |
+| Geo-restriction (edge country header, ADR-0022)         | Done; list needs counsel   |
+| Wallet sanctions list screening (ADR-0022)              | Done; lists loaded by ops  |
+| Automatic sanctions list updates / provider             | External (contract)        |
+| Terms-of-use acceptance gate (ADR-0022)                 | Done; text is a draft      |
 | Terms of use, risk disclosures, privacy policy          | External (counsel)         |
 | Personal data export                                    | Done                       |
 | Deletion / retention policy                             | External (counsel) + to do |

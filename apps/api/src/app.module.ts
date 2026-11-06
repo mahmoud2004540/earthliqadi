@@ -5,6 +5,8 @@ import type Redis from 'ioredis';
 import { LoggerModule } from 'nestjs-pino';
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
+import { AccessModule } from './access/access.module';
+import { AccessPolicyGuard } from './access/access.guard';
 import { AccountModule } from './account/account.module';
 import { AdminModule } from './admin/admin.module';
 import { AuditModule } from './audit/audit.module';
@@ -86,6 +88,7 @@ export class AppModule {
           }),
         }),
         AuditModule,
+        AccessModule,
         MailModule,
         RbacModule,
         AuthModule,
@@ -109,11 +112,12 @@ export class AppModule {
       ],
       controllers: [HealthController],
       providers: [
-        // Order matters: rate limit → CSRF → authenticate → authorise.
+        // Order matters: rate limit → CSRF → authenticate → authorise → access policy.
         { provide: APP_GUARD, useClass: ThrottlerGuard },
         { provide: APP_GUARD, useExisting: CsrfGuard },
         { provide: APP_GUARD, useExisting: SessionAuthGuard },
         { provide: APP_GUARD, useExisting: PermissionsGuard },
+        { provide: APP_GUARD, useExisting: AccessPolicyGuard },
       ],
     };
   }

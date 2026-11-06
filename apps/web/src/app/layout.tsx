@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
+import { AccessBar } from '@/components/access/access-bar';
 import { SiteFooter } from '@/components/site-footer';
 import { SiteHeader } from '@/components/site-header';
 import { getDictionary } from '@/i18n';
@@ -31,6 +32,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           {t.banner}
         </div>
         <SiteHeader t={t} />
+        <AccessBar t={t.access} />
         <main id="main">{children}</main>
         <SiteFooter t={t} />
       </body>

@@ -87,6 +87,23 @@ describe('apiEnvSchema', () => {
     ).toThrow(/MFA_ENCRYPTION_KEY: looks degenerate/);
   });
 
+  it('requires enforceable region restrictions in production (ADR-0022)', () => {
+    expect(() => parseEnv(apiEnvSchema, productionEnv)).toThrow(/RESTRICTED_COUNTRIES/);
+    expect(() => parseEnv(apiEnvSchema, { ...productionEnv, RESTRICTED_COUNTRIES: 'US' })).toThrow(
+      /GEO_COUNTRY_HEADER/,
+    );
+    expect(() =>
+      parseEnv(apiEnvSchema, {
+        ...productionEnv,
+        RESTRICTED_COUNTRIES: 'US',
+        GEO_COUNTRY_HEADER: 'cf-ipcountry',
+      }),
+    ).toThrow(/GEO_UNKNOWN_COUNTRY/);
+    const local = parseEnv(apiEnvSchema, localEnv);
+    expect(local.GEO_COUNTRY_HEADER).toBe('');
+    expect(local.TERMS_VERSION).toBe('draft-1');
+  });
+
   it('treats empty strings as unset', () => {
     const env = parseEnv(apiEnvSchema, { ...localEnv, API_PORT: '' });
     expect(env.API_PORT).toBe(4000);

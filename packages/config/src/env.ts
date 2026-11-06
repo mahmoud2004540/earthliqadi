@@ -170,6 +170,24 @@ export const apiEnvSchema = z
       )
       .pipe(z.array(z.string().regex(/^[A-Z]{2}$/))),
     /**
+     * Request header carrying the client's ISO 3166-1 alpha-2 country, set by
+     * the edge proxy/CDN (e.g. "cf-ipcountry"). The proxy MUST overwrite any
+     * client-sent value. Empty = region checks off (local/ci only, ADR-0022).
+     */
+    GEO_COUNTRY_HEADER: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^([a-z0-9-]{1,64})?$/)
+      .default(''),
+    /** What to do when the country header is missing or not a valid code. */
+    GEO_UNKNOWN_COUNTRY: z.enum(['allow', 'deny']).default('allow'),
+    /** Current terms-of-use version; trading requires accepting it (ADR-0022). */
+    TERMS_VERSION: z
+      .string()
+      .regex(/^[A-Za-z0-9._-]{1,32}$/)
+      .default('draft-1'),
+    /**
      * Identity verification module (ADR-0013: off by default; customers sign in
      * with a wallet and are never asked for identity documents). The module
      * stays available for jurisdictions where an operator must enable it.
@@ -298,6 +316,28 @@ export const apiEnvSchema = z
         path: ['MAIL_TRANSPORT'],
         message: 'development-only mail transport is not allowed outside local/ci',
       });
+    }
+    // Region restrictions must be enforceable outside local/ci (ADR-0022).
+    if (env.RESTRICTED_COUNTRIES.length > 0 && !env.GEO_COUNTRY_HEADER) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['GEO_COUNTRY_HEADER'],
+        message: 'required when RESTRICTED_COUNTRIES is set',
+      });
+    }
+    if (env.DEPLOY_ENV === 'production') {
+      if (env.RESTRICTED_COUNTRIES.length === 0)
+        ctx.addIssue({
+          code: 'custom',
+          path: ['RESTRICTED_COUNTRIES'],
+          message: 'must list the restricted jurisdictions in production (legal input)',
+        });
+      if (env.GEO_UNKNOWN_COUNTRY !== 'deny')
+        ctx.addIssue({
+          code: 'custom',
+          path: ['GEO_UNKNOWN_COUNTRY'],
+          message: 'must be "deny" in production',
+        });
     }
     if (env.SWAGGER_ENABLED && env.DEPLOY_ENV === 'production') {
       ctx.addIssue({

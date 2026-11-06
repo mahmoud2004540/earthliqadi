@@ -218,3 +218,25 @@ export interface RfqDto {
   expiresAt: string;
   quotes: { id: string; price: string; expiresAt: string }[];
 }
+
+/** Access policy (ADR-0022): restricted regions, sanctions screening, terms of use. */
+export const acceptTermsSchema = z.object({
+  version: z.string().regex(/^[A-Za-z0-9._-]{1,32}$/),
+});
+
+export interface AccessStatusDto {
+  /** ISO 3166-1 alpha-2 code from the edge proxy header, or null when unknown. */
+  country: string | null;
+  /** Opening new risk is blocked from this region (reduce-only orders and withdrawals stay open). */
+  regionRestricted: boolean;
+  /** Published list of restricted jurisdictions (ISO 3166-1 alpha-2). */
+  restrictedCountries: string[];
+  termsVersion: string;
+}
+
+export interface MyAccessStatusDto extends AccessStatusDto {
+  termsAcceptedVersion: string | null;
+  termsAccepted: boolean;
+  /** The account's wallet is on a loaded sanctions list. */
+  sanctioned: boolean;
+}

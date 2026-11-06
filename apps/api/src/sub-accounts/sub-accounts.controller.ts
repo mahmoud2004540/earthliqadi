@@ -1,3 +1,4 @@
+import { AccessPolicy } from '../access/access.guard';
 import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import {
@@ -34,6 +35,7 @@ export class SubAccountsController {
   }
 
   @Post()
+  @AccessPolicy('open')
   @RequirePermissions(PERMISSIONS.ACCOUNT_SELF_MANAGE)
   @ApiZodBody(createSubAccountSchema)
   create(
@@ -46,6 +48,7 @@ export class SubAccountsController {
   }
 
   @Post('transfer')
+  @AccessPolicy('manage')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions(PERMISSIONS.TRADING_TRADE)
   @ApiZodBody(subTransferSchema)

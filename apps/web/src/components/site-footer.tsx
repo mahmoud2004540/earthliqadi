@@ -36,6 +36,7 @@ export function SiteFooter({ t }: { t: Dictionary }) {
         ])}
         {col(t.footer.legalHeading, [
           { href: 'legal', label: t.footer.legal },
+          { href: 'terms', label: t.footer.terms },
           { href: 'risk', label: t.footer.risk },
         ])}
       </div>

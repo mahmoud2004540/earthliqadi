@@ -1,3 +1,4 @@
+import { AccessPolicy } from '../access/access.guard';
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import {
@@ -63,6 +64,7 @@ export class PerpsController {
   }
 
   @Post('leverage')
+  @AccessPolicy('manage')
   @ApiKeyScope('trade')
   @RequirePermissions(PERMISSIONS.TRADING_TRADE)
   @ApiZodBody(leverageSchema)
@@ -79,6 +81,7 @@ export class PerpsController {
   }
 
   @Post('margin')
+  @AccessPolicy('manage')
   @ApiKeyScope('trade')
   @RequirePermissions(PERMISSIONS.TRADING_TRADE)
   @ApiZodBody(addMarginSchema)
@@ -96,6 +99,7 @@ export class PerpsController {
 
   /** Take-profit / stop-loss for the whole position (one-cancels-the-other). */
   @Post('tpsl')
+  @AccessPolicy('manage')
   @ApiKeyScope('trade')
   @RequirePermissions(PERMISSIONS.TRADING_TRADE)
   @ApiZodBody(tpslSchema)
@@ -116,6 +120,7 @@ export class PerpsController {
 
   /** Cross: free balance automatically tops up weakening positions before liquidation. */
   @Post('margin-mode')
+  @AccessPolicy('manage')
   @HttpCode(HttpStatus.OK)
   @ApiKeyScope('trade')
   @RequirePermissions(PERMISSIONS.TRADING_TRADE)

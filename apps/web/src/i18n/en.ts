@@ -35,6 +35,7 @@ export const en = {
     about: 'About',
     contact: 'Contact & support',
     legal: 'Legal information',
+    terms: 'Terms of use',
     risk: 'Risk disclosures',
     disclaimer:
       'Digital assets are highly volatile and you can lose all of your investment. This software is under development and is not an offer of any financial service.',
@@ -779,6 +780,64 @@ export const en = {
     loadMore: 'Load more',
     loading: 'Loading…',
     cancel: 'Cancel',
+  },
+  access: {
+    regionTitle: 'Not available in your region',
+    regionBody:
+      'Opening new positions is not available from your location. You can still sign in, close positions, cancel orders and withdraw your funds at any time.',
+    termsTitle: 'Accept the terms of use to trade',
+    termsBody:
+      'Trading, deposits into leader vaults and sub-accounts require accepting the current terms of use. Withdrawals and cancellations never do.',
+    termsCheckbox:
+      'I have read and accept the terms of use. I am not a resident of, located in, or acting for anyone in a restricted jurisdiction, and I am not a sanctioned person.',
+    termsLink: 'Read the terms of use',
+    accept: 'Accept',
+    accepting: 'Saving…',
+    sanctionedTitle: 'This wallet cannot use the platform',
+    sanctionedBody:
+      'This wallet address appears on a sanctions list loaded by the operator. Trading and withdrawals through the platform are not available.',
+  },
+  terms: {
+    title: 'Terms of use',
+    draft:
+      'Draft for legal review. These terms have not yet been reviewed by counsel and will change before any mainnet launch.',
+    version: 'Version',
+    restrictedHeading: 'Restricted jurisdictions',
+    restrictedNone: 'No restricted jurisdictions are configured on this deployment.',
+    sections: [
+      {
+        heading: '1. What this software is',
+        body: 'The platform is a non-custodial trading interface: collateral is held by a smart contract, and each user can withdraw their committed balance on-chain without the operator (the escape hatch). The platform currently runs on a test network only and does not accept real customer funds.',
+      },
+      {
+        heading: '2. Who may use it',
+        body: 'You may use the platform only if you are of legal age where you live, you are not a resident of, located in, or acting on behalf of anyone in a restricted jurisdiction, and you are not a person or entity listed on a sanctions list. You must not use a VPN or any other means to get around these restrictions.',
+      },
+      {
+        heading: '3. Restricted access',
+        body: 'From a restricted jurisdiction you cannot open new positions or new accounts. Wallets on a sanctions list cannot sign in, trade or withdraw through the platform. Closing positions, cancelling orders and withdrawing are never blocked for region.',
+      },
+      {
+        heading: '4. Risks',
+        body: 'Digital assets are highly volatile. Perpetual futures use leverage: you can lose your entire margin, and positions can be liquidated automatically. Smart contracts can contain bugs; the vault contract has not been audited yet. Nothing on the platform is investment advice.',
+      },
+      {
+        heading: '5. Leader vaults',
+        body: 'A leader trades a vault on behalf of its depositors and may receive a share of profits. Past results shown on the platform are computed from real trades but do not predict future results. You can redeem your share at any time under the published vault rules.',
+      },
+      {
+        heading: '6. Prohibited conduct',
+        body: 'Market manipulation, wash trading, spoofing, exploiting software defects and using the platform for illicit funds are prohibited. Points earned from such activity are excluded.',
+      },
+      {
+        heading: '7. No promises',
+        body: 'The software is provided as is. The operator does not promise uninterrupted service, any return, or any token or airdrop. Points have no monetary value.',
+      },
+      {
+        heading: '8. Changes',
+        body: 'When these terms change, the version number changes and you will be asked to accept the new version before opening new positions. Withdrawals never require accepting new terms.',
+      },
+    ],
   },
 } as const;
 

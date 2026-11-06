@@ -13,6 +13,7 @@ import { MailService } from '../mail/mail.service';
 import { RbacService } from '../rbac/rbac.service';
 import { randomToken, sha256Hex } from '../security/crypto';
 import { PasswordService } from '../security/password.service';
+import { AccessService } from '../access/access.service';
 import { MfaService } from './mfa.service';
 import { SessionService } from './session.service';
 import { toCurrentUserDto } from './user-dto';
@@ -42,6 +43,7 @@ export class AuthService {
     private readonly audit: AuditService,
     private readonly mail: MailService,
     private readonly mfa: MfaService,
+    private readonly access: AccessService,
     @Inject(REDIS) private readonly redis: Redis,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
@@ -208,6 +210,7 @@ export class AuthService {
   async walletLogin(
     input: { message: string; signature: string; referralCode?: string },
     ctx: RequestContext,
+    country: string | null = null,
   ): Promise<LoginOutcome> {
     const origin = new URL(this.config.WEB_ORIGIN);
     const result = verifySiwe(input.message, input.signature, {
@@ -231,7 +234,38 @@ export class AuthService {
     const consumed = await this.redis.getdel(`siwe:nonce:${result.message.nonce}`);
     if (consumed === null) return fail('unknown_or_used_nonce');
 
+    // Access policy (ADR-0022): sanctioned wallets never get a session; new
+    // accounts are not opened from restricted regions. Existing accounts can
+    // still sign in from anywhere to close positions and withdraw.
+    if (await this.access.isSanctioned(result.address)) {
+      await this.audit.recordSafe({
+        action: 'auth.login',
+        outcome: 'DENIED',
+        actorType: 'ANONYMOUS',
+        context: ctx,
+        metadata: { method: 'wallet', reason: 'sanctioned_address' },
+      });
+      throw new AppError(
+        HttpStatus.FORBIDDEN,
+        'SANCTIONED_ADDRESS',
+        'This wallet cannot use the platform',
+      );
+    }
     let user = await this.prisma.user.findUnique({ where: { walletAddress: result.address } });
+    if (!user && this.access.regionRestricted(country)) {
+      await this.audit.recordSafe({
+        action: 'auth.login',
+        outcome: 'DENIED',
+        actorType: 'ANONYMOUS',
+        context: ctx,
+        metadata: { method: 'wallet', reason: 'region_restricted', country },
+      });
+      throw new AppError(
+        451 as HttpStatus,
+        'REGION_RESTRICTED',
+        'This service is not available in your region',
+      );
+    }
     if (!user) {
       try {
         user = await this.prisma.$transaction(async (tx) => {

@@ -1,3 +1,4 @@
+import { AccessPolicy } from '../access/access.guard';
 import {
   Body,
   Controller,
@@ -64,6 +65,7 @@ export class OrdersController {
 
   /** 202: the order is funded and queued; the engine decides acceptance asynchronously. */
   @Post()
+  @AccessPolicy('open', 'single')
   @ApiKeyScope('trade')
   @RequirePermissions(PERMISSIONS.TRADING_TRADE)
   @ApiZodBody(placeOrderSchema)
@@ -80,6 +82,7 @@ export class OrdersController {
 
   /** Up to 20 orders; per-item results (202 accepted, 200 replayed, or the error). */
   @Post('batch')
+  @AccessPolicy('open', 'batch')
   @HttpCode(HttpStatus.OK)
   @ApiKeyScope('trade')
   @RequirePermissions(PERMISSIONS.TRADING_TRADE)
