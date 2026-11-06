@@ -71,7 +71,7 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<LoginResultDto> {
-    return this.finish(await this.auth.walletLogin(body, ctx, this.access.countryOf(req)), res);
+    return this.finish(await this.auth.walletLogin(body, ctx, this.access.locationOf(req)), res);
   }
 
   @Public()

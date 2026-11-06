@@ -13,6 +13,7 @@ import { MailService } from '../mail/mail.service';
 import { RbacService } from '../rbac/rbac.service';
 import { randomToken, sha256Hex } from '../security/crypto';
 import { PasswordService } from '../security/password.service';
+import type { Location } from '../access/access-policy';
 import { AccessService } from '../access/access.service';
 import { MfaService } from './mfa.service';
 import { SessionService } from './session.service';
@@ -210,7 +211,7 @@ export class AuthService {
   async walletLogin(
     input: { message: string; signature: string; referralCode?: string },
     ctx: RequestContext,
-    country: string | null = null,
+    location: Location = { country: null, subdivision: null },
   ): Promise<LoginOutcome> {
     const origin = new URL(this.config.WEB_ORIGIN);
     const result = verifySiwe(input.message, input.signature, {
@@ -252,13 +253,13 @@ export class AuthService {
       );
     }
     let user = await this.prisma.user.findUnique({ where: { walletAddress: result.address } });
-    if (!user && this.access.regionRestricted(country)) {
+    if (!user && this.access.regionRestricted(location)) {
       await this.audit.recordSafe({
         action: 'auth.login',
         outcome: 'DENIED',
         actorType: 'ANONYMOUS',
         context: ctx,
-        metadata: { method: 'wallet', reason: 'region_restricted', country },
+        metadata: { method: 'wallet', reason: 'region_restricted', ...location },
       });
       throw new AppError(
         451 as HttpStatus,

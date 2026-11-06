@@ -205,7 +205,7 @@ monitoring. These are listed in `docs/operations/production-readiness.md`.
 | 11  | Activity points with wash-trading filters                                           | Done (ADR-0018)                                     |
 | 11  | Listing request board                                                               | **Not done**                                        |
 | 12  | Public proof-of-liabilities page                                                    | Done (ADR-0020)                                     |
-| —   | Access policy: restricted regions, sanctions screening, terms of use                | Done (ADR-0022); list contents need counsel         |
+| —   | Access policy: restricted regions, sanctions screening, terms of use                | Done (ADR-0022, ADR-0023); list needs counsel       |
 
 ## 7. What we remove
 

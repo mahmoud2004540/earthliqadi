@@ -7,11 +7,12 @@ import type { RequestContext } from '../common/request-context';
 import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { PrismaService } from '../infrastructure/prisma/prisma.service';
 import {
-  countryFrom,
   decide,
+  locationFrom,
   normaliseAddress,
   regionRestricted,
   type AccessKind,
+  type Location,
 } from './access-policy';
 
 const MESSAGES = {
@@ -30,12 +31,12 @@ export class AccessService {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
-  countryOf(req: Pick<Request, 'headers'>): string | null {
-    return countryFrom(req.headers, this.config);
+  locationOf(req: Pick<Request, 'headers'>): Location {
+    return locationFrom(req.headers, this.config);
   }
 
-  regionRestricted(country: string | null): boolean {
-    return regionRestricted(country, this.config);
+  regionRestricted(loc: Location): boolean {
+    return regionRestricted(loc, this.config);
   }
 
   async isSanctioned(address: string | null): Promise<boolean> {
@@ -61,14 +62,14 @@ export class AccessService {
   async enforce(
     userId: string,
     kind: AccessKind,
-    country: string | null,
+    loc: Location,
     reduceOnly: boolean,
     ctx: RequestContext,
     route: string,
   ): Promise<void> {
     const p = await this.principal(userId);
     const facts = {
-      regionRestricted: this.regionRestricted(country),
+      regionRestricted: this.regionRestricted(loc),
       reduceOnly,
       sanctioned: await this.isSanctioned(p.walletAddress),
       termsAccepted: p.termsAcceptedVersion === this.config.TERMS_VERSION,
@@ -85,7 +86,7 @@ export class AccessService {
         targetType: 'route',
         targetId: route.slice(0, 128),
         context: ctx,
-        metadata: { reason: d.code, country, kind },
+        metadata: { reason: d.code, ...loc, kind },
       });
     throw new AppError(
       d.code === 'REGION_RESTRICTED'
@@ -96,19 +97,21 @@ export class AccessService {
     );
   }
 
-  status(country: string | null): AccessStatusDto {
+  status(loc: Location): AccessStatusDto {
     return {
-      country,
-      regionRestricted: this.regionRestricted(country),
+      country: loc.country,
+      subdivision: loc.subdivision,
+      regionRestricted: this.regionRestricted(loc),
       restrictedCountries: this.config.RESTRICTED_COUNTRIES,
+      restrictedSubdivisions: this.config.RESTRICTED_SUBDIVISIONS,
       termsVersion: this.config.TERMS_VERSION,
     };
   }
 
-  async myStatus(userId: string, country: string | null): Promise<MyAccessStatusDto> {
+  async myStatus(userId: string, loc: Location): Promise<MyAccessStatusDto> {
     const p = await this.principal(userId);
     return {
-      ...this.status(country),
+      ...this.status(loc),
       termsAcceptedVersion: p.termsAcceptedVersion,
       termsAccepted: p.termsAcceptedVersion === this.config.TERMS_VERSION,
       sanctioned: await this.isSanctioned(p.walletAddress),
@@ -119,7 +122,7 @@ export class AccessService {
   async acceptTerms(
     userId: string,
     version: string,
-    country: string | null,
+    loc: Location,
     ctx: RequestContext,
   ): Promise<MyAccessStatusDto> {
     if (version !== this.config.TERMS_VERSION)
@@ -144,12 +147,12 @@ export class AccessService {
           targetType: 'user',
           targetId: userId,
           context: ctx,
-          metadata: { version, country },
+          metadata: { version, ...loc },
         },
         tx,
       );
     });
-    return this.myStatus(userId, country);
+    return this.myStatus(userId, loc);
   }
 
   /**

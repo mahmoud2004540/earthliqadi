@@ -39,7 +39,7 @@ export class AccessPolicyGuard implements CanActivate {
     await this.access.enforce(
       req.auth.user.id,
       meta.kind,
-      this.access.countryOf(req),
+      this.access.locationOf(req),
       isReduceOnlyBody(meta.reduceOnly, req.body),
       requestContextFrom(req),
       `${req.method} ${(req.route as { path?: string } | undefined)?.path ?? req.path}`,

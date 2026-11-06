@@ -2,6 +2,8 @@ import type { INestApplication } from '@nestjs/common';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { AccessService } from '../src/access/access.service';
+import { OFAC_SOURCE } from '../src/access/ofac';
+import { SanctionsSyncService } from '../src/access/sanctions-sync.service';
 import { addressFromPublicKey, personalMessageHash, toChecksumAddress } from '../src/auth/siwe';
 import { PrismaService } from '../src/infrastructure/prisma/prisma.service';
 import { TestClient, bootApp } from './helpers';
@@ -11,10 +13,13 @@ import { EngineProcess } from './engine';
 
 /** Access policy (ADR-0022): restricted regions, sanctions screening, terms of use. */
 const GEO_HEADER = 'x-test-country';
+const REGION_HEADER = 'x-test-region';
 const GEO_ENV = {
   GEO_COUNTRY_HEADER: GEO_HEADER,
+  GEO_REGION_HEADER: REGION_HEADER,
   GEO_UNKNOWN_COUNTRY: 'allow',
   RESTRICTED_COUNTRIES: 'US,KP',
+  RESTRICTED_SUBDIVISIONS: 'CA-ON',
 };
 
 let app: INestApplication;
@@ -44,7 +49,12 @@ afterAll(async () => {
 async function postFrom(client: TestClient, path: string, body: object, country?: string) {
   const token = await client.csrf();
   const req = client.agent.post(path).set('X-Forwarded-For', client.ip).set('X-CSRF-Token', token);
-  if (country) req.set(GEO_HEADER, country);
+  // "CA-ON" sets both headers, the way the edge forwards Cloudflare's location.
+  if (country) {
+    const [c, region] = country.split('-');
+    req.set(GEO_HEADER, c!);
+    if (region) req.set(REGION_HEADER, region);
+  }
   return req.send(body);
 }
 
@@ -148,12 +158,32 @@ describe('restricted regions', () => {
     const us = await client.get('/v1/access').set(GEO_HEADER, 'us');
     expect(us.body).toEqual({
       country: 'US',
+      subdivision: null,
       regionRestricted: true,
       restrictedCountries: ['US', 'KP'],
+      restrictedSubdivisions: ['CA-ON'],
       termsVersion: TEST_TERMS_VERSION,
     });
     const de = await client.get('/v1/access').set(GEO_HEADER, 'DE');
     expect(de.body.regionRestricted).toBe(false);
+  });
+
+  it('restricts a subdivision (Ontario) but not the rest of its country', async () => {
+    const client = new TestClient(app);
+    const on = await client.get('/v1/access').set(GEO_HEADER, 'CA').set(REGION_HEADER, 'ON');
+    expect(on.body).toMatchObject({ country: 'CA', subdivision: 'CA-ON', regionRestricted: true });
+    const qc = await client.get('/v1/access').set(GEO_HEADER, 'CA').set(REGION_HEADER, 'QC');
+    expect(qc.body.regionRestricted).toBe(false);
+
+    const m = await fx.market();
+    const t = await fx.trader([{ asset: m.quote, amount: '1000', scale: 6 }]);
+    const blocked = await postFrom(t.client, '/v1/orders', order(m.symbol), 'CA-ON');
+    expect(blocked.status).toBe(451);
+    const audit = await prisma.auditLog.findFirst({
+      where: { action: 'access.denied', actorUserId: t.userId },
+    });
+    expect(audit?.metadata).toMatchObject({ country: 'CA', subdivision: 'CA-ON' });
+    expect((await postFrom(t.client, '/v1/orders', order(m.symbol), 'CA-QC')).status).toBe(202);
   });
 
   it('blocks new risk from a restricted region but never closing, cancelling or withdrawing', async () => {
@@ -264,5 +294,39 @@ describe('sanctions screening', () => {
     });
     expect(audits).toBe(2);
     expect(userId).toBeTruthy();
+  });
+});
+
+describe('OFAC SDN list sync', () => {
+  afterAll(async () => {
+    await prisma.sanctionedAddress.deleteMany({ where: { source: OFAC_SOURCE } });
+  });
+
+  it('loads EVM addresses from the SDN format and refuses a broken update', async () => {
+    const sync = app.get(SanctionsSyncService);
+    const listed = [wallet(), wallet(), wallet()];
+    // Synthetic rows in the SDN.CSV format: the test never downloads the real list.
+    const row = (n: number, ticker: string, address: string) =>
+      `${n},"TEST ENTRY ${n}","-0- ","CYBER2",-0- ,"Digital Currency Address - ${ticker} ${address}; Digital Currency Address - XBT 1BoatSLRHtKNngkdXEeobR76b53LETtpyT."`;
+    const csv = listed.map((w, i) => row(i + 1, i === 1 ? 'USDT' : 'ETH', w.address)).join('\n');
+
+    expect(await sync.syncOfac({ text: csv })).toEqual({
+      source: OFAC_SOURCE,
+      added: 3,
+      removed: 0,
+      total: 3,
+    });
+    expect((await walletSignIn(listed[1]!)).res.body.error.code).toBe('SANCTIONED_ADDRESS');
+
+    // An empty or sharply shrunk download keeps the previous list.
+    await expect(sync.syncOfac({ text: 'not the list' })).rejects.toThrow(/no EVM addresses/);
+    await expect(sync.syncOfac({ text: row(9, 'ETH', listed[0]!.address) })).rejects.toThrow(
+      /less than half/,
+    );
+    expect(await access.isSanctioned(listed[2]!.address)).toBe(true);
+    // An operator can force a genuine shrink.
+    expect(
+      (await sync.syncOfac({ text: row(9, 'ETH', listed[0]!.address), force: true })).total,
+    ).toBe(1);
   });
 });

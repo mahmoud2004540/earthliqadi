@@ -180,8 +180,46 @@ export const apiEnvSchema = z
       .toLowerCase()
       .regex(/^([a-z0-9-]{1,64})?$/)
       .default(''),
-    /** What to do when the country header is missing or not a valid code. */
+    /**
+     * Request header carrying the client's ISO 3166-2 subdivision, set by the
+     * edge (Cloudflare's "cf-region-code" sends "ON" for Ontario). Needed only
+     * when RESTRICTED_SUBDIVISIONS is set. Same overwrite rule as above.
+     */
+    GEO_REGION_HEADER: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^([a-z0-9-]{1,64})?$/)
+      .default(''),
+    /**
+     * ISO 3166-2 codes (comma-separated, e.g. "CA-ON") restricted within an
+     * otherwise permitted country. Legal input required (ADR-0023).
+     */
+    RESTRICTED_SUBDIVISIONS: z
+      .string()
+      .default('')
+      .transform((v) =>
+        v
+          .split(',')
+          .map((c) => c.trim().toUpperCase())
+          .filter(Boolean),
+      )
+      .pipe(z.array(z.string().regex(/^[A-Z]{2}-[A-Z0-9]{1,3}$/))),
+    /** What to do when the country (or a needed subdivision) is missing or invalid. */
     GEO_UNKNOWN_COUNTRY: z.enum(['allow', 'deny']).default('allow'),
+    /**
+     * Hours between automatic downloads of OFAC's SDN list (ADR-0023). 0 = off
+     * (local/ci). Production requires 1-24.
+     */
+    SANCTIONS_SYNC_HOURS: z.coerce.number().int().min(0).max(168).default(0),
+    /** Official source of the SDN list. Only https URLs are accepted. */
+    SANCTIONS_OFAC_URL: z
+      .string()
+      .url()
+      .refine((u) => u.startsWith('https://'), 'must be an https URL')
+      .default(
+        'https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN.CSV',
+      ),
     /** Current terms-of-use version; trading requires accepting it (ADR-0022). */
     TERMS_VERSION: z
       .string()
@@ -325,7 +363,20 @@ export const apiEnvSchema = z
         message: 'required when RESTRICTED_COUNTRIES is set',
       });
     }
+    if (env.RESTRICTED_SUBDIVISIONS.length > 0 && !env.GEO_REGION_HEADER) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['GEO_REGION_HEADER'],
+        message: 'required when RESTRICTED_SUBDIVISIONS is set',
+      });
+    }
     if (env.DEPLOY_ENV === 'production') {
+      if (env.SANCTIONS_SYNC_HOURS < 1 || env.SANCTIONS_SYNC_HOURS > 24)
+        ctx.addIssue({
+          code: 'custom',
+          path: ['SANCTIONS_SYNC_HOURS'],
+          message: 'must be between 1 and 24 in production (daily screening list updates)',
+        });
       if (env.RESTRICTED_COUNTRIES.length === 0)
         ctx.addIssue({
           code: 'custom',

@@ -789,10 +789,11 @@ export const en = {
     termsBody:
       'Trading, deposits into leader vaults and sub-accounts require accepting the current terms of use. Withdrawals and cancellations never do.',
     termsCheckbox:
-      'I have read and accept the terms of use. I am not a resident of, located in, or acting for anyone in a restricted jurisdiction, and I am not a sanctioned person.',
+      'I have read and accept the terms of use. I am not a restricted person: I do not live in, am not located in and am not acting for anyone in a restricted jurisdiction, I am not a citizen of a sanctioned jurisdiction, I am not on a sanctions list, and I am not using a VPN or proxy to hide my location.',
     termsLink: 'Read the terms of use',
     accept: 'Accept',
     accepting: 'Saving…',
+    detected: 'Detected location',
     sanctionedTitle: 'This wallet cannot use the platform',
     sanctionedBody:
       'This wallet address appears on a sanctions list loaded by the operator. Trading and withdrawals through the platform are not available.',
@@ -804,6 +805,9 @@ export const en = {
     version: 'Version',
     restrictedHeading: 'Restricted jurisdictions',
     restrictedNone: 'No restricted jurisdictions are configured on this deployment.',
+    restrictedRegions: 'Restricted regions within other countries',
+    restrictedNote:
+      'This list applies to residence, location and incorporation. Citizens of jurisdictions restricted because of sanctions are restricted wherever they are.',
     sections: [
       {
         heading: '1. What this software is',
@@ -811,11 +815,15 @@ export const en = {
       },
       {
         heading: '2. Who may use it',
-        body: 'You may use the platform only if you are of legal age where you live, you are not a resident of, located in, or acting on behalf of anyone in a restricted jurisdiction, and you are not a person or entity listed on a sanctions list. You must not use a VPN or any other means to get around these restrictions.',
+        body: 'You may use the platform only if you are of legal age where you live and you are not a restricted person. Restricted persons are: anyone who lives in, is located in, or is incorporated or registered in a restricted jurisdiction listed below; citizens of a jurisdiction that is restricted because of sanctions, wherever they are; anyone acting on behalf of such a person; and any person, entity or wallet on a sanctions list.',
       },
       {
         heading: '3. Restricted access',
-        body: 'From a restricted jurisdiction you cannot open new positions or new accounts. Wallets on a sanctions list cannot sign in, trade or withdraw through the platform. Closing positions, cancelling orders and withdrawing are never blocked for region.',
+        body: 'From a restricted jurisdiction you cannot open new positions or new accounts. Wallets on a sanctions list cannot sign in, trade or withdraw through the platform; wallet addresses are screened against the U.S. Treasury (OFAC) list of sanctioned persons, which is updated automatically. Closing positions, cancelling orders and withdrawing are never blocked for region.',
+      },
+      {
+        heading: '3a. No circumvention',
+        body: 'You must not get around these restrictions: no VPNs, proxies or other tools to hide your location, no false statements about where you live or your citizenship, and no use of someone else’s wallet. By using the platform you confirm that you are not a restricted person. Accounts found circumventing the restrictions can be limited to closing positions and withdrawing.',
       },
       {
         heading: '4. Risks',

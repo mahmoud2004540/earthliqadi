@@ -5,8 +5,18 @@
 
 export interface GeoConfig {
   GEO_COUNTRY_HEADER: string;
+  GEO_REGION_HEADER: string;
   GEO_UNKNOWN_COUNTRY: 'allow' | 'deny';
   RESTRICTED_COUNTRIES: string[];
+  /** ISO 3166-2 codes such as "CA-ON". */
+  RESTRICTED_SUBDIVISIONS: string[];
+}
+
+/** Where a request comes from, as reported by the trusted edge. */
+export interface Location {
+  country: string | null;
+  /** ISO 3166-2 code ("CA-ON"), or null when unknown. */
+  subdivision: string | null;
 }
 
 /** Codes some CDNs use for "unknown" or anonymising networks (e.g. Tor). Treated as unknown. */
@@ -27,14 +37,51 @@ export function countryFrom(
 }
 
 /**
- * Whether opening new risk is blocked for this request's region.
+ * The client's subdivision from the trusted edge header. Accepts the bare
+ * subdivision part ("ON", as Cloudflare sends it) or the full code ("CA-ON").
+ * A full code naming another country than `country` is treated as unknown.
+ */
+export function subdivisionFrom(
+  headers: Record<string, string | string[] | undefined>,
+  config: Pick<GeoConfig, 'GEO_REGION_HEADER'>,
+  country: string | null,
+): string | null {
+  if (!config.GEO_REGION_HEADER || country === null) return null;
+  const raw = headers[config.GEO_REGION_HEADER];
+  if (typeof raw !== 'string') return null;
+  const v = raw.trim().toUpperCase();
+  const m = /^(?:([A-Z]{2})-)?([A-Z0-9]{1,3})$/.exec(v);
+  if (!m || (m[1] !== undefined && m[1] !== country)) return null;
+  return `${country}-${m[2]}`;
+}
+
+export function locationFrom(
+  headers: Record<string, string | string[] | undefined>,
+  config: Pick<GeoConfig, 'GEO_COUNTRY_HEADER' | 'GEO_REGION_HEADER'>,
+): Location {
+  const country = countryFrom(headers, config);
+  return { country, subdivision: subdivisionFrom(headers, config, country) };
+}
+
+/**
+ * Whether opening new risk is blocked for this location.
  * Region checks are off when no header is configured (local/ci only; the
  * config refuses that combination in production).
+ *
+ * A country with restricted subdivisions (Ontario in Canada, for example)
+ * needs a known subdivision: when it is missing, the unknown-location policy
+ * applies.
  */
-export function regionRestricted(country: string | null, config: GeoConfig): boolean {
+export function regionRestricted(loc: Location, config: GeoConfig): boolean {
   if (!config.GEO_COUNTRY_HEADER) return false;
-  if (country === null) return config.GEO_UNKNOWN_COUNTRY === 'deny';
-  return config.RESTRICTED_COUNTRIES.includes(country);
+  const unknown = config.GEO_UNKNOWN_COUNTRY === 'deny';
+  if (loc.country === null) return unknown;
+  if (config.RESTRICTED_COUNTRIES.includes(loc.country)) return true;
+  const prefix = `${loc.country}-`;
+  const subs = config.RESTRICTED_SUBDIVISIONS.filter((s) => s.startsWith(prefix));
+  if (subs.length === 0) return false;
+  if (loc.subdivision === null) return unknown;
+  return subs.includes(loc.subdivision);
 }
 
 export type AccessKind = 'open' | 'manage' | 'withdraw';

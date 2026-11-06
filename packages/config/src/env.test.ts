@@ -99,7 +99,28 @@ describe('apiEnvSchema', () => {
         GEO_COUNTRY_HEADER: 'cf-ipcountry',
       }),
     ).toThrow(/GEO_UNKNOWN_COUNTRY/);
+    const geo = {
+      ...productionEnv,
+      RESTRICTED_COUNTRIES: 'US',
+      GEO_COUNTRY_HEADER: 'x-edge-country',
+      GEO_UNKNOWN_COUNTRY: 'deny',
+    };
+    expect(() => parseEnv(apiEnvSchema, geo)).toThrow(/SANCTIONS_SYNC_HOURS/);
+    expect(() =>
+      parseEnv(apiEnvSchema, {
+        ...geo,
+        SANCTIONS_SYNC_HOURS: '24',
+        RESTRICTED_SUBDIVISIONS: 'CA-ON',
+      }),
+    ).toThrow(/GEO_REGION_HEADER/);
+    expect(() =>
+      parseEnv(apiEnvSchema, { ...localEnv, RESTRICTED_SUBDIVISIONS: 'Ontario' }),
+    ).toThrow(/RESTRICTED_SUBDIVISIONS/);
+    expect(() =>
+      parseEnv(apiEnvSchema, { ...localEnv, SANCTIONS_OFAC_URL: 'http://plain.invalid/sdn.csv' }),
+    ).toThrow(/SANCTIONS_OFAC_URL/);
     const local = parseEnv(apiEnvSchema, localEnv);
+    expect(local.SANCTIONS_SYNC_HOURS).toBe(0);
     expect(local.GEO_COUNTRY_HEADER).toBe('');
     expect(local.TERMS_VERSION).toBe('draft-1');
   });

@@ -7,6 +7,7 @@ import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import type { Dictionary } from '@/i18n';
 import { ApiError, api } from '@/lib/api';
+import { locationName } from './place-names';
 
 type Status = (AccessStatusDto & Partial<MyAccessStatusDto>) & { signedIn: boolean };
 
@@ -73,6 +74,11 @@ export function AccessBar({ t }: { t: Dictionary['access'] }) {
         <Alert tone="warning" data-testid="region-restricted">
           <strong className="block">{t.regionTitle}</strong>
           {t.regionBody}
+          {locationName(s.country, s.subdivision) ? (
+            <span className="mt-1 block text-xs">
+              {t.detected}: {locationName(s.country, s.subdivision)}
+            </span>
+          ) : null}
         </Alert>
       ) : null}
       {s.signedIn && !s.sanctioned && s.termsAccepted === false ? (

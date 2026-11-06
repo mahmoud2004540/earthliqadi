@@ -227,10 +227,14 @@ export const acceptTermsSchema = z.object({
 export interface AccessStatusDto {
   /** ISO 3166-1 alpha-2 code from the edge proxy header, or null when unknown. */
   country: string | null;
+  /** ISO 3166-2 subdivision ("CA-ON") from the edge, or null when unknown. */
+  subdivision: string | null;
   /** Opening new risk is blocked from this region (reduce-only orders and withdrawals stay open). */
   regionRestricted: boolean;
   /** Published list of restricted jurisdictions (ISO 3166-1 alpha-2). */
   restrictedCountries: string[];
+  /** Published restricted subdivisions (ISO 3166-2, e.g. "CA-ON"). */
+  restrictedSubdivisions: string[];
   termsVersion: string;
 }
 

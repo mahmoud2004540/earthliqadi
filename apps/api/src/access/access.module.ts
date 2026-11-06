@@ -26,6 +26,7 @@ import { ReqContext, type RequestContext } from '../common/request-context';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { AccessPolicyGuard } from './access.guard';
 import { AccessService } from './access.service';
+import { SanctionsSyncService } from './sanctions-sync.service';
 
 @ApiTags('access')
 @Controller({ version: '1' })
@@ -36,14 +37,14 @@ export class AccessController {
   @Public()
   @Get('access')
   status(@Req() req: Request): AccessStatusDto {
-    return this.access.status(this.access.countryOf(req));
+    return this.access.status(this.access.locationOf(req));
   }
 
   @Get('me/access')
   @ApiKeyScope('read')
   @RequirePermissions(PERMISSIONS.ACCOUNT_SELF_READ)
   mine(@CurrentAuth() auth: AuthContext, @Req() req: Request): Promise<MyAccessStatusDto> {
-    return this.access.myStatus(auth.user.id, this.access.countryOf(req));
+    return this.access.myStatus(auth.user.id, this.access.locationOf(req));
   }
 
   @Post('me/terms/accept')
@@ -56,14 +57,14 @@ export class AccessController {
     @Req() req: Request,
     @ReqContext() ctx: RequestContext,
   ): Promise<MyAccessStatusDto> {
-    return this.access.acceptTerms(auth.user.id, body.version, this.access.countryOf(req), ctx);
+    return this.access.acceptTerms(auth.user.id, body.version, this.access.locationOf(req), ctx);
   }
 }
 
 @Global()
 @Module({
   controllers: [AccessController],
-  providers: [AccessService, AccessPolicyGuard],
-  exports: [AccessService, AccessPolicyGuard],
+  providers: [AccessService, AccessPolicyGuard, SanctionsSyncService],
+  exports: [AccessService, AccessPolicyGuard, SanctionsSyncService],
 })
 export class AccessModule {}

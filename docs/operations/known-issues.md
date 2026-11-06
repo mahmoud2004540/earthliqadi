@@ -125,11 +125,15 @@ not described as implemented in the docs should be treated as absent.
   restrictions, sanctions screening and terms acceptance (ADR-0022). Still
   open: the restricted list, the sanctions lists to load and the final terms
   text are counsel decisions.
-- **Region checks are best-effort.** They rely on a country header from the
-  edge/CDN and are defeated by VPNs. The terms forbid circumvention.
-- **Sanctions lists are loaded manually** (`cli:sanctions import`). There is
-  no automatic list updater and no screening provider. The escape hatch
-  cannot be blocked by the operator.
+- **Region checks are best-effort.** They rely on Cloudflare's location,
+  trusted only from Cloudflare networks (ADR-0023), and are defeated by VPNs.
+  The terms forbid circumvention. Citizenship cannot be checked without KYC.
+- **Sanctions screening covers OFAC's SDN wallet addresses only.** It updates
+  automatically (`SANCTIONS_SYNC_HOURS`, ADR-0023). There is no commercial
+  screening provider (on-chain exposure analysis). The escape hatch cannot be
+  blocked by the operator.
+- **Cloudflare is not set up yet** for any deployment; see
+  `docs/operations/cloudflare-edge.md`.
 - Ethereum (EIP-4361) only; no Solana or other chains, and no
   smart-contract wallet signatures (ERC-1271) yet.
 - There is no account recovery for wallet accounts by design.

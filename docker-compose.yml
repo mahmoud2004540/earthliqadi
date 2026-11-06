@@ -19,8 +19,11 @@ x-api-env: &api-env
   KYC_ENABLED: ${KYC_ENABLED:-false}
   KYC_REQUIRED_FOR_REAL_TRADING: ${KYC_REQUIRED_FOR_REAL_TRADING:-false}
   RESTRICTED_COUNTRIES: ${RESTRICTED_COUNTRIES:-}
+  RESTRICTED_SUBDIVISIONS: ${RESTRICTED_SUBDIVISIONS:-}
   GEO_COUNTRY_HEADER: ${GEO_COUNTRY_HEADER:-}
+  GEO_REGION_HEADER: ${GEO_REGION_HEADER:-}
   GEO_UNKNOWN_COUNTRY: ${GEO_UNKNOWN_COUNTRY:-allow}
+  SANCTIONS_SYNC_HOURS: ${SANCTIONS_SYNC_HOURS:-0}
   TERMS_VERSION: ${TERMS_VERSION:-draft-1}
   METRICS_TOKEN: ${METRICS_TOKEN:-}
   CHAIN_RPC_URL: ${CHAIN_RPC_URL:-http://chain:8545}
@@ -157,6 +160,7 @@ services:
     image: nginxinc/nginx-unprivileged:1.28-alpine
     volumes:
       - ./infrastructure/docker/edge/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./infrastructure/docker/edge/cloudflare:/etc/nginx/cloudflare:ro
     depends_on:
       api:
         condition: service_healthy

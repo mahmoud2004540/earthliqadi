@@ -6,6 +6,7 @@ import { Alert } from '@/components/ui/alert';
 import { Card } from '@/components/ui/card';
 import type { Dictionary } from '@/i18n';
 import { api } from '@/lib/api';
+import { countryName, subdivisionName } from './place-names';
 
 /** Terms of use, with the deployment's live terms version and restricted list. */
 export function TermsPage({ t }: { t: Dictionary['terms'] }) {
@@ -34,11 +35,20 @@ export function TermsPage({ t }: { t: Dictionary['terms'] }) {
       ))}
       <Card className="p-6">
         <h2 className="text-lg font-semibold">{t.restrictedHeading}</h2>
-        <p className="mt-2 font-mono text-sm" data-testid="restricted-list">
+        <p className="mt-2 text-sm" data-testid="restricted-list">
           {s && s.restrictedCountries.length > 0
-            ? s.restrictedCountries.join(', ')
+            ? s.restrictedCountries.map(countryName).join(', ')
             : t.restrictedNone}
         </p>
+        {s && s.restrictedSubdivisions.length > 0 ? (
+          <>
+            <h3 className="mt-4 text-sm font-semibold">{t.restrictedRegions}</h3>
+            <p className="mt-1 text-sm" data-testid="restricted-regions">
+              {s.restrictedSubdivisions.map(subdivisionName).join(', ')}
+            </p>
+          </>
+        ) : null}
+        <p className="mt-4 text-xs text-muted">{t.restrictedNote}</p>
       </Card>
     </div>
   );

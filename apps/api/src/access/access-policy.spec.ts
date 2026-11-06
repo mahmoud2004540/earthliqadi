@@ -1,6 +1,7 @@
 import {
   countryFrom,
   decide,
+  locationFrom,
   isReduceOnlyBody,
   normaliseAddress,
   regionRestricted,
@@ -9,9 +10,15 @@ import {
 
 const geo = {
   GEO_COUNTRY_HEADER: 'cf-ipcountry',
+  GEO_REGION_HEADER: 'cf-region-code',
   GEO_UNKNOWN_COUNTRY: 'deny' as const,
   RESTRICTED_COUNTRIES: ['US', 'KP'],
+  RESTRICTED_SUBDIVISIONS: ['CA-ON', 'UA-43'],
 };
+const at = (country: string | null, subdivision: string | null = null) => ({
+  country,
+  subdivision,
+});
 
 describe('countryFrom', () => {
   it('reads a valid code from the configured header', () => {
@@ -29,15 +36,54 @@ describe('countryFrom', () => {
   });
 });
 
+describe('locationFrom', () => {
+  it('reads the subdivision in bare or full ISO 3166-2 form', () => {
+    expect(locationFrom({ 'cf-ipcountry': 'CA', 'cf-region-code': 'on' }, geo)).toEqual(
+      at('CA', 'CA-ON'),
+    );
+    expect(locationFrom({ 'cf-ipcountry': 'CA', 'cf-region-code': 'CA-QC' }, geo)).toEqual(
+      at('CA', 'CA-QC'),
+    );
+  });
+  it('treats a mismatched, malformed or repeated subdivision as unknown', () => {
+    expect(locationFrom({ 'cf-ipcountry': 'CA', 'cf-region-code': 'US-NY' }, geo)).toEqual(
+      at('CA'),
+    );
+    expect(locationFrom({ 'cf-ipcountry': 'CA', 'cf-region-code': 'Ontario' }, geo)).toEqual(
+      at('CA'),
+    );
+    expect(locationFrom({ 'cf-ipcountry': 'CA', 'cf-region-code': ['ON', 'QC'] }, geo)).toEqual(
+      at('CA'),
+    );
+    expect(locationFrom({ 'cf-region-code': 'ON' }, geo)).toEqual(at(null));
+    expect(
+      locationFrom(
+        { 'cf-ipcountry': 'CA', 'cf-region-code': 'ON' },
+        { ...geo, GEO_REGION_HEADER: '' },
+      ),
+    ).toEqual(at('CA'));
+  });
+});
+
 describe('regionRestricted', () => {
   it('blocks listed countries and, when configured, unknown ones', () => {
-    expect(regionRestricted('US', geo)).toBe(true);
-    expect(regionRestricted('DE', geo)).toBe(false);
-    expect(regionRestricted(null, geo)).toBe(true);
-    expect(regionRestricted(null, { ...geo, GEO_UNKNOWN_COUNTRY: 'allow' })).toBe(false);
+    expect(regionRestricted(at('US'), geo)).toBe(true);
+    expect(regionRestricted(at('DE'), geo)).toBe(false);
+    expect(regionRestricted(at(null), geo)).toBe(true);
+    expect(regionRestricted(at(null), { ...geo, GEO_UNKNOWN_COUNTRY: 'allow' })).toBe(false);
+  });
+  it('blocks listed subdivisions only, and needs a known subdivision in such a country', () => {
+    expect(regionRestricted(at('CA', 'CA-ON'), geo)).toBe(true);
+    expect(regionRestricted(at('CA', 'CA-QC'), geo)).toBe(false);
+    expect(regionRestricted(at('UA', 'UA-43'), geo)).toBe(true);
+    expect(regionRestricted(at('UA', 'UA-30'), geo)).toBe(false);
+    expect(regionRestricted(at('CA'), geo)).toBe(true);
+    expect(regionRestricted(at('CA'), { ...geo, GEO_UNKNOWN_COUNTRY: 'allow' })).toBe(false);
+    // Countries without restricted subdivisions do not need one.
+    expect(regionRestricted(at('DE'), geo)).toBe(false);
   });
   it('is off without a header (local/ci)', () => {
-    expect(regionRestricted('US', { ...geo, GEO_COUNTRY_HEADER: '' })).toBe(false);
+    expect(regionRestricted(at('US'), { ...geo, GEO_COUNTRY_HEADER: '' })).toBe(false);
   });
 });
 

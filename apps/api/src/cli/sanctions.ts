@@ -7,6 +7,9 @@
  *   sanctions import <file> --source <name>   # replace the list of that source
  *   sanctions summary                         # addresses per source
  *   sanctions check <address>                 # is this address listed?
+ *   sanctions sync-ofac [--file f] [--force]  # load OFAC's SDN list (download or file)
+ *
+ * The API also runs sync-ofac on a timer when SANCTIONS_SYNC_HOURS > 0 (ADR-0023).
  */
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
@@ -14,13 +17,18 @@ import { readFile } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
 import { normaliseAddress } from '../access/access-policy';
 import { AccessService } from '../access/access.service';
+import { SanctionsSyncService } from '../access/sanctions-sync.service';
 import { AppModule } from '../app.module';
 import { loadAppConfigOrExit } from '../config/app-config';
 
 async function run(): Promise<void> {
   const { positionals, values } = parseArgs({
     allowPositionals: true,
-    options: { source: { type: 'string' } },
+    options: {
+      source: { type: 'string' },
+      file: { type: 'string' },
+      force: { type: 'boolean', default: false },
+    },
   });
   const config = loadAppConfigOrExit();
   const app = await NestFactory.createApplicationContext(
@@ -36,6 +44,7 @@ async function run(): Promise<void> {
       GROWTH_JOB_INTERVAL_SECONDS: 0,
       ALGO_POLL_MS: 0,
       MARKET_DATA_POLL_MS: 0,
+      SANCTIONS_SYNC_HOURS: 0,
     }),
   );
   const access = app.get(AccessService);
@@ -67,8 +76,16 @@ async function run(): Promise<void> {
         process.stdout.write(`${a}: ${(await access.isSanctioned(a)) ? 'LISTED' : 'not listed'}\n`);
         break;
       }
+      case 'sync-ofac': {
+        const text = values.file ? await readFile(values.file, 'utf8') : undefined;
+        const r = await app.get(SanctionsSyncService).syncOfac({ text, force: values.force });
+        process.stdout.write(
+          `${r.source}: ${r.total} addresses (added ${r.added}, removed ${r.removed})\n`,
+        );
+        break;
+      }
       default:
-        throw new Error('usage: sanctions import|summary|check');
+        throw new Error('usage: sanctions import|summary|check|sync-ofac');
     }
   } finally {
     await app.close();
