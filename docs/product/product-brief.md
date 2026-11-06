@@ -1,31 +1,48 @@
-# Product brief: non-custodial perpetuals exchange
+# Product brief: non-custodial spot and perpetuals exchange
 
-- Status: Draft for owner review
+- Status: Draft for owner review (revision 2)
 - Date: 2026-11-06
-- Direction chosen by the owner: a non-custodial perpetuals venue in the
-  style of Hyperliquid (wallet sign-in, no account creation, no identity
-  verification — ADR-0013), with one feature that gives traders a reason to
-  come here.
+- Direction chosen by the owner: a non-custodial venue in the style of
+  Hyperliquid (wallet sign-in, no account creation, no identity verification —
+  ADR-0013) with **both real spot and real perpetuals**, built for
+  professional traders, with leader vaults as the growth feature.
+- Revision 2 (owner decision): spot is a first-class product, not frozen;
+  **no paper trading anywhere in the product**; professional traders are a
+  primary audience.
 
 ## 1. Goal
 
 Traders sign in with a wallet, deposit collateral into the vault contract,
-and trade perpetual futures with leverage. **They can always withdraw**, even
-if the operator disappears (escape hatch, ADR-0014).
+and trade **spot and perpetual futures** against real collateral. They can
+always withdraw, even if the operator disappears (escape hatch, ADR-0014).
 
 The platform succeeds when real traders keep collateral on it and come back
-to trade. Visitors alone do not count.
+to trade. "Real" here means real code paths and real on-chain collateral;
+until the external items in section 8 are done, the chain is a test chain.
 
 ## 2. Who it is for
 
-1. **Active perp traders** who already use centralised exchanges, do not want
-   to hand over custody, and do not want to fill in KYC forms.
-2. **Skilled traders with an audience** (a Telegram channel, X, YouTube) who
-   want to earn from their skill without asking followers to send them money.
-3. **Followers** who want exposure to a trader they trust, can see that
-   trader's real record, and can leave at any time.
+1. **Professional and algorithmic traders** (spot and/or perps) who need an
+   API, low latency, advanced order types, fair fees and deep books, and
+   who want self-custody.
+2. **Spot-only traders** who never use derivatives: they get a full spot
+   venue with the same self-custody guarantees.
+3. **Skilled traders with an audience** who run leader vaults.
+4. **Followers** who allocate to leader vaults and can leave at any time.
 
-## 3. The feature that brings traders: leader vaults (copy-trading)
+## 3a. Professional trading (spot and perps)
+
+| Capability                                      | Status today       | Needed                                                                                                                     |
+| ----------------------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| Limit/market, IOC/FOK/post-only, stop orders    | Exists             | Keep; add TP/SL attached to perp positions                                                                                 |
+| REST + WebSocket market data                    | Exists             | Public order-book diff stream with sequence numbers                                                                        |
+| API trading for bots                            | Session-based only | **Agent keys**: the wallet signs once to authorise an API key with scopes (trade only, never withdraw), expiry and IP list |
+| Batch place/cancel, cancel-all, dead-man switch | Missing            | Add                                                                                                                        |
+| Fee tiers by 30-day volume, maker rebates       | Missing            | Add, shown publicly; rebates paid from taker fees only                                                                     |
+| Sub-accounts under one wallet                   | Missing            | Add (separate margin, one sign-in)                                                                                         |
+| Market-maker programme                          | Missing            | Public, rule-based terms; no private deals hidden from users                                                               |
+
+## 3b. The feature that brings traders: leader vaults (copy-trading)
 
 A trader opens a **leader vault**, followers deposit into it, and the leader
 trades the vault's collateral.
@@ -90,40 +107,46 @@ monitoring. These are listed in `docs/operations/production-readiness.md`.
 
 ## 6. What is missing for this goal (gap list, in build order)
 
-1. **Perpetuals on real vault collateral (testnet).**
-   - **Today:** perps are paper-only (ADR-0011).
-   - **Needed:** margin in the vault's stable token, and a live insurance
-     fund.
-   - **Unchanged:** price bands, liquidation and funding rules.
-2. **Leader vaults:**
-   - share ledger accounts and DB invariants;
-   - create, deposit, withdraw with the high-water-mark profit share;
-   - leader trading on behalf of the vault, plus risk limits;
-   - pro-rata exit.
-3. **Public track record and vault pages:**
-   - equity curve and stats computed from postings;
-   - a leaderboard sorted by risk-adjusted metrics, not raw return.
-4. **Leader invite links:** attribution of new wallets to a leader. No
-   payouts until the owner decides on a referral policy.
-5. **Per-follower proof page:** shows the follower's leaf in the committed
-   state root, and how to use the escape hatch.
-6. **Fee schedule:** maker/taker fees, the vault profit share and the
-   platform fee, shown before every action.
+1. **Remove paper trading from the product:**
+   - remove the paper faucet, paper markets and the "practice" UI;
+   - keep the database isolation code only as a migration that retires the
+     namespace.
+2. **Real spot on vault collateral as the default experience:**
+   - every listed spot market is vault-backed;
+   - deposit and withdraw in the terminal;
+   - full order types.
+3. **Real perpetuals on vault collateral:**
+   - margin in the vault's stable token, live insurance fund, real funding;
+   - the existing risk rules (price bands, liquidation, ADL harness) move
+     over unchanged.
+4. **Professional tooling:**
+   - agent API keys (trade-only, wallet-authorised);
+   - batch orders, cancel-all, dead-man switch;
+   - WebSocket book diffs with sequence numbers;
+   - TP/SL;
+   - sub-accounts.
+5. **Fee tiers and maker rebates,** published and shown before every action.
+6. **Leader vaults:**
+   - share accounting, high-water-mark profit share;
+   - leader risk limits, pro-rata exit.
+7. **Public track records and leaderboard,** derived from trades only.
+8. **Leader invite links** (attribution only, no payouts yet).
+9. **Per-user proof page:**
+   - the user's leaf in the committed state root;
+   - an escape-hatch guide.
 
-## 7. What we remove or freeze
+## 7. What we remove
 
-- **Spot markets:** these stay, but are not the product focus. No new spot
-  features.
-- **Paper trading:** kept only as a "practice" mode. It shares the same
-  engine and is clearly labelled.
-- **KYC module:** already off by default (ADR-0013). No further work.
+- **Paper trading:** removed entirely, at the owner's decision. This
+  includes the faucet, paper perps and the practice mode.
+- **KYC module:** stays off (ADR-0013).
 
 ## 8. Not done and not claimed
 
-- Smart-contract audit, penetration test and legal analysis of a no-KYC
-  perps venue with copy-trading.
-- Sanctions screening contract, HSM/KMS.
-
-Copy-trading with profit share can be regulated as investment management in
-many jurisdictions. **Counsel review is required before mainnet.** Until
-then, everything runs on a test chain only.
+- **Not done:** smart-contract audit, penetration test, legal analysis
+  (no-KYC spot and perps with copy-trading), sanctions screening, HSM/KMS,
+  liquidity.
+- **Liquidity:** we will not invent volume or fake order books. Liquidity
+  comes from real makers under public terms.
+- **Before mainnet:** counsel review is required. Until then, everything
+  runs on a test chain.
