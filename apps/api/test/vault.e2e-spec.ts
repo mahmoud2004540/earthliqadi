@@ -25,6 +25,7 @@ const RPC = process.env.TEST_CHAIN_RPC_URL ?? 'http://localhost:8545';
 const VAULT_ABI = parseAbi([
   'function deposit(address token, uint256 amount) returns (uint64)',
   'function withdraw((bytes32 id, address user, address token, uint256 amount, uint64 afterState, uint64 expiry) w, bytes signature)',
+  'function withdrawAfterFreeze((bytes32 id, address user, address token, uint256 amount, uint64 afterState, uint64 expiry) w, bytes signature)',
   'function freeze()',
   'function escape(address token, uint256 balance, bytes32[] proof)',
   'function escapeDeposit(uint64 depositId)',
@@ -254,25 +255,67 @@ describe('non-custodial vault on the local chain', () => {
       await chain.indexOnce();
       expect((await chain.custodyCheck()).filter((c) => !c.ok)).toEqual([]);
 
-      // The operator goes silent: anyone freezes, the user leaves with proof + late deposit.
+      // Withdraw 10 more but never submit it; the next root (2) excludes the held 10.
+      const w3 = (await user.http.post('/v1/vault/withdrawals', { asset: USD, amount: '10' })).body;
+      expect(w3.call.withdrawal.afterState).toBe('1');
+      expect(await chain.commitState()).toBe(2n);
+      const proof2 = (await user.http.get('/v1/vault/proof')).body;
+      // 300 − 30 executed + 20 deposited − 10 held.
+      expect(proof2).toMatchObject({ stateIndex: '2', lastDepositId: '2' });
+      expect(proof2.entries[0]).toMatchObject({ balance: '280000000' });
+      // The proof download carries the signed withdrawals that were not executed.
+      const kept = proof2.unexecutedWithdrawals.map(
+        (c: { withdrawal: { id: string } }) => c.withdrawal.id,
+      );
+      expect(kept).toEqual(
+        expect.arrayContaining([staleCall.withdrawal.id, w3.call.withdrawal.id]),
+      );
+      const asArgs = (c: typeof w3.call) => [
+        {
+          id: c.withdrawal.id,
+          user: c.withdrawal.user,
+          token: c.withdrawal.token,
+          amount: BigInt(c.withdrawal.amount),
+          afterState: BigInt(c.withdrawal.afterState),
+          expiry: BigInt(c.withdrawal.expiry),
+        },
+        c.signature,
+      ];
+
+      // The operator goes silent: anyone freezes, the user leaves with the latest proof.
       await rpc('evm_increaseTime', [3601]);
       await rpc('evm_mine');
       await write(vault, VAULT_ABI as never, 'freeze', []);
+      // The expired withdrawal was released into root 1 already: it cannot pay again.
+      await expect(
+        wallet.writeContract({
+          address: vault,
+          abi: VAULT_ABI,
+          functionName: 'withdrawAfterFreeze',
+          args: asArgs(staleCall) as never,
+          chain: null,
+        }),
+      ).rejects.toThrow();
       const before = await client.readContract({
         address: usd,
         abi: TOKEN_ABI,
         functionName: 'balanceOf',
         args: [me.address],
       });
-      await write(vault, VAULT_ABI as never, 'escape', [usd, 300_000_000n, proof.entries[0].proof]);
-      await write(vault, VAULT_ABI as never, 'escapeDeposit', [2n]);
+      await write(vault, VAULT_ABI as never, 'escape', [
+        usd,
+        280_000_000n,
+        proof2.entries[0].proof,
+      ]);
+      // Root 2 does not contain the unsubmitted 10: it stays payable after the freeze.
+      await write(vault, VAULT_ABI as never, 'withdrawAfterFreeze', asArgs(w3.call));
       const after = await client.readContract({
         address: usd,
         abi: TOKEN_ABI,
         functionName: 'balanceOf',
         args: [me.address],
       });
-      // 300 committed − 30 withdrawn after the snapshot + 20 deposited after it.
+      // 280 committed in root 2 + the 10 signed but never submitted: all 290 the user owns.
       expect(after - before).toBe(290_000_000n);
       expect(
         await client.readContract({

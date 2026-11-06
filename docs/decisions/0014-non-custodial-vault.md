@@ -30,6 +30,12 @@ Testnet and local chain only. **Not audited.**
     signed against the latest or next snapshot (`withdrawnAt[stateIndex]` +
     `withdrawnAt[stateIndex+1]`);
   - `escapeDeposit(id)` for their deposits made after the snapshot.
+  - `withdrawAfterFreeze(w, sig)` for a signed withdrawal they never
+    submitted, when the frozen root provably excludes it:
+    `afterState < stateIndex` and `expiry >= lastCommitAt`. Without this, such
+    an amount would be stranded. It was added during audit preparation; see
+    `docs/security/audit-readiness.md`. The proof download includes every
+    signed, unexecuted withdrawal.
 - **No admin keys:** no upgradeability and no owner functions besides the
   immutable operator's commit/sign role.
 

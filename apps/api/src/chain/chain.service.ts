@@ -752,7 +752,20 @@ export class ChainService {
       orderBy: { index: 'desc' },
       include: { leaves: true },
     });
-    if (!state) return { stateIndex: null, root: null, lastDepositId: null, entries: [] };
+    const unexecuted = await this.prisma.withdrawal.findMany({
+      where: { userId, vaultAddress: d.vaultAddress, status: { not: 'EXECUTED' } },
+      include: { asset: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const unexecutedWithdrawals = unexecuted.map((w) => this.withdrawalDto(w, d).call);
+    if (!state)
+      return {
+        stateIndex: null,
+        root: null,
+        lastDepositId: null,
+        entries: [],
+        unexecutedWithdrawals,
+      };
     const leaves = state.leaves.map((l) => ({
       wallet: l.walletAddress as Hex,
       token: l.tokenAddress as Hex,
@@ -775,6 +788,7 @@ export class ChainService {
           proof: proofFor(levels, leafHash(l)) ?? [],
         };
       }),
+      unexecutedWithdrawals,
     };
   }
 

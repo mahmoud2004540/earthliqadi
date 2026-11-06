@@ -266,4 +266,10 @@ export interface VaultProofDto {
     balanceFormatted: string;
     proof: string[];
   }[];
+  /**
+   * Signed withdrawals not executed on-chain. Keep them with the proof: after
+   * a freeze, ExchangeVault.withdrawAfterFreeze pays those the frozen root no
+   * longer contains (the contract decides which).
+   */
+  unexecutedWithdrawals: WithdrawalDto['call'][];
 }

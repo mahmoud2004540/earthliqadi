@@ -20,8 +20,9 @@ interface IERC20 {
 ///  - Escape hatch: if no commitment arrives for `freezeDelay` seconds, anyone
 ///    can freeze the vault. Users then withdraw on their own with a Merkle
 ///    proof of their committed balance, plus their later deposits, minus
-///    withdrawals signed against the latest commitments. The operator is not
-///    needed and cannot stop it.
+///    withdrawals signed against the latest commitments. Signed withdrawals the
+///    frozen root no longer contains stay payable (`withdrawAfterFreeze`).
+///    The operator is not needed and cannot stop it.
 contract ExchangeVault {
     // ------------------------------------------------------------------ types
 
@@ -176,6 +177,34 @@ contract ExchangeVault {
         if (w.amount == 0) revert ZeroAmount();
         // At most one snapshot ahead of the latest committed root (see ADR-0014).
         if (w.afterState > stateIndex + 1) revert BadStateIndex();
+        if (_recover(hashWithdrawal(w), signature) != operator) revert BadSignature();
+        withdrawalUsed[w.id] = true;
+        withdrawnAt[w.user][w.token][w.afterState] += w.amount;
+        _safeTransfer(w.token, w.user, w.amount);
+        emit Withdrawn(w.id, w.user, w.token, w.amount);
+    }
+
+    /// @notice After a freeze: pays a signed withdrawal that was never submitted,
+    ///         when the frozen root provably no longer contains its amount.
+    /// @dev The operator holds the amount in its ledger before signing and records
+    ///      the latest snapshot index as `afterState`. Every root after
+    ///      `afterState` was taken while the hold existed, unless the hold was
+    ///      released. The backend releases a hold only once indexed chain time
+    ///      has passed `expiry`, and a root is committed in a later block than
+    ///      its snapshot. So when
+    ///        - `afterState < stateIndex` (the frozen root came after the hold), and
+    ///        - `expiry >= lastCommitAt` (the hold could not have been released
+    ///          before the frozen root was committed),
+    ///      the frozen root excludes the amount and `escape` will not pay it.
+    ///      It is recorded under `afterState`, which `escape` does not subtract,
+    ///      so the order of `escape` and this call does not matter.
+    function withdrawAfterFreeze(Withdrawal calldata w, bytes calldata signature) external nonReentrant {
+        if (!frozen) revert NotFrozen();
+        if (withdrawalUsed[w.id]) revert AlreadyUsed();
+        if (!isToken[w.token]) revert UnknownToken();
+        if (w.amount == 0) revert ZeroAmount();
+        if (w.afterState >= stateIndex) revert BadStateIndex();
+        if (w.expiry < lastCommitAt) revert Expired();
         if (_recover(hashWithdrawal(w), signature) != operator) revert BadSignature();
         withdrawalUsed[w.id] = true;
         withdrawnAt[w.user][w.token][w.afterState] += w.amount;

@@ -143,6 +143,10 @@ contract ExchangeVaultEdgeTest is TestBase {
         return abi.encodePacked(r, s, v);
     }
 
+    function bound(uint256 x, uint256 lo, uint256 hi) internal pure returns (uint256) {
+        return lo + (x % (hi - lo + 1));
+    }
+
     function _freeze() internal {
         vm.warp(vault.lastCommitAt() + DELAY + 1);
         vault.freeze();
@@ -287,32 +291,146 @@ contract ExchangeVaultEdgeTest is TestBase {
         eq(usd.balanceOf(alice), 1_000e6, "deposit reclaimed in full");
     }
 
-    /**
-     * KNOWN LIMITATION (documented for auditors, see docs/security/audit-readiness.md):
-     * a withdrawal signed after snapshot S, but never submitted, is excluded from
-     * root S+1. If the vault freezes while root S+1 is current, withdraw() is
-     * closed and escape() pays the root balance, so that amount stays in the vault.
-     */
-    function test_limitation_unsubmittedWithdrawalAtFreezeIsStranded() public {
+    // ------------------------------------------ signed withdrawals after a freeze
+
+    /// Root 1: alice 100. Operator holds 40 after snapshot 1 and signs it (afterState 1).
+    /// Root 2: alice 60. Alice has not submitted; then the operator goes silent and the vault freezes.
+    function _strandedSetup(uint64 expiry) internal returns (ExchangeVault.Withdrawal memory w, bytes memory sig) {
         vm.prank(alice);
         vault.deposit(address(usd), 100e6);
-        // Root 1: alice holds 100 (single-leaf tree: the root is the leaf).
         bytes32 root1 = vault.leaf(alice, address(usd), 100e6);
         vm.prank(operator);
         vault.commitState(1, root1, 1);
-        // The operator holds 40 and signs it against snapshot 1; alice never submits it.
-        ExchangeVault.Withdrawal memory w = _w(address(usd), alice, 40e6, 1);
-        bytes memory sig = _sign(w);
-        // Root 2 no longer contains the held 40.
+        w = _w(address(usd), alice, 40e6, 1);
+        w.expiry = expiry;
+        sig = _sign(w);
+        vm.warp(block.timestamp + 10 minutes);
         bytes32 root2 = vault.leaf(alice, address(usd), 60e6);
         vm.prank(operator);
         vault.commitState(2, root2, 1);
         _freeze();
+    }
+
+    function test_freeze_unsubmittedWithdrawalIsStillPaid_escapeFirst() public {
+        (ExchangeVault.Withdrawal memory w, bytes memory sig) = _strandedSetup(uint64(block.timestamp + 1 hours));
         vm.expectRevert(ExchangeVault.IsFrozen.selector);
-        vault.withdraw(w, sig);
+        vault.withdraw(w, sig); // the normal path stays closed
         vm.prank(alice);
         vault.escape(address(usd), 60e6, new bytes32[](0));
-        eq(usd.balanceOf(alice), 900e6 + 60e6, "escape pays the committed balance only");
-        eq(usd.balanceOf(address(vault)), 40e6, "the unsubmitted withdrawal stays stranded");
+        vm.prank(bob); // anyone may relay; funds go to alice
+        vault.withdrawAfterFreeze(w, sig); // after expiry too: the freeze is what matters
+        eq(usd.balanceOf(alice), 1_000e6, "alice recovers everything");
+        eq(usd.balanceOf(address(vault)), 0, "nothing stranded, nothing overpaid");
+        vm.expectRevert(ExchangeVault.AlreadyUsed.selector);
+        vault.withdrawAfterFreeze(w, sig);
+    }
+
+    function test_freeze_unsubmittedWithdrawalIsStillPaid_withdrawFirst() public {
+        (ExchangeVault.Withdrawal memory w, bytes memory sig) = _strandedSetup(uint64(block.timestamp + 1 hours));
+        vault.withdrawAfterFreeze(w, sig);
+        vm.prank(alice);
+        vault.escape(address(usd), 60e6, new bytes32[](0));
+        eq(usd.balanceOf(alice), 1_000e6, "order does not matter");
+        eq(usd.balanceOf(address(vault)), 0, "vault empty");
+    }
+
+    /// A hold released at expiry is back in a later root: the signature must not pay again.
+    function test_freeze_releasedWithdrawalIsNotPaidTwice() public {
+        vm.prank(alice);
+        vault.deposit(address(usd), 100e6);
+        bytes32 root1 = vault.leaf(alice, address(usd), 100e6);
+        vm.prank(operator);
+        vault.commitState(1, root1, 1);
+        ExchangeVault.Withdrawal memory w = _w(address(usd), alice, 40e6, 1); // expires in 1 hour
+        bytes memory sig = _sign(w);
+        // The hold expires and is released; the next root includes the 40 again.
+        vm.warp(block.timestamp + 2 hours);
+        bytes32 root2 = vault.leaf(alice, address(usd), 100e6);
+        vm.prank(operator);
+        vault.commitState(2, root2, 1);
+        _freeze();
+        vm.expectRevert(ExchangeVault.Expired.selector);
+        vault.withdrawAfterFreeze(w, sig);
+        vm.prank(alice);
+        vault.escape(address(usd), 100e6, new bytes32[](0));
+        eq(usd.balanceOf(alice), 1_000e6, "paid once, through the root");
+    }
+
+    /// The frozen root (or the one after it) still contains the amount: only escape pays it.
+    function test_freeze_withdrawalNotOlderThanTheRootIsRefused() public {
+        vm.prank(alice);
+        vault.deposit(address(usd), 100e6);
+        bytes32 root1 = vault.leaf(alice, address(usd), 100e6);
+        vm.prank(operator);
+        vault.commitState(1, root1, 1);
+        ExchangeVault.Withdrawal memory w1 = _w(address(usd), alice, 40e6, 1);
+        bytes memory s1 = _sign(w1);
+        ExchangeVault.Withdrawal memory w2 = _w(address(usd), alice, 30e6, 2);
+        bytes memory s2 = _sign(w2);
+        _freeze();
+        vm.expectRevert(ExchangeVault.BadStateIndex.selector);
+        vault.withdrawAfterFreeze(w1, s1);
+        vm.expectRevert(ExchangeVault.BadStateIndex.selector);
+        vault.withdrawAfterFreeze(w2, s2);
+        vm.prank(alice);
+        vault.escape(address(usd), 100e6, new bytes32[](0));
+        eq(usd.balanceOf(alice), 1_000e6, "escape pays the root balance");
+    }
+
+    function test_withdrawAfterFreeze_checks() public {
+        (ExchangeVault.Withdrawal memory w, bytes memory sig) = _strandedSetup(uint64(block.timestamp + 1 hours));
+        ExchangeVault.Withdrawal memory forged = w;
+        forged.amount = 50e6;
+        vm.expectRevert(ExchangeVault.BadSignature.selector);
+        vault.withdrawAfterFreeze(forged, sig);
+        ExchangeVault.Withdrawal memory zero = w;
+        zero.amount = 0;
+        vm.expectRevert(ExchangeVault.ZeroAmount.selector);
+        vault.withdrawAfterFreeze(zero, sig);
+        ExchangeVault.Withdrawal memory unknown = w;
+        unknown.token = address(0xDEAD);
+        vm.expectRevert(ExchangeVault.UnknownToken.selector);
+        vault.withdrawAfterFreeze(unknown, sig);
+    }
+
+    function test_withdrawAfterFreeze_needsAFreeze() public {
+        ExchangeVault.Withdrawal memory w = _w(address(usd), alice, 1, 0);
+        bytes memory sig = _sign(w);
+        vm.expectRevert(ExchangeVault.NotFrozen.selector);
+        vault.withdrawAfterFreeze(w, sig);
+    }
+
+    /// Fuzz: whatever the amount, timing and order, alice gets exactly her deposit back.
+    function testFuzz_freeze_paysExactlyOnce(uint96 held, uint32 delayBeforeRoot2, bool escapeFirst) public {
+        uint256 deposit = 1_000e6;
+        held = uint96(bound(held, 1, deposit));
+        delayBeforeRoot2 = uint32(bound(delayBeforeRoot2, 1, 3 hours));
+        vm.prank(alice);
+        vault.deposit(address(usd), deposit);
+        bytes32 root1 = vault.leaf(alice, address(usd), deposit);
+        vm.prank(operator);
+        vault.commitState(1, root1, 1);
+        ExchangeVault.Withdrawal memory w = _w(address(usd), alice, held, 1); // expires in 1 hour
+        bytes memory sig = _sign(w);
+        vm.warp(block.timestamp + delayBeforeRoot2);
+        // Backend rule: the hold is released only once chain time is past expiry.
+        bool released = block.timestamp > w.expiry;
+        uint256 rootBalance = released ? deposit : deposit - held;
+        bytes32 root2 = vault.leaf(alice, address(usd), rootBalance);
+        vm.prank(operator);
+        vault.commitState(2, root2, 1);
+        _freeze();
+        uint256 before = usd.balanceOf(alice);
+        if (escapeFirst) {
+            vm.prank(alice);
+            vault.escape(address(usd), rootBalance, new bytes32[](0));
+        }
+        try vault.withdrawAfterFreeze(w, sig) {} catch {}
+        if (!escapeFirst) {
+            vm.prank(alice);
+            vault.escape(address(usd), rootBalance, new bytes32[](0));
+        }
+        eq(usd.balanceOf(alice) - before, deposit, "exactly the deposit, never more or less");
+        eq(usd.balanceOf(address(vault)), 0, "vault empty");
     }
 }
