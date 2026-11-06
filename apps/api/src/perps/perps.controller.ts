@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import {
   PERMISSIONS,
   addMarginSchema,
   tpslSchema,
+  marginModeSchema,
   type OrderDto,
   leverageSchema,
   marketSymbolSchema,
@@ -104,5 +105,26 @@ export class PerpsController {
     @ReqContext() ctx: RequestContext,
   ): Promise<{ orders: OrderDto[] }> {
     return this.perps.setTpSl(auth.user.id, body.market, body, ctx);
+  }
+
+  @Get('margin-mode')
+  @ApiKeyScope('read')
+  @RequirePermissions(PERMISSIONS.ACCOUNT_SELF_READ)
+  marginMode(@CurrentAuth() auth: AuthContext): Promise<{ mode: string }> {
+    return this.perps.marginMode(auth.user.id);
+  }
+
+  /** Cross: free balance automatically tops up weakening positions before liquidation. */
+  @Post('margin-mode')
+  @HttpCode(HttpStatus.OK)
+  @ApiKeyScope('trade')
+  @RequirePermissions(PERMISSIONS.TRADING_TRADE)
+  @ApiZodBody(marginModeSchema)
+  setMarginMode(
+    @CurrentAuth() auth: AuthContext,
+    @Body(new ZodValidationPipe(marginModeSchema)) body: z.infer<typeof marginModeSchema>,
+    @ReqContext() ctx: RequestContext,
+  ): Promise<{ mode: string }> {
+    return this.perps.setMarginMode(auth.user.id, body.mode, ctx);
   }
 }

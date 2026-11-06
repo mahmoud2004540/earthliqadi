@@ -60,6 +60,8 @@ model User {
   referredByUserId String?     @map("referred_by_user_id") @db.Uuid
   /// Trading account of a leader vault (ADR-0019).
   isVault          Boolean     @default(false) @map("is_vault")
+  /// Perpetuals: "isolated" (default) or "cross" (free balance tops up positions, ADR-0021).
+  perpMarginMode   String      @default("isolated") @map("perp_margin_mode") @db.VarChar(8)
   emailVerifiedAt  DateTime?   @map("email_verified_at") @db.Timestamptz(3)
 
   /// AES-256-GCM encrypted TOTP secret (iv|tag|ciphertext). Never returned by the API.

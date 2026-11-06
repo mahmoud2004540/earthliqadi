@@ -394,3 +394,27 @@ export function adlRanking(
   }
   return scored.sort((a, b) => (a.score > b.score ? -1 : a.score < b.score ? 1 : 0));
 }
+
+/**
+ * Cross-margin top-up (ADR-0021): when a cross-mode position's equity falls
+ * below 125% of its maintenance margin, free balance is moved into it until
+ * equity is back at the initial margin for its current notional (capped by
+ * what is free). Returns the amount to move, or 0.
+ */
+export function crossTopUp(
+  pos: PositionState,
+  markMinor: bigint,
+  u: MarketUnits,
+  mmrBps: number,
+  leverage: number,
+  available: bigint,
+): bigint {
+  if (pos.size === 0n || available <= 0n) return 0n;
+  const eq = equity(pos, markMinor, u);
+  const mm = maintenanceMargin(pos, markMinor, u, mmrBps);
+  if (eq * 4n >= mm * 5n) return 0n; // equity ≥ 1.25 × maintenance: nothing to do
+  const target = initialMargin(notionalAt(markMinor, pos.size, u, 'up'), leverage);
+  const needed = target - eq;
+  if (needed <= 0n) return 0n;
+  return needed < available ? needed : available;
+}

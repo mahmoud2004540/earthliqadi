@@ -176,7 +176,15 @@ export class SettlementService {
 
   /** Settles all pending events for all markets. Returns the number of events processed. */
   async processPending(batchSize = 500): Promise<number> {
+    // Only markets with events the engine wrote but settlement has not applied
+    // (the engine updates engine_market_state in the same transaction as its events).
+    const pending = await this.prisma.$queryRaw<{ market_id: string }[]>`
+      SELECT e."market_id" FROM "engine_market_state" e
+        LEFT JOIN "settlement_state" s ON s."market_id" = e."market_id"
+       WHERE e."last_event_seq" > COALESCE(s."last_event_seq", 0)`;
+    if (pending.length === 0) return 0;
     const markets = await this.prisma.market.findMany({
+      where: { id: { in: pending.map((r) => r.market_id) } },
       include: { baseAsset: true, quoteAsset: true },
     });
     let total = 0;

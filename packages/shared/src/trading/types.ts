@@ -274,3 +274,6 @@ export interface TradeDto {
   feeAsset: string;
   createdAt: string;
 }
+
+/** Perpetual margin mode (ADR-0021). */
+export const marginModeSchema = z.object({ mode: z.enum(['isolated', 'cross']) });

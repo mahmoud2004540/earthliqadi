@@ -360,3 +360,10 @@ X-API-Signature: base64(ed25519_sign(`${timestamp}\n${METHOD}\n${path_with_query
 | POST   | `/v1/rfq/:id/cancel`   | requester         | Cancel the request                                                                                   |
 | POST   | `/v1/admin/rfq-makers` | staff, step-up    | `{userId}` registers a maker                                                                         |
 | GET    | `/v1/vault/solvency`   | public            | On-chain balance vs. committed liabilities per token                                                 |
+
+## Margin mode (ADR-0021)
+
+| Method | Path                   | Auth           | Description                     |
+| ------ | ---------------------- | -------------- | ------------------------------- |
+| GET    | `/v1/perp/margin-mode` | session or key | `{mode}`                        |
+| POST   | `/v1/perp/margin-mode` | session or key | `{mode: "isolated" \| "cross"}` |

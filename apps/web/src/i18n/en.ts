@@ -319,6 +319,9 @@ export const en = {
       liquidating: 'Liquidating',
       marginAdded: 'Margin added.',
       tpsl: 'TP / SL',
+      marginMode: 'Margin mode',
+      crossHelp:
+        'Cross: your free balance automatically tops up a weakening position before it can be liquidated. Isolated: each position risks only its own margin. Click to switch.',
       takeProfit: 'Take-profit price',
       stopLoss: 'Stop-loss price',
       set: 'Set',

@@ -6,6 +6,7 @@ import {
   applyFill,
   bankruptcyTicks,
   computeIndex,
+  crossTopUp,
   emaStep,
   equity,
   fundingRate,
@@ -316,5 +317,42 @@ describe('ADL ranking (simulation)', () => {
   it('notional helper rounds as requested', () => {
     expect(notionalAt(3n, 1n, { ...U, lotSize: 1n }, 'down')).toBe(0n);
     expect(notionalAt(3n, 1n, { ...U, lotSize: 1n }, 'up')).toBe(1n);
+  });
+});
+
+describe('crossTopUp (ADR-0021)', () => {
+  // Long 1 BTC from 100, 10x: margin 10. MMR 5%.
+  const pos: PositionState = { size: ONE_BTC, entry: 100n * USD, margin: 10n * USD };
+  const mark = (p: number) => BigInt(Math.round(p * 1_000_000));
+
+  it('does nothing while equity is comfortably above maintenance', () => {
+    expect(crossTopUp(pos, mark(100), U, 500, 10, 1000n * USD)).toBe(0n);
+  });
+
+  it('restores equity to the initial margin at the current notional, capped by free balance', () => {
+    // Mark 92: equity 2, maintenance 4.6 → target 9.2, needs 7.2.
+    expect(crossTopUp(pos, mark(92), U, 500, 10, 1000n * USD)).toBe(7_200_000n);
+    expect(crossTopUp(pos, mark(92), U, 500, 10, 3n * USD)).toBe(3n * USD);
+    expect(crossTopUp(pos, mark(92), U, 500, 10, 0n)).toBe(0n);
+    // After the top-up the position is no longer liquidatable.
+    const topped = { ...pos, margin: pos.margin + 7_200_000n };
+    expect(isLiquidatable(topped, mark(92), U, 500)).toBe(false);
+    expect(equity(topped, mark(92), U)).toBe(9_200_000n);
+  });
+
+  it('never moves more than is free and never leaves equity below maintenance when funds suffice (property)', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 50, max: 99 }),
+        fc.bigInt({ min: 0n, max: 1000n * USD }),
+        (price, available) => {
+          const move = crossTopUp(pos, mark(price), U, 500, 10, available);
+          expect(move >= 0n && move <= available).toBe(true);
+          const after = { ...pos, margin: pos.margin + move };
+          if (available >= 100n * USD)
+            expect(isLiquidatable(after, mark(price), U, 500)).toBe(false);
+        },
+      ),
+    );
   });
 });

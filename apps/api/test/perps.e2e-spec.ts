@@ -378,6 +378,46 @@ describe('perpetual trading', () => {
     await expectReconciled();
   });
 
+  it('cross margin: free balance tops up a weakening position instead of liquidating it (ADR-0021)', async () => {
+    const p = await perpMarket();
+    await setMark(p, 100n * USD);
+    const cross = await funded(p);
+    const iso = await funded(p);
+    const short = await funded(p);
+    expect((await cross.client.post('/v1/perp/margin-mode', { mode: 'cross' })).body).toEqual({
+      mode: 'cross',
+    });
+    for (const t of [cross, iso]) {
+      await placed(t, {
+        market: p.symbol,
+        side: 'buy',
+        type: 'limit',
+        price: '100',
+        quantity: '1',
+      });
+    }
+    const s = await placed(short, {
+      market: p.symbol,
+      side: 'sell',
+      type: 'limit',
+      price: '100',
+      quantity: '2',
+    });
+    await fx.until(async () => (await fx.status(s)) === 'FILLED');
+
+    // Mark 92: both longs have equity 2 < maintenance 4.6.
+    await setMark(p, 92n * USD);
+    await risk.liquidate(p.market, parsePerpConfig(p.market.perpConfig));
+    const c = (await position(p, cross.userId))!;
+    expect(c.status).toBe('NORMAL');
+    expect(toMinorUnits(c.margin)).toBe(10n * USD + 7_200_000n); // back to initial margin at 92
+    expect(await balance(cross.userId, p.quote, 'USER_AVAILABLE')).toBe(
+      100_000n * USD - 10n * USD - 7_200_000n,
+    );
+    expect((await position(p, iso.userId))!.status).toBe('LIQUIDATING');
+    await expectReconciled();
+  });
+
   it('enforces reduce-only size, the bankruptcy price and leverage rules', async () => {
     const p = await perpMarket();
     await setMark(p, 100n * USD);

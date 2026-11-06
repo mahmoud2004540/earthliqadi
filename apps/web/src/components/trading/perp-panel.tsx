@@ -94,6 +94,24 @@ export function PositionsPanel({
   const open = positions.filter((p) => p.side !== 'flat');
   const [amount, setAmount] = useState('');
   const [takeProfit, setTakeProfit] = useState('');
+  const [mode, setMode] = useState<'isolated' | 'cross' | null>(null);
+  useEffect(() => {
+    api<{ mode: 'isolated' | 'cross' }>('/v1/perp/margin-mode')
+      .then((r) => setMode(r.mode))
+      .catch(() => setMode(null));
+  }, []);
+  async function toggleMode() {
+    const next = mode === 'cross' ? 'isolated' : 'cross';
+    try {
+      const r = await api<{ mode: 'isolated' | 'cross' }>('/v1/perp/margin-mode', {
+        method: 'POST',
+        body: { mode: next },
+      });
+      setMode(r.mode);
+    } catch (err) {
+      setMessage({ tone: 'error', text: err instanceof ApiError ? err.message : String(err) });
+    }
+  }
   const [stopLoss, setStopLoss] = useState('');
 
   async function setTpSl(event: FormEvent, symbol: string) {
@@ -137,7 +155,20 @@ export function PositionsPanel({
 
   return (
     <div className="p-3" data-testid="positions">
-      <h2 className="mb-2 text-sm font-medium">{tp.positions}</h2>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h2 className="text-sm font-medium">{tp.positions}</h2>
+        {mode && (
+          <button
+            type="button"
+            onClick={() => void toggleMode()}
+            className="text-[11px] text-muted hover:text-foreground"
+            title={tp.crossHelp}
+            data-testid="margin-mode"
+          >
+            {tp.marginMode}: <span className="font-medium text-foreground">{mode}</span>
+          </button>
+        )}
+      </div>
       {open.length === 0 ? (
         <p className="text-sm text-muted">{tp.noPositions}</p>
       ) : (

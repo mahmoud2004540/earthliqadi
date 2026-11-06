@@ -300,6 +300,34 @@ export class PerpsService {
     };
   }
 
+  async marginMode(userId: string): Promise<{ mode: string }> {
+    const u = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    return { mode: u.perpMarginMode };
+  }
+
+  /** Switches the margin mode (ADR-0021). Vault accounts stay isolated: their free balance pays exits. */
+  async setMarginMode(
+    userId: string,
+    mode: 'isolated' | 'cross',
+    ctx: RequestContext,
+  ): Promise<{ mode: string }> {
+    const u = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    if (u.isVault && mode === 'cross')
+      throw conflict('Vault accounts stay isolated (their free balance pays redemptions)');
+    await this.prisma.user.update({ where: { id: userId }, data: { perpMarginMode: mode } });
+    await this.audit.recordSafe({
+      action: 'perp.margin_mode.changed',
+      outcome: 'SUCCESS',
+      actorType: 'USER',
+      actorUserId: userId,
+      targetType: 'user',
+      targetId: userId,
+      context: ctx,
+      metadata: { from: u.perpMarginMode, to: mode },
+    });
+    return { mode };
+  }
+
   /** Leverage changes only while flat with no open orders (isolated margin, ADR-0011). */
   async setLeverage(
     userId: string,

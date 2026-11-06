@@ -22,6 +22,7 @@ import {
   allocateFunding,
   bankruptcyTicks,
   computeIndex,
+  crossTopUp as crossTopUpAmount,
   emaStep,
   fundingRate,
   isLiquidatable,
@@ -390,6 +391,69 @@ export class PerpRiskService {
 
   // ------------------------------------------------------------ liquidation
 
+  /**
+   * Cross mode (ADR-0021): moves free balance into a weakening position so it
+   * is not liquidated while the account still has funds. Runs before the
+   * liquidation check, under the position lock; audited.
+   */
+  private async crossTopUp(
+    market: MarketWithAssets,
+    p: Position,
+    mark: bigint,
+    mmr: number,
+  ): Promise<Position | null> {
+    const u = unitsOf(market);
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "positions" WHERE "id" = ${p.id}::uuid FOR UPDATE`;
+      const cur = await tx.position.findUniqueOrThrow({ where: { id: p.id } });
+      if (cur.sizeLots === 0n || cur.status !== 'NORMAL') return null;
+      const availableId = await this.ledger.accountId(
+        market.quoteAssetId,
+        'USER_AVAILABLE',
+        cur.userId,
+      );
+      const acc = await tx.ledgerAccount.findUniqueOrThrow({ where: { id: availableId } });
+      const amount = crossTopUpAmount(
+        positionState(cur),
+        mark,
+        u,
+        mmr,
+        cur.leverage,
+        toMinorUnits(acc.balance),
+      );
+      if (amount <= 0n) return null;
+      const marginId = await this.ledger.accountId(market.quoteAssetId, 'USER_MARGIN', cur.userId);
+      await this.ledger.postWithin(
+        tx,
+        {
+          type: 'MARGIN_TRANSFER',
+          idempotencyKey: `cross-topup:${cur.id}:${randomUUID()}`,
+          description: `Cross margin: free balance backs ${market.symbol} position`,
+          postings: [
+            { accountId: availableId, direction: 'DEBIT', amount },
+            { accountId: marginId, direction: 'CREDIT', amount },
+          ],
+        },
+        RISK_ACTOR,
+      );
+      await this.audit.record(
+        {
+          action: 'perp.cross_margin.top_up',
+          outcome: 'SUCCESS',
+          actorType: 'SYSTEM',
+          targetType: 'position',
+          targetId: cur.id,
+          metadata: { market: market.symbol, userId: cur.userId, amount: amount.toString() },
+        },
+        tx,
+      );
+      return tx.position.update({
+        where: { id: cur.id },
+        data: { margin: { increment: amount.toString() } },
+      });
+    });
+  }
+
   private mmrFor(config: PerpConfig, notional: bigint): number {
     return (tierFor(config.tiers, notional) ?? config.tiers[config.tiers.length - 1]!).mmrBps;
   }
@@ -411,9 +475,26 @@ export class PerpRiskService {
       where: { marketId: market.id, sizeLots: { not: 0n } },
     });
     let actions = 0;
-    for (const p of positions) {
-      const pos = positionState(p);
+    const crossUsers = new Set(
+      (
+        await this.prisma.user.findMany({
+          where: { id: { in: positions.map((p) => p.userId) }, perpMarginMode: 'cross' },
+          select: { id: true },
+        })
+      ).map((u) => u.id),
+    );
+    for (const original of positions) {
+      let p = original;
+      let pos = positionState(p);
       const mmr = this.mmrFor(config, notionalAt(mark, pos.size, u, 'up'));
+      if (p.status === 'NORMAL' && crossUsers.has(p.userId)) {
+        const topped = await this.crossTopUp(market, p, mark, mmr);
+        if (topped) {
+          p = topped;
+          pos = positionState(p);
+          actions++;
+        }
+      }
       const below = isLiquidatable(pos, mark, u, mmr);
       if (p.status === 'NORMAL' && !below) continue;
       await this.prisma.$transaction(

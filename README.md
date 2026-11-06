@@ -140,7 +140,8 @@ tests/              (reserved) cross-service integration and browser e2e suites
   [0017 API keys, batch, cancel-all, dead-man](docs/decisions/0017-professional-trading-tools.md) ·
   [0018 fees, referrals, points](docs/decisions/0018-fees-referrals-points.md) ·
   [0019 leader vaults](docs/decisions/0019-leader-vaults.md) ·
-  [0020 TWAP, iceberg, RFQ, proof of funds](docs/decisions/0020-large-trader-tools-and-proof.md)
+  [0020 TWAP, iceberg, RFQ, proof of funds](docs/decisions/0020-large-trader-tools-and-proof.md) ·
+  [0021 cross margin](docs/decisions/0021-cross-margin.md)
 - Security: [controls & threat model](docs/security/threat-model.md) ·
   [dependency policy](docs/security/dependency-policy.md) ·
   [incident response (draft)](docs/security/incident-response.md)
