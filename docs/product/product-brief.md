@@ -88,6 +88,45 @@ Why it brings traders:
 promised performance, and we do not publish any record that is not computed
 from real trades.
 
+## 3c. Large traders ("whales")
+
+What large traders choose a venue for, and how we answer it without
+fabricating anything:
+
+| Need                                  | Answer                                                                                                                                                                                    |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Execute size without moving the price | **TWAP** and **iceberg** orders (server-side, cancellable); **RFQ / block trades**: request quotes from registered makers, settle on the same ledger, printed to the tape after execution |
+| Capital efficiency                    | **Cross margin**, then **portfolio margin** (spot holdings offset perp risk) with published haircuts; multiple collateral tokens with published haircuts                                  |
+| Privacy                               | No account, no KYC (ADR-0013); sub-accounts to split strategies; no public mapping from wallet to identity                                                                                |
+| Trust with large balances             | Self-custody vault, per-user Merkle proof, escape hatch, public live **proof-of-liabilities** (sum of committed leaves) against on-chain vault balances                                   |
+| Fast exit                             | Withdrawals signed in seconds within signer limits; above limits a published, rule-based review window — never discretionary freezes                                                      |
+| Fees                                  | VIP tiers by 30-day volume, maker rebates, all public                                                                                                                                     |
+| Limits                                | High per-order and position limits per market, set by published risk tiers — the same rules for everyone                                                                                  |
+| Direct support                        | A priority support channel for top tiers (response time, not special treatment on rules)                                                                                                  |
+
+### Growth programmes (all public, rule-based)
+
+- **Referral fee share.** A part of the taker fees paid by referred wallets
+  goes to the referrer:
+  - paid from real fees;
+  - capped;
+  - visible in the referrer's dashboard.
+- **Leader vaults** (3b).
+- **Points for real activity** (fees paid, maker volume, vault deposits),
+  shown on a public, anti-wash-trading-filtered leaderboard.
+  - **We do not promise a token or an airdrop.** If one is ever decided, it
+    needs counsel review first.
+  - Points from self-trades or wash trades are excluded: same wallet, linked
+    sub-accounts, and detected circular flows.
+- **New-market listings** driven by a public request-and-vote board. The
+  listing decision stays with published risk criteria.
+
+**Never:**
+
+- fake volume, bots posing as users, or hidden fee deals;
+- private rule exceptions for whales;
+- guaranteed returns.
+
 ## 4. Success metrics
 
 | Metric                                              | What it tells us             |
@@ -134,6 +173,18 @@ monitoring. These are listed in `docs/operations/production-readiness.md`.
 9. **Per-user proof page:**
    - the user's leaf in the committed state root;
    - an escape-hatch guide.
+
+10. **Whale tools:**
+    - TWAP and iceberg orders;
+    - cross margin, then portfolio margin;
+    - multi-collateral with haircuts;
+    - RFQ and block trades with registered makers.
+11. **Growth programmes:**
+    - referral fee share;
+    - activity points with wash-trading filters;
+    - listing request board.
+12. **Public proof-of-liabilities page** against the on-chain vault
+    balances.
 
 ## 7. What we remove
 
