@@ -239,6 +239,15 @@ export const apiEnvSchema = z
       .default(
         'https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN.CSV',
       ),
+    /**
+     * Asset the account overview values balances in (ADR-0028), e.g. a USD
+     * stablecoin. Other assets are valued at the last trade of their spot
+     * market against it; assets without one are shown unvalued.
+     */
+    VALUATION_ASSET: z
+      .string()
+      .regex(/^[A-Z0-9]{2,16}$/)
+      .default('USDC'),
     /** Current terms-of-use version; trading requires accepting it (ADR-0022). */
     TERMS_VERSION: z
       .string()

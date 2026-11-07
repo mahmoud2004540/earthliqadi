@@ -147,7 +147,8 @@ tests/              (reserved) cross-service integration and browser e2e suites
   [0024 full region block](docs/decisions/0024-full-region-block.md),
   [0025 pro order tools](docs/decisions/0025-pro-order-tools.md),
   [0026 listing request board](docs/decisions/0026-listing-request-board.md),
-  [0027 multi-collateral](docs/decisions/0027-multi-collateral.md)
+  [0027 multi-collateral](docs/decisions/0027-multi-collateral.md),
+  [0028 account overview and statements](docs/decisions/0028-account-overview-and-statements.md)
 - Security: [controls & threat model](docs/security/threat-model.md) ·
   [dependency policy](docs/security/dependency-policy.md) ·
   [incident response (draft)](docs/security/incident-response.md)

@@ -4,13 +4,13 @@ import type { CurrentUserDto } from '@platform/shared';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardDescription, CardTitle } from '@/components/ui/card';
+import { Card, CardDescription } from '@/components/ui/card';
 import type { Dictionary } from '@/i18n';
 import { ApiError, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { InboxPanel, SupportPanel } from './account-panels';
+import { AccountOverview } from './account-overview';
 import { ReferralPanel } from '@/components/growth/referral-panel';
 import { ApiKeysPanel } from './api-keys-panel';
 import { SubAccountsPanel } from './sub-accounts-panel';
@@ -134,6 +134,7 @@ export function Dashboard({ t }: { t: Dictionary }) {
         </div>
       ) : tab === 'overview' ? (
         <div className="mt-8 space-y-8">
+          <AccountOverview t={t} />
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Stat label={d.accountStatus} value={user.status.replace('_', ' ')} tone="positive" />
             <Stat label={d.accountType} value={user.accountType} />
@@ -149,19 +150,6 @@ export function Dashboard({ t }: { t: Dictionary }) {
             <Stat label={d.memberSince} value={dateFmt.format(new Date(user.createdAt))} />
           </div>
           <ReferralPanel t={t} wallet={user.walletAddress !== null} />
-          <section>
-            <h2 className="text-lg font-semibold">{d.modulesTitle}</h2>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {d.modules.map((m) => (
-                <Card key={m.name} className="flex items-center justify-between p-4">
-                  <CardTitle className="text-sm font-medium">{m.name}</CardTitle>
-                  <Badge>
-                    {t.status.planned} · {t.status.phase} {m.phase}
-                  </Badge>
-                </Card>
-              ))}
-            </div>
-          </section>
         </div>
       ) : (
         <SecurityPanel user={user} t={t} onChange={reload} />

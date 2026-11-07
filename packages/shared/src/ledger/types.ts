@@ -73,3 +73,39 @@ export const ledgerHistoryQuerySchema = z.object({
     .regex(/^\d{1,19}$/)
     .optional(),
 });
+
+/**
+ * Account overview (ADR-0028): every balance with where it is held and, when
+ * a price exists, its value in the valuation asset. Values are indicative
+ * (last traded price), never a quote or an offer.
+ */
+export interface AccountOverviewDto {
+  /** Asset values are expressed in, or null when it does not exist here. */
+  valuationAsset: string | null;
+  asOf: string;
+  /** Sum of valued balances plus unrealized perpetual PnL, in the valuation asset. */
+  totalValue: string | null;
+  /** Unrealized PnL of open perpetual positions settled in the valuation asset. */
+  unrealizedPnl: string | null;
+  assets: {
+    asset: string;
+    name: string;
+    available: string;
+    locked: string;
+    margin: string;
+    total: string;
+    /**
+     * vault: backed by the on-chain vault and claimable with a balance proof.
+     * ledger: held only on the platform ledger (test assets).
+     */
+    custody: 'vault' | 'ledger';
+    /** Price in the valuation asset and how it was obtained. */
+    price: string | null;
+    priceSource: 'reference' | 'last_trade' | null;
+    /** Market whose last trade priced it. */
+    priceMarket: string | null;
+    value: string | null;
+  }[];
+  /** Assets with a balance but no price (not included in totalValue). */
+  unvalued: string[];
+}
