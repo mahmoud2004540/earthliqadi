@@ -41,7 +41,16 @@ function countdown(iso: string | null, now: number): string | null {
   return `${hh > 0 ? `${hh}:` : ''}${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
 }
 
-export function PerpStatsStrip({ stats, tp }: { stats: PerpStatsDto | null; tp: Tp }) {
+export function PerpStatsStrip({
+  stats,
+  tp,
+  inline = false,
+}: {
+  stats: PerpStatsDto | null;
+  tp: Tp;
+  /** Flow the stats into the parent row (terminal header) instead of a grid. */
+  inline?: boolean;
+}) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -49,7 +58,10 @@ export function PerpStatsStrip({ stats, tp }: { stats: PerpStatsDto | null; tp: 
   }, []);
   const rate = stats?.predictedFundingRate ?? null;
   return (
-    <dl className="grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-4" data-testid="perp-stats">
+    <dl
+      className={inline ? 'contents' : 'grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-4'}
+      data-testid="perp-stats"
+    >
       {(
         [
           [tp.mark, stats?.markPrice ?? null, 'perp-mark'],

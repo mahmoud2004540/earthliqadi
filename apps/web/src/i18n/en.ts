@@ -28,6 +28,7 @@ export const en = {
     dashboard: 'Dashboard',
     logout: 'Sign out',
     menu: 'Menu',
+    more: 'More',
   },
   footer: {
     tagline: 'Security-first digital asset trading infrastructure.',
@@ -256,6 +257,7 @@ export const en = {
     stopPrice: 'Stop price',
     protectionPrice: 'Max price (protection)',
     protectionPriceSell: 'Min price (protection, optional)',
+    sizePercent: 'Size as a share of what your free balance can open',
     bboHint: 'Best bid/offer: set the price to the best price on your side of the book.',
     hidden: 'Hidden order',
     hiddenHint:

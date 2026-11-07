@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input, Label } from '@/components/ui/input';
 import type { Dictionary } from '@/i18n';
 import { ApiError, api } from '@/lib/api';
+import { sizeForPercent } from '@/lib/order-size';
 import { cn } from '@/lib/utils';
 
 type Side = 'buy' | 'sell';
@@ -61,6 +62,7 @@ export function OrderForm({
   const [tif, setTif] = useState<Tif>('gtc');
   const [stopPrice, setStopPrice] = useState('');
   const [quantity, setQuantity] = useState('');
+  const [pct, setPct] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
 
@@ -91,6 +93,26 @@ export function OrderForm({
         ? tp.protectionSell
         : tt.protectionPriceSell
     : tt.price;
+
+  /** Fills the quantity with a share of what the free balance can open (Max reserves the fee). */
+  function applyPercent(percent: number) {
+    setPct(percent);
+    const refPrice = price || (side === 'buy' ? bbo.ask : bbo.bid) || '';
+    const q = sizeForPercent(
+      {
+        side,
+        perp,
+        available,
+        price: refPrice,
+        leverage: lev,
+        takerFeeBps: market.takerFeeBps,
+        lotSize: market.lotSize,
+        scales,
+      },
+      percent,
+    );
+    setQuantity(percent === 0 ? '' : (q ?? ''));
+  }
 
   async function changeLeverage() {
     setMessage(null);
@@ -160,7 +182,7 @@ export function OrderForm({
   ];
 
   return (
-    <form onSubmit={submit} className="space-y-3 p-4" noValidate data-testid="order-form">
+    <form onSubmit={submit} className="space-y-2.5 p-3" noValidate data-testid="order-form">
       <div className="grid grid-cols-2 gap-1 rounded-md bg-background p-1">
         {(['buy', 'sell'] as const).map((s) => (
           <button
@@ -205,7 +227,7 @@ export function OrderForm({
 
       {isStop && (
         <div>
-          <Label htmlFor="stopPrice">
+          <Label htmlFor="stopPrice" className="mb-1 text-xs text-muted">
             {tt.stopPrice} ({market.quote})
           </Label>
           <Input
@@ -213,12 +235,13 @@ export function OrderForm({
             inputMode="decimal"
             value={stopPrice}
             onChange={(e) => setStopPrice(e.target.value.trim())}
+            className="h-9"
             dir="ltr"
           />
         </div>
       )}
       <div>
-        <Label htmlFor="price">
+        <Label htmlFor="price" className="mb-1 text-xs text-muted">
           {priceLabel} ({market.quote})
         </Label>
         <div className="flex gap-2">
@@ -227,13 +250,14 @@ export function OrderForm({
             inputMode="decimal"
             value={price}
             onChange={(e) => onPriceChange(e.target.value.trim())}
+            className="h-9"
             dir="ltr"
           />
           {!isMarketLike && (
             <Button
               type="button"
               variant="outline"
-              className="shrink-0"
+              className="h-9 shrink-0 px-3 text-xs"
               disabled={!bboPrice}
               title={tt.bboHint}
               onClick={() => bboPrice && onPriceChange(bboPrice)}
@@ -246,26 +270,61 @@ export function OrderForm({
         {isMarketLike && <p className="mt-1 text-xs text-muted">{tt.protectionHint}</p>}
       </div>
       <div>
-        <Label htmlFor="quantity">
+        <Label htmlFor="quantity" className="mb-1 text-xs text-muted">
           {tt.quantity} ({market.base})
         </Label>
         <Input
           id="quantity"
           inputMode="decimal"
           value={quantity}
-          onChange={(e) => setQuantity(e.target.value.trim())}
+          onChange={(e) => {
+            setQuantity(e.target.value.trim());
+            setPct(0);
+          }}
           placeholder={`${market.lotSize}`}
+          className="h-9"
           dir="ltr"
         />
+        <div className="mt-2" data-testid="size-slider">
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={1}
+            value={pct}
+            aria-label={tt.sizePercent}
+            onChange={(e) => applyPercent(Number(e.target.value))}
+            className="h-1 w-full accent-primary"
+          />
+          <div className="mt-1 flex justify-between">
+            {[25, 50, 75, 100].map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => applyPercent(p)}
+                className={cn(
+                  'rounded px-1.5 py-0.5 text-[11px]',
+                  pct === p
+                    ? 'bg-surface-raised text-foreground'
+                    : 'text-muted hover:text-foreground',
+                )}
+              >
+                {p === 100 ? 'Max' : `${p}%`}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
       {!isMarketLike && (
         <div>
-          <Label htmlFor="tif">{tt.timeInForce}</Label>
+          <Label htmlFor="tif" className="mb-1 text-xs text-muted">
+            {tt.timeInForce}
+          </Label>
           <select
             id="tif"
             value={tif}
             onChange={(e) => setTif(e.target.value as Tif)}
-            className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm"
+            className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm"
           >
             <option value="gtc">GTC</option>
             <option value="ioc">IOC</option>

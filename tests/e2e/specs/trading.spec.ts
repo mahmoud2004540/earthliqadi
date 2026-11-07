@@ -91,6 +91,7 @@ test('two users trade through the terminal with live updates', async ({ browser 
   await expect(buyer.getByTestId('order-total')).toHaveText(`${total} ${QUOTE}`);
   await buyer.getByTestId('order-form').locator('button[type=submit]').click();
 
+  await buyer.getByRole('tab', { name: 'Recent trades' }).click(); // the book and trades share a panel
   await expect(buyer.getByTestId('recent-trades')).toContainText(price);
   await buyer.getByRole('tab', { name: 'My trades' }).click();
   await expect(buyer.getByTestId('my-orders')).toContainText('taker');

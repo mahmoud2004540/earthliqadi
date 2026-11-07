@@ -10,6 +10,13 @@ import {
 import type { Dictionary } from '@/i18n';
 import { cn } from '@/lib/utils';
 
+/** Display only: a notional cut (not rounded) to two decimals so the columns stay aligned. */
+function twoDecimals(v: string | null): string | null {
+  if (v === null) return null;
+  const [whole, frac = ''] = v.split('.');
+  return frac ? `${whole}.${frac.slice(0, 2).padEnd(2, '0')}` : whole!;
+}
+
 function Levels({
   levels,
   side,
@@ -33,7 +40,7 @@ function Levels({
             <button
               type="button"
               onClick={() => onPick(price)}
-              className="relative grid w-full grid-cols-3 px-3 py-0.5 text-end font-mono text-xs tabular-nums hover:bg-surface-raised"
+              className="relative grid w-full grid-cols-[1fr_1fr_1.1fr] gap-2 px-3 py-0.5 text-end font-mono text-xs tabular-nums hover:bg-surface-raised"
             >
               <span
                 aria-hidden
@@ -53,7 +60,7 @@ function Levels({
               </span>
               <span className="relative">{qty}</span>
               <span className="relative text-muted">
-                {notional(price, qty, scales.base, scales.quote) ?? '—'}
+                {twoDecimals(notional(price, qty, scales.base, scales.quote)) ?? '—'}
               </span>
             </button>
           </li>
@@ -68,14 +75,17 @@ export function OrderBook({
   t,
   scales,
   onPick,
+  depth = 15,
 }: {
+  /** Levels shown per side. */
+  depth?: number;
   book: OrderBookDto | null;
   t: Dictionary['terminal'];
   scales: { base: number; quote: number };
   onPick: (price: string) => void;
 }) {
-  const bids = book?.bids.slice(0, 15) ?? [];
-  const asks = book?.asks.slice(0, 15) ?? [];
+  const bids = book?.bids.slice(0, depth) ?? [];
+  const asks = book?.asks.slice(0, depth) ?? [];
   const max = Math.max(0, ...[...bids, ...asks].map(([, q]) => Number(q)));
   // Exact: decimal strings → minor units (bigint) → decimal string.
   const spread =
@@ -87,7 +97,7 @@ export function OrderBook({
       : null;
   return (
     <section aria-label={t.orderBook} className="flex h-full flex-col" data-testid="order-book">
-      <header className="grid grid-cols-3 border-b border-border px-3 py-2 text-end text-xs text-muted">
+      <header className="grid grid-cols-[1fr_1fr_1.1fr] gap-2 border-b border-border px-3 py-2 text-end text-xs text-muted">
         <span className="text-start">{t.price}</span>
         <span>{t.amount}</span>
         <span>{t.total}</span>

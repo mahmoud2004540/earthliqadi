@@ -73,6 +73,8 @@ export function Terminal({ symbol, t }: { symbol: string; t: Dictionary }) {
   const [price, setPrice] = useState('');
   const [privateVersion, setPrivateVersion] = useState(0);
   const [positions, setPositions] = useState<PositionDto[]>([]);
+  const [bookTab, setBookTab] = useState<'book' | 'trades'>('book');
+  const [accountTab, setAccountTab] = useState<'positions' | 'orders'>('positions');
   const isPerp = symbol.endsWith('-PERP');
   const perpStats = usePerpStats(symbol, isPerp);
 
@@ -198,31 +200,37 @@ export function Terminal({ symbol, t }: { symbol: string; t: Dictionary }) {
   const dataState = ticker?.status.state ?? book?.status.state;
   const change = ticker?.change24hPct ?? null;
 
+  const openPositions = positions.filter((p) => p.side !== 'flat').length;
+  const openOrders = orders.filter((o) =>
+    ['PENDING_NEW', 'OPEN', 'PARTIALLY_FILLED', 'PENDING_TRIGGER'].includes(o.status.toUpperCase()),
+  ).length;
+
   return (
-    <div className="mx-auto max-w-[1600px] px-2 py-3 sm:px-4" data-testid="terminal">
+    <div className="w-full px-2 py-2" data-testid="terminal">
       {connection !== 'open' && (
-        <Alert tone="warning" className="mb-2" data-testid="stream-status">
+        <Alert tone="warning" className="mb-2 py-2" data-testid="stream-status">
           {connection === 'connecting' ? tt.connection.connecting : tt.connection.disconnected}
         </Alert>
       )}
       {isPerp && perpStats?.indexStale && (
-        <Alert tone="warning" className="mb-2" data-testid="perp-index-stale">
+        <Alert tone="warning" className="mb-2 py-2" data-testid="perp-index-stale">
           {tt.perp.indexStale}
         </Alert>
       )}
       {connection === 'open' && dataState && dataState !== 'live' && (
-        <Alert tone="warning" className="mb-2" data-testid="stream-status">
+        <Alert tone="warning" className="mb-2 py-2" data-testid="stream-status">
           {dataState === 'halted' ? tt.connection.halted : tt.connection.delayed}
         </Alert>
       )}
 
-      <div className="mb-2 flex flex-wrap items-center gap-x-8 gap-y-2 rounded-lg border border-border bg-surface px-4 py-3">
-        <div className="flex items-center gap-3">
+      {/* Market header: one dense row, as on professional terminals. */}
+      <div className="mb-2 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-md border border-border bg-surface px-3 py-2">
+        <div className="flex items-center gap-2">
           <select
             aria-label={tt.market}
             value={symbol}
             onChange={(e) => window.location.assign(`/trade/${e.target.value}`)}
-            className="rounded-md border border-border bg-background px-2 py-1 font-semibold"
+            className="rounded-md border border-border bg-background px-2 py-1 text-base font-semibold"
           >
             {(markets ?? [{ symbol } as MarketDto]).map((m) => (
               <option key={m.symbol} value={m.symbol}>
@@ -232,7 +240,7 @@ export function Terminal({ symbol, t }: { symbol: string; t: Dictionary }) {
           </select>
           {market?.kind === 'perpetual' && (
             <Badge tone="info" data-testid="perp-badge">
-              {tt.perp.badge}
+              {market.perp ? `${market.perp.maxLeverage}x` : tt.perp.badge}
             </Badge>
           )}
           {market?.vaultBacked && (
@@ -240,19 +248,13 @@ export function Terminal({ symbol, t }: { symbol: string; t: Dictionary }) {
               {tt.vaultBadge}
             </Badge>
           )}
-          <span className="flex items-center gap-1.5 text-[11px] text-muted">
-            <span
-              aria-hidden
-              className={cn(
-                'size-2 rounded-full',
-                connection === 'open' && dataState === 'live' ? 'bg-positive' : 'bg-warning',
-              )}
-            />
-            {connection === 'open' && dataState === 'live' ? tt.connection.live : '—'}
-          </span>
         </div>
-        <dl className="grid flex-1 grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-5" data-testid="ticker">
+        <div
+          className="flex flex-1 flex-wrap items-center gap-x-6 gap-y-1 [&_dd]:text-[13px] [&_dt]:text-[11px]"
+          data-testid="ticker"
+        >
           <Stat label={tt.last} value={ticker?.last ?? null} />
+          {isPerp && <PerpStatsStrip stats={perpStats} tp={tt.perp} inline />}
           <Stat
             label={tt.change24h}
             value={change === null ? null : `${change}%`}
@@ -264,17 +266,26 @@ export function Terminal({ symbol, t }: { symbol: string; t: Dictionary }) {
             label={`${tt.volume24h} (${market?.base ?? ''})`}
             value={ticker?.volume24h ?? null}
           />
-        </dl>
-        {isPerp && (
-          <div className="w-full border-t border-border pt-2">
-            <PerpStatsStrip stats={perpStats} tp={tt.perp} />
-          </div>
-        )}
+        </div>
+        <span className="flex items-center gap-1.5 text-[11px] text-muted">
+          <span
+            aria-hidden
+            className={cn(
+              'size-2 rounded-full',
+              connection === 'open' && dataState === 'live' ? 'bg-positive' : 'bg-warning',
+            )}
+          />
+          {connection === 'open' && dataState === 'live' ? tt.connection.live : '—'}
+        </span>
       </div>
 
-      <div className="grid gap-2 lg:grid-cols-[1fr_300px_320px]">
-        <section className="flex min-h-[420px] flex-col rounded-lg border border-border bg-surface">
-          <div className="flex gap-1 border-b border-border px-3 py-2">
+      {/*
+        Desktop: chart | book/trades | order form on top, account tabs under the
+        chart and book, the order form running the full height on the right.
+      */}
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-2 lg:grid-cols-[minmax(0,1fr)_300px_300px] lg:grid-rows-[600px_auto]">
+        <section className="flex min-h-[420px] min-w-0 flex-col rounded-md border border-border bg-surface">
+          <div className="flex gap-1 border-b border-border px-2 py-1.5">
             {CANDLE_INTERVALS.map((iv) => (
               <button
                 key={iv}
@@ -292,19 +303,46 @@ export function Terminal({ symbol, t }: { symbol: string; t: Dictionary }) {
               </button>
             ))}
           </div>
-          <div className="flex-1">
+          <div className="min-h-0 flex-1">
             <PriceChart candles={candles} emptyLabel={tt.noTradesYet} />
           </div>
         </section>
-        <div className="grid min-h-[420px] grid-rows-[3fr_2fr] gap-2">
-          <div className="overflow-hidden rounded-lg border border-border bg-surface">
-            <OrderBook book={book} t={tt} scales={scales} onPick={setPrice} />
+
+        <section className="flex min-h-[420px] flex-col overflow-hidden rounded-md border border-border bg-surface">
+          <div role="tablist" className="flex border-b border-border text-xs">
+            {(
+              [
+                ['book', tt.orderBook],
+                ['trades', tt.recentTrades],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={bookTab === key}
+                onClick={() => setBookTab(key)}
+                className={cn(
+                  '-mb-px flex-1 border-b-2 py-2 font-medium',
+                  bookTab === key
+                    ? 'border-primary text-foreground'
+                    : 'border-transparent text-muted hover:text-foreground',
+                )}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-          <div className="overflow-hidden rounded-lg border border-border bg-surface">
-            <RecentTrades trades={trades} t={tt} />
+          <div className="min-h-0 flex-1 overflow-hidden">
+            {bookTab === 'book' ? (
+              <OrderBook book={book} t={tt} scales={scales} onPick={setPrice} depth={11} />
+            ) : (
+              <RecentTrades trades={trades} t={tt} />
+            )}
           </div>
-        </div>
-        <div className="rounded-lg border border-border bg-surface">
+        </section>
+
+        <aside className="rounded-md border border-border bg-surface lg:row-span-2 lg:overflow-y-auto">
           {market && (
             <OrderForm
               market={market}
@@ -321,24 +359,60 @@ export function Terminal({ symbol, t }: { symbol: string; t: Dictionary }) {
             />
           )}
           {market && signedIn && <AlgoPanel market={market} t={t} />}
-        </div>
-      </div>
+        </aside>
 
-      {signedIn && isPerp && market && (
-        <div className="mt-2 rounded-lg border border-border bg-surface">
-          <PositionsPanel
-            positions={positions}
-            market={market}
-            tp={tt.perp}
-            onChanged={refreshPrivate}
-          />
-        </div>
-      )}
-      {signedIn && (
-        <div className="mt-2 min-h-[220px] rounded-lg border border-border bg-surface">
-          <MyOrders orders={orders} trades={myTrades} t={tt} onChanged={refreshPrivate} />
-        </div>
-      )}
+        <section
+          className="min-h-[220px] rounded-md border border-border bg-surface lg:col-span-2"
+          data-testid="account-panel"
+        >
+          {signedIn ? (
+            <>
+              {isPerp && market && (
+                <div role="tablist" className="flex gap-1 border-b border-border px-2 text-xs">
+                  {(
+                    [
+                      ['positions', `${tt.perp.positions} (${openPositions})`],
+                      ['orders', `${tt.openOrders} (${openOrders})`],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      role="tab"
+                      aria-selected={accountTab === key}
+                      onClick={() => setAccountTab(key)}
+                      className={cn(
+                        '-mb-px border-b-2 px-3 py-2 font-medium',
+                        accountTab === key
+                          ? 'border-primary text-foreground'
+                          : 'border-transparent text-muted hover:text-foreground',
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {isPerp && market && accountTab === 'positions' ? (
+                <PositionsPanel
+                  positions={positions}
+                  market={market}
+                  tp={tt.perp}
+                  onChanged={refreshPrivate}
+                />
+              ) : (
+                <MyOrders orders={orders} trades={myTrades} t={tt} onChanged={refreshPrivate} />
+              )}
+            </>
+          ) : (
+            <p className="p-4 text-sm text-muted">
+              <Link href="/connect" className="text-primary underline">
+                {tt.signInToTrade}
+              </Link>
+            </p>
+          )}
+        </section>
+      </div>
     </div>
   );
 }
