@@ -9,8 +9,8 @@ import { Input, Label } from '@/components/ui/input';
 import type { Dictionary } from '@/i18n';
 import { ApiError, api } from '@/lib/api';
 
-type Kind = 'twap' | 'iceberg' | 'trailing' | 'chase' | 'scale' | 'grid';
-const KINDS: Kind[] = ['twap', 'iceberg', 'trailing', 'chase', 'scale', 'grid'];
+type Kind = 'twap' | 'iceberg' | 'trailing' | 'chase' | 'scale' | 'grid' | 'recurring';
+const KINDS: Kind[] = ['twap', 'iceberg', 'trailing', 'chase', 'scale', 'grid', 'recurring'];
 
 /** Percent text ("1.5") to basis points (150); NaN when invalid. */
 function bps(percent: string): number {
@@ -36,6 +36,8 @@ export function AlgoPanel({ market, t }: { market: MarketDto; t: Dictionary }) {
     distribution: 'flat',
     gridCount: '10',
     direction: 'long',
+    everyHours: '24',
+    runs: '30',
   });
   const [flags, setFlags] = useState({ hidden: false, isPublic: false });
   const [list, setList] = useState<AlgoOrderDto[]>([]);
@@ -96,6 +98,20 @@ export function AlgoPanel({ market, t }: { market: MarketDto; t: Dictionary }) {
             count: Number(f.count),
             distribution: f.distribution,
             ...(flags.hidden ? { hidden: true } : {}),
+          },
+        };
+      case 'recurring':
+        return {
+          path: '/v1/algo-orders',
+          body: {
+            market: m,
+            kind,
+            side,
+            amount: f.runAmount,
+            intervalSeconds: Math.round(Number(f.everyHours) * 3600),
+            runs: Number(f.runs),
+            slippageBps: bps(f.slippage ?? ''),
+            ...(f.limit ? { limitPrice: f.limit } : {}),
           },
         };
       case 'grid':
@@ -173,6 +189,17 @@ export function AlgoPanel({ market, t }: { market: MarketDto; t: Dictionary }) {
       ['count', a.count, true],
       ['start', a.startPrice, true],
       ['end', a.endPrice, true],
+    ],
+    recurring: [
+      [
+        'runAmount',
+        side === 'buy' ? `${a.spendPerRun} (${market.quote})` : `${a.sellPerRun} (${market.base})`,
+        true,
+      ],
+      ['everyHours', a.everyHours, true],
+      ['runs', a.runs, true],
+      ['slippage', a.slippage, true],
+      ['limit', side === 'buy' ? a.maxPrice : a.minPrice, false],
     ],
     grid: [
       ['lower', a.lower, true],
@@ -319,6 +346,16 @@ export function AlgoPanel({ market, t }: { market: MarketDto; t: Dictionary }) {
               <button type="button" className="underline" onClick={() => void togglePublic(x)}>
                 {x.grid.isPublic ? a.unlist : a.list}
               </button>
+            </div>
+          )}
+          {x.recurring && (
+            <div className="text-muted">
+              {a.runsDone
+                .replace('{done}', String(x.recurring.runsDone))
+                .replace('{runs}', String(x.recurring.runs))}
+              {x.recurring.nextRunAt
+                ? ` · ${a.nextRun} ${new Date(x.recurring.nextRunAt).toLocaleString('en')}`
+                : ''}
             </div>
           )}
           {x.lastError && <div className="text-negative">{x.lastError}</div>}

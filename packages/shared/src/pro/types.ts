@@ -224,6 +224,21 @@ export const algoOrderSchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     ...algoBase,
+    kind: z.literal('recurring'),
+    side: z.enum(['buy', 'sell']),
+    /** Per run: quote to spend (buy) or base to sell (sell). */
+    amount: amountStringSchema,
+    /** Seconds between runs: 1 hour to 30 days. */
+    intervalSeconds: z.number().int().min(3600).max(2_592_000),
+    /** Number of runs (1-1000). */
+    runs: z.number().int().min(1).max(1000),
+    /** Worst fill per run, in basis points from the best opposite price. */
+    slippageBps: z.number().int().min(10).max(500).default(100),
+    /** Optional hard limit: never buy above / sell below this price. */
+    limitPrice: amountStringSchema.optional(),
+  }),
+  z.object({
+    ...algoBase,
     kind: z.literal('grid'),
     lowerPrice: amountStringSchema,
     upperPrice: amountStringSchema,
@@ -244,7 +259,7 @@ export const gridCopySchema = z.object({
 });
 export const gridVisibilitySchema = z.object({ isPublic: z.boolean() });
 
-export type AlgoKind = 'twap' | 'iceberg' | 'trailing' | 'chase' | 'grid';
+export type AlgoKind = 'twap' | 'iceberg' | 'trailing' | 'chase' | 'grid' | 'recurring';
 
 export interface GridStatsDto {
   lowerPrice: string;
@@ -287,6 +302,19 @@ export interface AlgoOrderDto {
     triggerPrice: string | null;
   } | null;
   grid: GridStatsDto | null;
+  /** Recurring purchases or sales (ADR-0029). */
+  recurring: {
+    /** Per run: quote (buy) or base (sell). */
+    amount: string;
+    amountAsset: string;
+    runs: number;
+    runsDone: number;
+    intervalSeconds: number;
+    slippageBps: number;
+    limitPrice: string | null;
+    /** When the next run is due; null once finished. */
+    nextRunAt: string | null;
+  } | null;
 }
 
 /** A public grid in the marketplace: parameters and results only (ADR-0025). */

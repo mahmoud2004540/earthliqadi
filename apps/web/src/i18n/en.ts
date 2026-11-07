@@ -511,6 +511,7 @@ export const en = {
       chase: 'Chase',
       scale: 'Scaled',
       grid: 'Grid bot',
+      recurring: 'Recurring',
     },
     help: {
       twap: 'TWAP: one slice every interval, each an immediate-or-cancel order at no worse than your price.',
@@ -522,6 +523,8 @@ export const en = {
         'Chase: a post-only order that keeps moving to the best price on your side of the book until it fills, never beyond your maximum price. You pay maker fees.',
       scale:
         'Scaled: several limit orders spread evenly from the start price to the end price, placed at once.',
+      recurring:
+        'Recurring: buys (or sells) a fixed amount every interval, each run an immediate-or-cancel order no worse than the best price plus your slippage. A run with no usable price is skipped and shown here.',
       grid: 'Grid bot: buys below and sells above the current price on evenly spaced levels; every fill is answered one level away. Profits come from the market moving back and forth inside the range.',
     },
     kind: 'Order type',
@@ -551,6 +554,14 @@ export const en = {
     upper: 'Upper price',
     grids: 'Grids (2-100)',
     perGrid: 'Size per grid',
+    spendPerRun: 'Spend per run',
+    sellPerRun: 'Sell per run',
+    everyHours: 'Every (hours)',
+    runs: 'Runs',
+    maxPrice: 'Max price (optional)',
+    minPrice: 'Min price (optional)',
+    runsDone: '{done} of {runs} runs',
+    nextRun: 'next',
     listPublic: 'List in the grid marketplace (settings and results only, never your account)',
     marketplaceLink: 'Browse the grid marketplace',
     start: 'Start',

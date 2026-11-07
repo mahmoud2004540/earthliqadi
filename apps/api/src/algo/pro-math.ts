@@ -174,3 +174,45 @@ export function gridCounter(
   if (side === 'BUY') return level + 1 < levelCount ? { level: level + 1, side: 'SELL' } : null;
   return level - 1 >= 0 ? { level: level - 1, side: 'BUY' } : null;
 }
+
+// ------------------------------------------------------------ recurring
+
+export type RecurringRun =
+  { ok: true; priceTicks: bigint; lots: bigint } | { ok: false; reason: string };
+
+/**
+ * One run of a recurring order (ADR-0029): an IOC order bounded by the best
+ * opposite price ± slippage and by the optional limit. A buy spends up to
+ * `runAmount` quote minor units; a sell sells `runAmount` base minor units.
+ * Returns why a run is skipped instead of guessing a price.
+ */
+export function recurringRun(p: {
+  side: Side;
+  /** Best ask for a buy, best bid for a sell. */
+  bestOpposite: bigint | null;
+  slippageBps: number;
+  limit: bigint | null;
+  runAmount: bigint;
+  lotSize: bigint;
+  minLots: bigint;
+  /** Quote minor units of one lot at a price. */
+  quotePerLot: (priceTicks: bigint) => bigint;
+}): RecurringRun {
+  if (p.bestOpposite === null)
+    return {
+      ok: false,
+      reason: p.side === 'BUY' ? 'No sell orders on the book' : 'No buy orders on the book',
+    };
+  let price = protectionPrice(p.side, p.bestOpposite, p.slippageBps);
+  if (p.limit !== null) {
+    if (p.side === 'BUY' && p.limit < p.bestOpposite)
+      return { ok: false, reason: 'The best price is above your limit' };
+    if (p.side === 'SELL' && p.limit > p.bestOpposite)
+      return { ok: false, reason: 'The best price is below your limit' };
+    if (p.side === 'BUY' && price > p.limit) price = p.limit;
+    if (p.side === 'SELL' && price < p.limit) price = p.limit;
+  }
+  const lots = p.side === 'BUY' ? p.runAmount / p.quotePerLot(price) : p.runAmount / p.lotSize;
+  if (lots < p.minLots) return { ok: false, reason: 'The amount is below the market minimum' };
+  return { ok: true, priceTicks: price, lots };
+}

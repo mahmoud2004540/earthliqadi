@@ -374,3 +374,70 @@ describe('grid bots and the marketplace', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('recurring purchases (ADR-0029)', () => {
+  it('spend a fixed amount every interval at a bounded price, then finish', async () => {
+    const m = await fx.market();
+    const maker = await fx.trader([{ asset: m.base, amount: '10', scale: 8 }]);
+    await rest(maker, m, 'sell', '100', '5');
+    const t = await fx.trader([{ asset: m.quote, amount: '1000', scale: 6 }]);
+    const res = await t.client.post('/v1/algo-orders', {
+      market: m.symbol,
+      kind: 'recurring',
+      side: 'buy',
+      amount: '250',
+      intervalSeconds: 3600,
+      runs: 2,
+      slippageBps: 100,
+    });
+    expect(res.status).toBe(201);
+    const id = res.body.id as string;
+    await settled(id);
+    // Run 1: IOC at 101 (ask + 1%), 250 / 101 → 2.4752 rounded down to lots.
+    let kids = await children(id);
+    expect(kids.map((c) => [c.timeInForce, c.priceTicks, c.quantityLots])).toEqual([
+      ['IOC', 10100n, 24752n],
+    ]);
+    await fx.until(async () => (await fx.status(kids[0]!.id)) === 'FILLED');
+    expect((await algo(id, t)).recurring).toMatchObject({ amount: '250', runs: 2, runsDone: 1 });
+
+    await algos.tick(); // not due yet
+    expect(await children(id)).toHaveLength(1);
+    await algos.tick(new Date(Date.now() + 3_601_000));
+    await settled(id);
+    kids = await children(id);
+    expect(kids).toHaveLength(2);
+    await fx.until(async () => (await fx.status(kids[1]!.id)) === 'FILLED');
+    await algos.tick(new Date(Date.now() + 7_202_000));
+    expect(await algo(id, t)).toMatchObject({ status: 'done', filledQuantity: '4.9504' });
+  });
+
+  it('skip a run with the reason when there is no price, and keep running', async () => {
+    const m = await fx.market();
+    const t = await fx.trader([{ asset: m.base, amount: '1', scale: 8 }]);
+    const res = await t.client.post('/v1/algo-orders', {
+      market: m.symbol,
+      kind: 'recurring',
+      side: 'sell',
+      amount: '0.1',
+      intervalSeconds: 86400,
+      runs: 3,
+    });
+    expect(res.body).toMatchObject({
+      status: 'running',
+      lastError: 'Run 1 skipped: No buy orders on the book',
+    });
+    expect(await children(res.body.id)).toHaveLength(0);
+    expect(res.body.recurring).toMatchObject({ runsDone: 1, amountAsset: m.base });
+    // Too short an interval is refused.
+    const bad = await t.client.post('/v1/algo-orders', {
+      market: m.symbol,
+      kind: 'recurring',
+      side: 'sell',
+      amount: '0.1',
+      intervalSeconds: 60,
+      runs: 3,
+    });
+    expect(bad.status).toBe(400);
+  });
+});

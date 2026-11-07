@@ -5,6 +5,7 @@ import {
   gridLevels,
   initialGridOrders,
   protectionPrice,
+  recurringRun,
   scalePlan,
   trailingStep,
 } from './pro-math';
@@ -130,5 +131,62 @@ describe('grid', () => {
     expect(gridCounter('SELL', 3, 5)).toEqual({ level: 2, side: 'BUY' });
     expect(gridCounter('BUY', 4, 5)).toBeNull();
     expect(gridCounter('SELL', 0, 5)).toBeNull();
+  });
+});
+
+describe('recurringRun', () => {
+  const base = {
+    slippageBps: 100,
+    limit: null,
+    lotSize: 10_000n, // base minor units per lot
+    minLots: 1n,
+    quotePerLot: (p: bigint) => p * 100n, // quote minor units per lot at p ticks
+  };
+  it('buys what the amount affords at the ask plus slippage, rounded down to lots', () => {
+    // ask 1000 → protection 1010 → 101 000 per lot; 1 000 000 affords 9 lots.
+    expect(
+      recurringRun({ ...base, side: 'BUY', bestOpposite: 1000n, runAmount: 1_000_000n }),
+    ).toEqual({
+      ok: true,
+      priceTicks: 1010n,
+      lots: 9n,
+    });
+  });
+  it('sells the fixed base amount at the bid minus slippage', () => {
+    expect(
+      recurringRun({ ...base, side: 'SELL', bestOpposite: 1000n, runAmount: 50_000n }),
+    ).toEqual({
+      ok: true,
+      priceTicks: 990n,
+      lots: 5n,
+    });
+  });
+  it('respects the limit and skips with a reason instead of guessing', () => {
+    expect(
+      recurringRun({
+        ...base,
+        side: 'BUY',
+        bestOpposite: 1000n,
+        limit: 1005n,
+        runAmount: 1_000_000n,
+      }),
+    ).toMatchObject({ ok: true, priceTicks: 1005n });
+    expect(
+      recurringRun({
+        ...base,
+        side: 'BUY',
+        bestOpposite: 1000n,
+        limit: 999n,
+        runAmount: 1_000_000n,
+      }),
+    ).toEqual({ ok: false, reason: 'The best price is above your limit' });
+    expect(recurringRun({ ...base, side: 'SELL', bestOpposite: null, runAmount: 1n })).toEqual({
+      ok: false,
+      reason: 'No buy orders on the book',
+    });
+    expect(recurringRun({ ...base, side: 'BUY', bestOpposite: 1000n, runAmount: 100n })).toEqual({
+      ok: false,
+      reason: 'The amount is below the market minimum',
+    });
   });
 });

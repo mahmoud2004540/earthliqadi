@@ -9,6 +9,7 @@ import {
 import type { AlgoOrder, Order } from '@prisma/client';
 import {
   formatAmountTrimmed,
+  parseAmount,
   type AlgoOrderDto,
   type AlgoOrderInput,
   type GridStatsDto,
@@ -40,6 +41,7 @@ import {
   gridLevels,
   initialGridOrders,
   protectionPrice,
+  recurringRun,
   trailingStep,
   type GridDirection,
   type Side,
@@ -159,6 +161,36 @@ export class AlgoOrdersService {
           totalLots: total,
           sliceLots: total,
           priceTicks: priceToTicks(input.price, u),
+        };
+        break;
+      }
+      case 'recurring': {
+        // A buy spends a quote amount per run, a sell sells a base amount per run.
+        // For buys the lot counts are placeholders (the size is decided per run).
+        let runAmount: bigint;
+        let slice = 1n;
+        if (input.side === 'buy') {
+          try {
+            runAmount = parseAmount(input.amount, market.quoteAsset.scale);
+          } catch {
+            throw invalid('Invalid amount', 'amount');
+          }
+          if (runAmount <= 0n) throw invalid('Amount must be positive', 'amount');
+        } else {
+          slice = quantityToLots(input.amount, u, 'amount');
+          if (slice < market.minQuantityLots) throw invalid('Below the market minimum', 'amount');
+          runAmount = slice * toMinorUnits(market.lotSize);
+        }
+        data = {
+          ...base,
+          side: input.side === 'buy' ? 'BUY' : 'SELL',
+          totalLots: slice * BigInt(input.runs),
+          sliceLots: slice,
+          priceTicks: input.limitPrice ? priceToTicks(input.limitPrice, u, 'limitPrice') : null,
+          intervalSeconds: input.intervalSeconds,
+          slippageBps: input.slippageBps,
+          runAmount: runAmount.toString(),
+          runsTotal: input.runs,
         };
         break;
       }
@@ -442,6 +474,8 @@ export class AlgoOrdersService {
         return this.stepChase(a, now);
       case 'GRID':
         return this.stepGrid(a, now);
+      case 'RECURRING':
+        return this.stepRecurring(a, now);
     }
   }
 
@@ -563,6 +597,55 @@ export class AlgoOrdersService {
         tif: 'post_only',
         priceTicks: target,
         lots: remaining,
+      },
+      now,
+    );
+  }
+
+  /** One run per interval (ADR-0029); a run without a usable price is skipped with a reason. */
+  private async stepRecurring(a: AlgoOrder, now: Date): Promise<void> {
+    const kids = await this.children(a.id);
+    const active = kids.some((c) => !isTerminal(c.status));
+    if (a.slicesSent >= a.runsTotal!) {
+      if (!active)
+        await this.prisma.algoOrder.updateMany({
+          where: { id: a.id, status: 'RUNNING' },
+          data: { status: 'DONE', updatedAt: now },
+        });
+      return;
+    }
+    if (active) return;
+    const market = await this.marketOf(a.marketId);
+    const u = unitsOf(market);
+    const next = new Date(now.getTime() + a.intervalSeconds! * 1000);
+    if (!(await this.claim(a, now, next))) return;
+    const best = await this.bestPrices(a.marketId);
+    const run = recurringRun({
+      side: a.side,
+      bestOpposite: a.side === 'BUY' ? best.ask : best.bid,
+      slippageBps: a.slippageBps!,
+      limit: a.priceTicks,
+      runAmount: BigInt(a.runAmount!.toFixed(0)),
+      lotSize: toMinorUnits(market.lotSize),
+      minLots: market.minQuantityLots,
+      quotePerLot: (p) => quoteAmount(p, 1n, u),
+    });
+    if (!run.ok) {
+      await this.prisma.algoOrder.update({
+        where: { id: a.id },
+        data: { lastError: `Run ${a.slicesSent + 1} skipped: ${run.reason}`, updatedAt: now },
+      });
+      return;
+    }
+    await this.placeChild(
+      a,
+      market,
+      {
+        clientOrderId: `algo-${a.id}-${a.slicesSent + 1}`,
+        side: a.side,
+        tif: 'ioc',
+        priceTicks: run.priceTicks,
+        lots: run.lots,
       },
       now,
     );
@@ -749,6 +832,25 @@ export class AlgoOrdersService {
       createdAt: a.createdAt.toISOString(),
       trailing,
       grid: a.kind === 'GRID' ? await this.gridStats(a, market) : null,
+      recurring:
+        a.kind === 'RECURRING'
+          ? {
+              amount: formatAmountTrimmed(
+                BigInt(a.runAmount!.toFixed(0)),
+                a.side === 'BUY' ? market.quoteAsset.scale : market.baseAsset.scale,
+              ),
+              amountAsset: a.side === 'BUY' ? market.quoteAsset.code : market.baseAsset.code,
+              runs: a.runsTotal!,
+              runsDone: a.slicesSent,
+              intervalSeconds: a.intervalSeconds!,
+              slippageBps: a.slippageBps!,
+              limitPrice: a.priceTicks === null ? null : ticksToPrice(a.priceTicks, u),
+              nextRunAt:
+                a.status === 'RUNNING' && a.slicesSent < a.runsTotal!
+                  ? a.nextAt.toISOString()
+                  : null,
+            }
+          : null,
     };
   }
 }

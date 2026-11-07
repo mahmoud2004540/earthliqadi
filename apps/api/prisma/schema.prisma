@@ -1117,7 +1117,7 @@ model AlgoOrder {
   id              String    @id @db.Uuid
   userId          String    @map("user_id") @db.Uuid
   marketId        String    @map("market_id") @db.Uuid
-  kind            String    @db.VarChar(8)
+  kind            String    @db.VarChar(12)
   side            OrderSide
   totalLots       BigInt    @map("total_lots")
   sliceLots       BigInt    @map("slice_lots")
@@ -1138,6 +1138,9 @@ model AlgoOrder {
   /// Listed in the grid marketplace.
   isPublic        Boolean   @default(false) @map("is_public")
   copiedFromId    String?   @map("copied_from_id") @db.Uuid
+  /// Recurring (ADR-0029): amount per run in minor units (quote for buys, base for sells) and run count.
+  runAmount       Decimal?  @map("run_amount") @db.Decimal(38, 0)
+  runsTotal       Int?      @map("runs_total")
   reduceOnly      Boolean   @default(false) @map("reduce_only")
   status          String    @default("RUNNING") @db.VarChar(10)
   slicesSent      Int       @default(0) @map("slices_sent")
