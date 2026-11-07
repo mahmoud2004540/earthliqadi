@@ -58,8 +58,11 @@ export function useMarketStream(
         }
       };
       socket.onclose = () => {
-        setState('closed');
+        // A socket closed by cleanup (market switch, unmount) must not mark the
+        // replacement connection as closed: its close event can arrive after
+        // the new socket has opened.
         if (stopped) return;
+        setState('closed');
         const delay = Math.min(30_000, 1000 * 2 ** retry++);
         timer = setTimeout(() => connect(false), delay);
       };
