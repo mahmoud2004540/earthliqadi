@@ -5,6 +5,7 @@ import type {
   KycReviewDto,
   ListingRequestDto,
   StatusDto,
+  TreasuryDto,
   SystemHealthDto,
   TicketDto,
 } from '@platform/shared';
@@ -110,6 +111,7 @@ export function AdminConsole({ t }: { t: Dictionary }) {
         {tab === 'audit' && <Audit a={a} />}
         {tab === 'listings' && <Listings a={a} />}
         {tab === 'incidents' && <Incidents a={a} />}
+        {tab === 'treasury' && <Treasury a={a} />}
       </div>
     </div>
   );
@@ -907,6 +909,134 @@ function Incidents({ a }: { a: A }) {
             );
           })}
         </ul>
+      </Section>
+    </>
+  );
+}
+
+/**
+ * Treasury (ADR-0031): fee revenue per vault asset and withdrawals to the
+ * configured treasury wallet. A request needs a second staff member's approval
+ * (Approvals tab) before anything is signed.
+ */
+function Treasury({ a }: { a: A }) {
+  const { data, error, reload } = useResource<TreasuryDto>('/v1/admin/vault/treasury', a);
+  const [asset, setAsset] = useState('');
+  const [amount, setAmount] = useState('');
+  const [reason, setReason] = useState('');
+  const [msg, setMsg] = useState<Msg>(null);
+
+  async function request(e: FormEvent) {
+    e.preventDefault();
+    setMsg(null);
+    try {
+      await api('/v1/admin/approvals', {
+        method: 'POST',
+        body: {
+          action: 'treasury.withdraw',
+          payload: { asset: asset || data?.balances[0]?.asset, amount },
+          reason,
+        },
+      });
+      setMsg({ tone: 'success', text: a.treasuryRequested });
+      setAmount('');
+      setReason('');
+      reload();
+    } catch (err) {
+      setMsg({ tone: 'error', text: errText(err, a) });
+    }
+  }
+
+  if (error) return <Alert tone="error">{error}</Alert>;
+  if (!data) return null;
+  return (
+    <>
+      {msg && <Alert tone={msg.tone}>{msg.text}</Alert>}
+      <Section title={a.treasuryTitle}>
+        <p className="text-sm">
+          {a.treasuryWallet}:{' '}
+          <span className="font-mono" data-testid="treasury-address">
+            {data.address ?? a.treasuryNotConfigured}
+          </span>
+        </p>
+        <p className="mt-1 text-xs text-muted">{a.treasuryHelp}</p>
+        <table className="mt-4 w-full text-sm">
+          <thead className="text-left text-xs text-muted">
+            <tr>
+              <th className="py-1">{a.treasuryAsset}</th>
+              <th className="py-1">{a.feeRevenue}</th>
+              <th className="py-1">{a.beingWithdrawn}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.balances.map((b) => (
+              <tr key={b.asset} className="border-t border-border font-mono">
+                <td className="py-1.5 font-sans">{b.asset}</td>
+                <td className="py-1.5">{b.feeRevenue}</td>
+                <td className="py-1.5">{b.withdrawing}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Section>
+      {data.address && data.balances.length > 0 && (
+        <Section title={a.treasuryRequest}>
+          <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => void request(e)}>
+            <select
+              aria-label={a.treasuryAsset}
+              className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+              value={asset || data.balances[0]!.asset}
+              onChange={(e) => setAsset(e.target.value)}
+            >
+              {data.balances.map((b) => (
+                <option key={b.asset} value={b.asset}>
+                  {b.asset}
+                </option>
+              ))}
+            </select>
+            <div>
+              <Label htmlFor="treasury-amount">{a.treasuryAmount}</Label>
+              <Input
+                id="treasury-amount"
+                className="h-9"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value.trim())}
+              />
+            </div>
+            <div className="min-w-48 flex-1">
+              <Label htmlFor="treasury-reason">{a.treasuryReason}</Label>
+              <Input
+                id="treasury-reason"
+                className="h-9"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
+            </div>
+            <Button type="submit" size="sm">
+              {a.requestApproval}
+            </Button>
+          </form>
+        </Section>
+      )}
+      <Section title={a.treasuryHistory}>
+        {data.withdrawals.length === 0 ? (
+          <p className="text-sm text-muted">{a.treasuryNone}</p>
+        ) : (
+          <ul className="space-y-2 text-sm">
+            {data.withdrawals.map((w) => (
+              <li key={w.id} className="flex flex-wrap items-center gap-3">
+                <span className="font-mono">
+                  {w.amount} {w.asset}
+                </span>
+                <Badge>{w.status}</Badge>
+                <span className="text-xs text-muted">{fmt.format(new Date(w.createdAt))}</span>
+                {w.txHash && (
+                  <span className="font-mono text-xs text-muted">{w.txHash.slice(0, 18)}…</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </Section>
     </>
   );

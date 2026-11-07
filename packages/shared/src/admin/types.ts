@@ -46,6 +46,12 @@ export const approvalRequestSchema = z.discriminatedUnion('action', [
     reason,
   }),
   z.object({
+    /** Fee revenue to the configured treasury wallet (ADR-0031). */
+    action: z.literal('treasury.withdraw'),
+    payload: z.object({ asset: assetCodeSchema, amount: amountStringSchema }),
+    reason,
+  }),
+  z.object({
     action: z.literal('role.grant'),
     payload: z.object({
       userId: z.uuid(),
@@ -272,4 +278,20 @@ export interface VaultProofDto {
    * longer contains (the contract decides which).
    */
   unexecutedWithdrawals: WithdrawalDto['call'][];
+}
+
+/** Treasury (ADR-0031): fee revenue per vault asset and treasury withdrawals. */
+export interface TreasuryDto {
+  /** Configured treasury wallet, or null when treasury withdrawals are disabled. */
+  address: string | null;
+  balances: { asset: string; feeRevenue: string; withdrawing: string }[];
+  withdrawals: {
+    id: string;
+    asset: string;
+    amount: string;
+    status: 'signed' | 'executed' | 'expired';
+    approvalId: string;
+    createdAt: string;
+    txHash: string | null;
+  }[];
 }

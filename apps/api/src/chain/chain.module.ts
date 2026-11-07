@@ -17,6 +17,7 @@ import { ApiTags } from '@nestjs/swagger';
 import {
   PERMISSIONS,
   withdrawalRequestSchema,
+  type TreasuryDto,
   type VaultConfigDto,
   type VaultProofDto,
   type WithdrawalDto,
@@ -90,6 +91,13 @@ export class VaultController {
 @Controller({ path: 'admin/vault', version: '1' })
 export class AdminVaultController {
   constructor(private readonly chain: ChainService) {}
+
+  /** Fee revenue, the treasury wallet and treasury withdrawals (ADR-0031). */
+  @Get('treasury')
+  @RequirePermissions(PERMISSIONS.LEDGER_READ)
+  treasury(): Promise<TreasuryDto> {
+    return this.chain.treasury();
+  }
 
   /** Ledger custody vs. on-chain vault balances at the indexed block. */
   @Get('custody')

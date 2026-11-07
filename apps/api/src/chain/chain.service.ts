@@ -7,6 +7,7 @@ import {
   type VaultConfigDto,
   type VaultProofDto,
   type WithdrawalDto,
+  type TreasuryDto,
 } from '@platform/shared';
 import { randomBytes } from 'node:crypto';
 import {
@@ -384,7 +385,10 @@ export class ChainService {
                 description: `Vault withdrawal executed (testnet)`,
                 postings: [
                   {
-                    accountId: await acc.id(asset.id, 'USER_WITHDRAWING', w.userId),
+                    // A treasury withdrawal spends the treasury hold, never a customer's.
+                    accountId: w.isTreasury
+                      ? await acc.id(asset.id, 'TREASURY_WITHDRAWING', null)
+                      : await acc.id(asset.id, 'USER_WITHDRAWING', w.userId),
                     direction: 'DEBIT',
                     amount,
                   },
@@ -592,24 +596,202 @@ export class ChainService {
             type: 'WITHDRAWAL_RELEASE',
             idempotencyKey: `withdrawal-release:${w.id}`,
             description: 'Withdrawal expired unexecuted: funds returned',
-            postings: [
-              {
-                accountId: await this.ledger.accountId(w.assetId, 'USER_WITHDRAWING', w.userId),
-                direction: 'DEBIT',
-                amount,
-              },
-              {
-                accountId: await this.ledger.accountId(w.assetId, 'USER_AVAILABLE', w.userId),
-                direction: 'CREDIT',
-                amount,
-              },
-            ],
+            // A treasury hold returns to fee revenue; a customer's to their available balance.
+            postings: w.isTreasury
+              ? [
+                  {
+                    accountId: await this.ledger.accountId(w.assetId, 'TREASURY_WITHDRAWING', null),
+                    direction: 'DEBIT',
+                    amount,
+                  },
+                  {
+                    accountId: await this.ledger.accountId(w.assetId, 'FEE_REVENUE', null),
+                    direction: 'CREDIT',
+                    amount,
+                  },
+                ]
+              : [
+                  {
+                    accountId: await this.ledger.accountId(w.assetId, 'USER_WITHDRAWING', w.userId),
+                    direction: 'DEBIT',
+                    amount,
+                  },
+                  {
+                    accountId: await this.ledger.accountId(w.assetId, 'USER_AVAILABLE', w.userId),
+                    direction: 'CREDIT',
+                    amount,
+                  },
+                ],
           },
           CHAIN_ACTOR,
         );
       });
     }
     return stale.length;
+  }
+
+  // ----------------------------------------------------- treasury (ADR-0031)
+
+  /** Free fee revenue of a vault asset, in minor units. */
+  private async feeRevenue(assetId: string): Promise<bigint> {
+    const id = await this.ledger.accountId(assetId, 'FEE_REVENUE', null);
+    const acc = await this.prisma.ledgerAccount.findUnique({ where: { id } });
+    return acc ? toMinorUnits(acc.balance) : 0n;
+  }
+
+  /** Validates a treasury withdrawal before it is requested; returns the amount in minor units. */
+  async treasuryPrecheck(assetCode: string, amountText: string): Promise<bigint> {
+    if (!this.config.TREASURY_ADDRESS)
+      throw conflict('No treasury wallet is configured (TREASURY_ADDRESS)');
+    await this.requireDeployment();
+    const asset = await this.ledger.requireAsset(assetCode);
+    if (!asset.chainTokenAddress) throw conflict(`${assetCode} is not held in the vault`);
+    let amount: bigint;
+    try {
+      amount = parseAmount(amountText, asset.scale);
+    } catch (err) {
+      throw new AppError(HttpStatus.BAD_REQUEST, 'VALIDATION_FAILED', (err as Error).message);
+    }
+    if (amount <= 0n)
+      throw new AppError(HttpStatus.BAD_REQUEST, 'VALIDATION_FAILED', 'Amount must be positive');
+    if (amount > (await this.feeRevenue(asset.id)))
+      throw conflict('The amount is more than the collected fee revenue');
+    return amount;
+  }
+
+  /**
+   * Pays approved fee revenue to TREASURY_ADDRESS (ADR-0031): holds it from
+   * FEE_REVENUE, signs a vault withdrawal to the treasury and, when this
+   * process holds a sending key, submits it. Customer balances are never
+   * touched. Idempotent per approval request.
+   */
+  async treasuryWithdraw(
+    assetCode: string,
+    amountText: string,
+    approvalId: string,
+    actor: { actorType: 'STAFF'; actorUserId: string; requestId?: string | null },
+  ): Promise<{ withdrawalId: string; status: string; txHash: string | null }> {
+    const existing = await this.prisma.withdrawal.findFirst({ where: { approvalId } });
+    if (existing)
+      return { withdrawalId: existing.id, status: existing.status, txHash: existing.txHash };
+    const amount = await this.treasuryPrecheck(assetCode, amountText);
+    const d = await this.requireDeployment();
+    const operator = this.operator();
+    const asset = await this.ledger.requireAsset(assetCode);
+    const treasury = getAddress(this.config.TREASURY_ADDRESS);
+    const fees = await this.ledger.accountId(asset.id, 'FEE_REVENUE', null);
+    const holding = await this.ledger.accountId(asset.id, 'TREASURY_WITHDRAWING', null);
+    const id: Hex = `0x${randomBytes(32).toString('hex')}`;
+    const head = await this.rpc().getBlock();
+    const chainNowMs = Math.max(Date.now(), Number(head.timestamp) * 1000);
+    const expiry = new Date(chainNowMs + this.config.VAULT_WITHDRAWAL_TTL_SECONDS * 1000);
+
+    const row = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(${STATE_LOCK_KEY})`;
+      const afterState = await this.latestStateIndex(tx, d);
+      // FEE_REVENUE cannot go negative: the ledger refuses more than was collected.
+      await this.ledger.postWithin(
+        tx,
+        {
+          type: 'WITHDRAWAL_HOLD',
+          idempotencyKey: `treasury-hold:${approvalId}`,
+          description: `Treasury withdrawal to ${treasury} (approval ${approvalId})`,
+          postings: [
+            { accountId: fees, direction: 'DEBIT', amount },
+            { accountId: holding, direction: 'CREDIT', amount },
+          ],
+        },
+        actor,
+      );
+      const message = {
+        id,
+        user: treasury,
+        token: getAddress(asset.chainTokenAddress!),
+        amount,
+        afterState,
+        expiry: BigInt(Math.floor(expiry.getTime() / 1000)),
+      };
+      const signature = await operator.signWithdrawal(d.chainId, d.vaultAddress as Hex, message);
+      return tx.withdrawal.create({
+        data: {
+          id,
+          chainId: d.chainId,
+          vaultAddress: d.vaultAddress,
+          userId: null,
+          isTreasury: true,
+          approvalId,
+          assetId: asset.id,
+          walletAddress: treasury.toLowerCase(),
+          amount: amount.toString(),
+          afterState,
+          expiry: new Date(Number(message.expiry) * 1000),
+          signature,
+        },
+      });
+    });
+    await this.audit.record({
+      action: 'treasury.withdrawal.signed',
+      outcome: 'SUCCESS',
+      actorType: 'STAFF',
+      actorUserId: actor.actorUserId,
+      targetType: 'withdrawal',
+      targetId: row.id,
+      metadata: { asset: assetCode, amount: amount.toString(), treasury, approvalId },
+    });
+    let txHash: string | null = null;
+    if (this.wallet && this.account) {
+      // Anyone may relay a signed withdrawal; the funds can only reach the treasury.
+      const sent = await this.send(d.vaultAddress as Hex, VAULT_ABI, 'withdraw', [
+        {
+          id: row.id as Hex,
+          user: treasury,
+          token: getAddress(asset.chainTokenAddress!),
+          amount,
+          afterState: row.afterState,
+          expiry: BigInt(Math.floor(row.expiry.getTime() / 1000)),
+        },
+        row.signature,
+      ]);
+      txHash = sent.hash;
+    }
+    return { withdrawalId: row.id, status: 'SIGNED', txHash };
+  }
+
+  async treasury(): Promise<TreasuryDto> {
+    const d = await this.deployment();
+    const address = this.config.TREASURY_ADDRESS ? getAddress(this.config.TREASURY_ADDRESS) : null;
+    if (!d) return { address, balances: [], withdrawals: [] };
+    const assets = await this.vaultAssets(d);
+    const balances: TreasuryDto['balances'] = [];
+    for (const a of assets) {
+      const held = await this.prisma.ledgerAccount.findFirst({
+        where: { assetId: a.id, type: 'TREASURY_WITHDRAWING' },
+      });
+      balances.push({
+        asset: a.code,
+        feeRevenue: formatAmountTrimmed(await this.feeRevenue(a.id), a.scale),
+        withdrawing: formatAmountTrimmed(held ? toMinorUnits(held.balance) : 0n, a.scale),
+      });
+    }
+    const rows = await this.prisma.withdrawal.findMany({
+      where: { isTreasury: true, vaultAddress: d.vaultAddress },
+      include: { asset: true },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+    return {
+      address,
+      balances,
+      withdrawals: rows.map((w) => ({
+        id: w.id,
+        asset: w.asset.code,
+        amount: formatAmountTrimmed(toMinorUnits(w.amount), w.asset.scale),
+        status: w.status.toLowerCase() as TreasuryDto['withdrawals'][number]['status'],
+        approvalId: w.approvalId!,
+        createdAt: w.createdAt.toISOString(),
+        txHash: w.txHash,
+      })),
+    };
   }
 
   // ----------------------------------------------------- state commitments

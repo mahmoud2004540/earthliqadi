@@ -258,6 +258,8 @@ enum LedgerAccountType {
   VAULT_CUSTODY
   /// User funds reserved for a signed, not yet executed vault withdrawal.
   USER_WITHDRAWING
+  /// Fee revenue held for an approved treasury withdrawal (ADR-0031).
+  TREASURY_WITHDRAWING
 }
 
 enum PostingDirection {
@@ -896,9 +898,12 @@ model Withdrawal {
   id            String           @id @db.Char(66)
   chainId       Int              @map("chain_id")
   vaultAddress  String           @map("vault_address") @db.Char(42)
-  userId        String           @map("user_id") @db.Uuid
+  /// Null for treasury withdrawals (ADR-0031).
+  userId        String?          @map("user_id") @db.Uuid
   assetId       String           @map("asset_id") @db.Uuid
   walletAddress String           @map("wallet_address") @db.Char(42)
+  isTreasury    Boolean          @default(false) @map("is_treasury")
+  approvalId    String?          @map("approval_id") @db.Uuid
   amount        Decimal          @db.Decimal(38, 0)
   afterState    BigInt           @map("after_state")
   expiry        DateTime         @db.Timestamptz(3)
@@ -908,7 +913,7 @@ model Withdrawal {
   createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
   finalisedAt   DateTime?        @map("finalised_at") @db.Timestamptz(3)
 
-  user  User  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  user  User? @relation(fields: [userId], references: [id], onDelete: Restrict)
   asset Asset @relation(fields: [assetId], references: [id], onDelete: Restrict)
 
   @@index([userId, createdAt])

@@ -9,6 +9,7 @@ import {
   type PublicClient,
 } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
+import { ApprovalsService } from '../src/approvals/approvals.service';
 import { ChainService } from '../src/chain/chain.service';
 import { PrismaService } from '../src/infrastructure/prisma/prisma.service';
 import { LedgerService } from '../src/ledger/ledger.service';
@@ -22,6 +23,8 @@ import { SYSTEM } from './trading-helpers';
  * TEST_CHAIN_RPC_URL (default http://localhost:8545). Skipped when unreachable.
  */
 const RPC = process.env.TEST_CHAIN_RPC_URL ?? 'http://localhost:8545';
+/** Treasury wallet for fee revenue (ADR-0031). */
+const TREASURY = privateKeyToAccount(generatePrivateKey()).address;
 const VAULT_ABI = parseAbi([
   'function deposit(address token, uint256 amount) returns (uint64)',
   'function withdraw((bytes32 id, address user, address token, uint256 amount, uint64 afterState, uint64 expiry) w, bytes signature)',
@@ -96,6 +99,7 @@ beforeAll(async () => {
     VAULT_STATE_INTERVAL_SECONDS: '0',
     VAULT_WITHDRAWAL_TTL_SECONDS: '60',
     CHAIN_FAUCET_ENABLED: 'true',
+    TREASURY_ADDRESS: TREASURY,
   };
   for (const [k, v] of Object.entries(env)) {
     saved[k] = process.env[k];
@@ -130,6 +134,117 @@ const it_ = (name: string, fn: () => Promise<void>, timeout = 120_000) =>
   );
 
 describe('non-custodial vault on the local chain', () => {
+  it_(
+    'pays approved fee revenue to the treasury wallet, never customer funds (ADR-0031)',
+    async () => {
+      const suffix = randomBytes(3).toString('hex').toUpperCase();
+      const USD = `TF${suffix}`;
+      const { vault, tokens } = await chain.deploy({
+        tokens: [{ code: USD, name: 'Test USD', decimals: 6, faucetLimit: 10n ** 15n }],
+        freezeDelaySeconds: 3600,
+      });
+      const usd = tokens[USD]!;
+      const key = generatePrivateKey();
+      const user = await signInWallet(key);
+      expect((await user.http.post('/v1/vault/faucet', {})).status).toBe(200);
+      const wallet = createWalletClient({
+        account: privateKeyToAccount(key),
+        transport: http(RPC),
+      });
+      for (const [address, abi, fn, args] of [
+        [usd, TOKEN_ABI, 'approve', [vault, 2n ** 255n]],
+        [vault, VAULT_ABI, 'deposit', [usd, 100_000_000n]],
+      ] as const) {
+        const hash = await wallet.writeContract({
+          address,
+          abi: abi as never,
+          functionName: fn,
+          args: args,
+          chain: null,
+        });
+        expect((await client.waitForTransactionReceipt({ hash })).status).toBe('success');
+      }
+      await chain.indexOnce();
+
+      // The customer pays a 5 USD fee (as a trade would): it moves to fee revenue.
+      const asset = await ledger.requireAsset(USD);
+      await ledger.post(
+        {
+          type: 'TRADE',
+          idempotencyKey: `test-fee:${suffix}`,
+          description: 'Test fee',
+          postings: [
+            {
+              accountId: await ledger.accountId(asset.id, 'USER_AVAILABLE', user.userId),
+              direction: 'DEBIT',
+              amount: 5_000_000n,
+            },
+            {
+              accountId: await ledger.accountId(asset.id, 'FEE_REVENUE', null),
+              direction: 'CREDIT',
+              amount: 5_000_000n,
+            },
+          ],
+        },
+        SYSTEM,
+      );
+
+      const approvals = app.get(ApprovalsService);
+      const maker = (await signInWallet(generatePrivateKey())).userId;
+      const checker = (await signInWallet(generatePrivateKey())).userId;
+      const staff = (userId: string) => ({ userId, permissions: ['ledger:adjust' as const] });
+      // More than the collected revenue is refused up front: customer funds are never reachable.
+      await expect(
+        approvals.request(
+          {
+            action: 'treasury.withdraw',
+            payload: { asset: USD, amount: '6' },
+            reason: 'Monthly revenue',
+          },
+          staff(maker),
+        ),
+      ).rejects.toThrow(/more than the collected fee revenue/);
+      const req = await approvals.request(
+        {
+          action: 'treasury.withdraw',
+          payload: { asset: USD, amount: '5' },
+          reason: 'Monthly revenue',
+        },
+        staff(maker),
+      );
+      await expect(approvals.approve(req.id, staff(maker))).rejects.toThrow();
+      const done = await approvals.approve(req.id, staff(checker));
+      expect(done.status).toBe('approved');
+
+      // The operator relayed it; the indexer finalises it from the Withdrawn event.
+      await chain.indexOnce();
+      const t = await chain.treasury();
+      expect(t.address).toBe(TREASURY);
+      expect(t.withdrawals[0]).toMatchObject({
+        asset: USD,
+        amount: '5',
+        status: 'executed',
+        approvalId: req.id,
+      });
+      expect(t.balances.find((b) => b.asset === USD)).toMatchObject({
+        feeRevenue: '0',
+        withdrawing: '0',
+      });
+      expect(
+        await client.readContract({
+          address: usd,
+          abi: TOKEN_ABI,
+          functionName: 'balanceOf',
+          args: [TREASURY],
+        }),
+      ).toBe(5_000_000n);
+      // The customer still owns exactly what they did not pay in fees.
+      expect((await balance(user.userId, USD))?.available).toBe('95.000000');
+      expect((await chain.custodyCheck()).filter((c) => !c.ok)).toEqual([]);
+      expect((await app.get(ReconciliationService).run('CLI')).findings).toEqual([]);
+    },
+  );
+
   it_(
     'deposits, withdrawals, state roots and the escape hatch stay consistent with the ledger',
     async () => {

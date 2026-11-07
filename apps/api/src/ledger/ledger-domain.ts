@@ -33,6 +33,8 @@ export const ACCOUNT_SPECS: Record<LedgerAccountType, AccountSpec> = {
   VAULT_CUSTODY: { normalSide: 'DEBIT', allowNegative: false, userOwned: false },
   // Funds reserved for a signed withdrawal until it executes or expires.
   USER_WITHDRAWING: { normalSide: 'CREDIT', allowNegative: false, userOwned: true },
+  // Fee revenue reserved for an approved treasury withdrawal (ADR-0031).
+  TREASURY_WITHDRAWING: { normalSide: 'CREDIT', allowNegative: false, userOwned: false },
 };
 
 export interface PostingRequest {

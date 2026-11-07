@@ -248,6 +248,17 @@ export const apiEnvSchema = z
       .string()
       .regex(/^[A-Z0-9]{2,16}$/)
       .default('USDC'),
+    /**
+     * Treasury wallet that receives withdrawn fee revenue (ADR-0031), e.g. a
+     * multisig the operator controls. Empty = treasury withdrawals disabled.
+     * Set only here, never from the admin console, so a compromised staff
+     * account cannot redirect revenue.
+     */
+    TREASURY_ADDRESS: z
+      .string()
+      .trim()
+      .regex(/^(0x[0-9a-fA-F]{40})?$/, 'must be a 0x address')
+      .default(''),
     /** Current terms-of-use version; trading requires accepting it (ADR-0022). */
     TERMS_VERSION: z
       .string()

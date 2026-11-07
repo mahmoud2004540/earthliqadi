@@ -16,6 +16,7 @@ import { PrismaService } from '../infrastructure/prisma/prisma.service';
 import { LedgerService, type LedgerActor } from '../ledger/ledger.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PerpsService } from '../perps/perps.service';
+import { ChainService } from '../chain/chain.service';
 import { RbacService } from '../rbac/rbac.service';
 import { MarketsService } from '../trading/markets.service';
 
@@ -26,6 +27,7 @@ export const ACTION_PERMISSION: Record<ApprovalAction, Permission> = {
   'ledger.reversal': PERMISSIONS.LEDGER_ADJUST,
   'user.reactivate': PERMISSIONS.USERS_MANAGE_STATUS,
   'role.grant': PERMISSIONS.ROLES_ASSIGN,
+  'treasury.withdraw': PERMISSIONS.LEDGER_ADJUST,
 };
 
 export interface StaffActor {
@@ -60,6 +62,7 @@ export class ApprovalsService {
     private readonly perps: PerpsService,
     private readonly ledger: LedgerService,
     private readonly rbac: RbacService,
+    private readonly chain: ChainService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
@@ -132,6 +135,10 @@ export class ApprovalsService {
       case 'role.grant': {
         const u = await this.prisma.user.findUnique({ where: { id: input.payload.userId } });
         if (!u) throw AppError.notFound('User not found');
+        return;
+      }
+      case 'treasury.withdraw': {
+        await this.chain.treasuryPrecheck(input.payload.asset, input.payload.amount);
         return;
       }
     }
@@ -343,6 +350,14 @@ export class ApprovalsService {
           reason: `Approval ${row.id}: ${row.reason}`,
         });
         return { userId: p.userId!, role: p.role! };
+      }
+      case 'treasury.withdraw': {
+        const r = await this.chain.treasuryWithdraw(p.asset!, p.amount!, row.id, {
+          actorType: 'STAFF',
+          actorUserId: approver.userId,
+          requestId: approver.requestId ?? null,
+        });
+        return { withdrawalId: r.withdrawalId, status: r.status, txHash: r.txHash ?? '' };
       }
     }
   }
