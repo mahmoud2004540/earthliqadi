@@ -11,6 +11,7 @@ import { ApiError, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { InboxPanel, SupportPanel } from './account-panels';
 import { AccountOverview } from './account-overview';
+import { StatementsPanel } from './statements-panel';
 import { ReferralPanel } from '@/components/growth/referral-panel';
 import { ApiKeysPanel } from './api-keys-panel';
 import { SubAccountsPanel } from './sub-accounts-panel';
@@ -21,7 +22,7 @@ import { WalletPanel } from './wallet-panel';
 export function Dashboard({ t }: { t: Dictionary }) {
   const router = useRouter();
   const [user, setUser] = useState<CurrentUserDto | null>(null);
-  type Tab = 'overview' | 'wallet' | 'api' | 'support' | 'inbox' | 'security';
+  type Tab = 'overview' | 'wallet' | 'statements' | 'api' | 'support' | 'inbox' | 'security';
   const [tab, setTab] = useState<Tab>('overview');
 
   const [version, setVersion] = useState(0);
@@ -81,31 +82,34 @@ export function Dashboard({ t }: { t: Dictionary }) {
       </div>
 
       <div role="tablist" className="mt-8 flex gap-1 overflow-x-auto border-b border-border">
-        {(['overview', 'wallet', 'api', 'support', 'inbox', 'security'] as const).map((key) => (
-          <button
-            key={key}
-            role="tab"
-            aria-selected={tab === key}
-            onClick={() => setTab(key)}
-            className={cn(
-              '-mb-px whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium',
-              tab === key
-                ? 'border-primary text-foreground'
-                : 'border-transparent text-muted hover:text-foreground',
-            )}
-          >
-            {
+        {(['overview', 'wallet', 'statements', 'api', 'support', 'inbox', 'security'] as const).map(
+          (key) => (
+            <button
+              key={key}
+              role="tab"
+              aria-selected={tab === key}
+              onClick={() => setTab(key)}
+              className={cn(
+                '-mb-px whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium',
+                tab === key
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted hover:text-foreground',
+              )}
+            >
               {
-                overview: d.overview,
-                wallet: d.balancesTitle,
-                api: d.apiTab,
-                support: d.supportTab,
-                inbox: d.inboxTab,
-                security: d.securityTab,
-              }[key]
-            }
-          </button>
-        ))}
+                {
+                  overview: d.overview,
+                  wallet: d.balancesTitle,
+                  statements: d.statementsTab,
+                  api: d.apiTab,
+                  support: d.supportTab,
+                  inbox: d.inboxTab,
+                  security: d.securityTab,
+                }[key]
+              }
+            </button>
+          ),
+        )}
       </div>
 
       {tab === 'wallet' ? (
@@ -114,6 +118,10 @@ export function Dashboard({ t }: { t: Dictionary }) {
           <div className="mt-6">
             <VaultPanel t={t} walletAddress={user.walletAddress} />
           </div>
+        </div>
+      ) : tab === 'statements' ? (
+        <div className="mt-8">
+          <StatementsPanel t={t} />
         </div>
       ) : tab === 'api' ? (
         <div className="mt-8">

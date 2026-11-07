@@ -109,3 +109,40 @@ export interface AccountOverviewDto {
   /** Assets with a balance but no price (not included in totalValue). */
   unvalued: string[];
 }
+
+/** Statement period: a month ("2026-10") or a year ("2026"), in UTC (ADR-0028). */
+export const statementQuerySchema = z.object({
+  period: z.string().regex(/^\d{4}(-(0[1-9]|1[0-2]))?$/, 'Use YYYY or YYYY-MM'),
+});
+
+/**
+ * Account statement (ADR-0028): per asset, the balance at the start and end
+ * of the period and every entry that changed the account's total. Moves
+ * between the account's own buckets (funds held for an order, margin) do not
+ * change the total and are left out.
+ */
+export interface StatementDto {
+  period: string;
+  /** Inclusive start, exclusive end (UTC). */
+  from: string;
+  to: string;
+  generatedAt: string;
+  assets: {
+    asset: string;
+    opening: string;
+    credits: string;
+    debits: string;
+    closing: string;
+  }[];
+  lines: {
+    time: string;
+    entryId: string;
+    type: string;
+    description: string;
+    asset: string;
+    /** Signed change of the account's total ("+1.5", "-0.25"). */
+    change: string;
+  }[];
+  /** True when the period had more lines than one statement carries. */
+  truncated: boolean;
+}

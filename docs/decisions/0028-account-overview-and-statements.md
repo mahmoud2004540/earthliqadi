@@ -42,9 +42,36 @@ decimal.
 - a fixed disclosure: balances are not bank deposits and have no deposit
   insurance or government guarantee, and values are indicative.
 
+### Statements
+
+`GET /v1/me/statements?period=YYYY-MM|YYYY` (UTC) builds a statement from
+the double-entry ledger. `GET /v1/me/statements.csv` returns the same
+statement as a download.
+
+**Per asset:** opening total, money in, money out and closing total, where
+the total is all of the account's buckets together.
+
+**The lines:** every journal entry that changed that total, with its time,
+type and signed change. Entries that only move funds between the account's
+own buckets (order holds, margin) net to zero and are left out.
+
+**The CSV:**
+
+- states that it is not a bank statement;
+- quotes every field;
+- neutralises spreadsheet formulas in text fields.
+
+**Limit:** a statement carries at most 10 000 lines. Longer periods are
+flagged as truncated, and the user is asked to choose a month.
+
+The dashboard's Statements tab lists the last 12 months and the current and
+previous year.
+
 ## Consequences
 
 - **Prices are last trades.** On thin markets the value can be stale. The
   UI states the basis and does not present it as a quote.
+- **A statement is not a tax report.** Statements list movements; they do
+  not compute cost basis or gains, and they are not in ILS.
 - **One currency only.** Fiat valuation (ILS, EUR) would need a reliable FX
   source. It is not shown until one is integrated; no rate is invented.

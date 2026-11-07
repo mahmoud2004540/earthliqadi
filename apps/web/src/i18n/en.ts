@@ -786,6 +786,24 @@ export const en = {
   },
   dashboard: {
     title: 'Dashboard',
+    statementsTab: 'Statements',
+    statements: {
+      title: 'Account statements',
+      intro:
+        'Opening and closing totals per asset and every movement in the period, from the ledger. Times are UTC.',
+      period: 'Period',
+      year: 'Year',
+      downloadCsv: 'Download CSV',
+      empty: 'No balances or movements in this period.',
+      asset: 'Asset',
+      opening: 'Opening',
+      credits: 'In',
+      debits: 'Out',
+      closing: 'Closing',
+      lines: '{n} movements in this period (in the CSV).',
+      truncated: 'The period has more movements than one statement holds; choose a month.',
+      note: 'Funds held for open orders stay in your total and are not listed as movements. This is not a bank statement.',
+    },
     accountOverview: {
       totalValue: 'Total value',
       valuedAt: 'Valued in {asset} at last traded prices',

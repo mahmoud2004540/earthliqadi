@@ -101,4 +101,80 @@ describe('account overview', () => {
     expect(o.unvalued).toEqual([loose]);
     expect(o.totalValue).toBe('860'); // 360 + 500; the unpriced asset is left out
   });
+
+  it('statements: opening, credits, debits, closing per asset; internal holds left out; CSV', async () => {
+    const ledger = app.get(LedgerService);
+    const base = `S${randomBytes(3).toString('hex').toUpperCase()}`;
+    await ledger
+      .createAsset({ code: base, name: 'Statement base', scale: 8 }, SYSTEM)
+      .catch(() => undefined);
+    const m = await app
+      .get(MarketsService)
+      .create(
+        { base, quote: VAL, tickSize: '0.01', lotSize: '0.0001', makerFeeBps: 0, takerFeeBps: 0 },
+        SYSTEM,
+      );
+    const t = await fx.trader([{ asset: VAL, amount: '1000', scale: 6 }]);
+    const s = await fx.trader([{ asset: base, amount: '2', scale: 8 }]);
+    await fx.place(s, {
+      market: m.symbol,
+      side: 'sell',
+      type: 'limit',
+      price: '100',
+      quantity: '1',
+    });
+    const buy = await fx.place(t, {
+      market: m.symbol,
+      side: 'buy',
+      type: 'limit',
+      price: '100',
+      quantity: '1',
+    });
+    await fx.until(async () => (await fx.status(buy.body.id)) === 'FILLED');
+    // An open order only moves funds inside the account: not a statement line.
+    const rest = await fx.place(t, {
+      market: m.symbol,
+      side: 'buy',
+      type: 'limit',
+      price: '50',
+      quantity: '2',
+    });
+    await fx.until(async () => (await fx.status(rest.body.id)) === 'OPEN');
+
+    const period = new Date().toISOString().slice(0, 7);
+    const st = (await t.client.get(`/v1/me/statements?period=${period}`)).body;
+    expect(st.assets).toEqual(
+      [
+        { asset: base, opening: '0', credits: '1', debits: '0', closing: '1' },
+        { asset: VAL, opening: '0', credits: '1000', debits: '-100', closing: '900' },
+      ].sort((a, b) => a.asset.localeCompare(b.asset)),
+    );
+    expect(st.lines.map((l: { type: string }) => l.type)).not.toContain('BALANCE_HOLD');
+    expect(
+      st.lines
+        .filter((l: { asset: string }) => l.asset === VAL)
+        .map((l: { change: string }) => l.change),
+    ).toEqual(['+1000', '-100']);
+    expect(st.truncated).toBe(false);
+
+    // The closing balance equals the account's actual total.
+    const bal = (await t.client.get('/v1/me/balances')).body.balances.find(
+      (b: { asset: string }) => b.asset === VAL,
+    );
+    expect(bal.total).toBe('900.000000');
+
+    const [y, mo] = period.split('-').map(Number) as [number, number];
+    const prev = mo === 1 ? `${y - 1}-12` : `${y}-${String(mo - 1).padStart(2, '0')}`;
+    expect((await t.client.get(`/v1/me/statements?period=${prev}`)).body.assets).toEqual([]);
+    expect((await t.client.get('/v1/me/statements?period=2026-13')).status).toBe(400);
+
+    const csv = await t.client.get(`/v1/me/statements.csv?period=${period}`);
+    expect(csv.status).toBe(200);
+    expect(csv.headers['content-type']).toMatch(/text\/csv/);
+    expect(csv.headers['content-disposition']).toBe(
+      `attachment; filename="statement-${period}.csv"`,
+    );
+    expect(csv.text).toContain(`"${VAL}","0","1000","-100","900"`);
+    expect(csv.text).toContain('Not a bank statement');
+  });
 });
