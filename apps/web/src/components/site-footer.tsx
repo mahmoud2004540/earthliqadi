@@ -33,6 +33,7 @@ export function SiteFooter({ t }: { t: Dictionary }) {
           { href: 'security', label: t.nav.security },
           { href: 'fees', label: t.nav.fees },
           { href: 'api-docs', label: t.nav.api },
+          { href: 'status', label: t.footer.status },
         ])}
         {col(t.footer.legalHeading, [
           { href: 'legal', label: t.footer.legal },

@@ -19,6 +19,7 @@ export function SiteHeader({ t }: { t: Dictionary }) {
     { href: 'security', label: t.nav.security },
     { href: 'trust', label: t.nav.trust },
     { href: 'api-docs', label: t.nav.api },
+    { href: 'status', label: t.footer.status },
   ];
   const links = [...primary, ...more];
   return (

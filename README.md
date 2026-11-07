@@ -149,7 +149,8 @@ tests/              (reserved) cross-service integration and browser e2e suites
   [0026 listing request board](docs/decisions/0026-listing-request-board.md),
   [0027 multi-collateral](docs/decisions/0027-multi-collateral.md),
   [0028 account overview and statements](docs/decisions/0028-account-overview-and-statements.md),
-  [0029 recurring orders](docs/decisions/0029-recurring-orders.md)
+  [0029 recurring orders](docs/decisions/0029-recurring-orders.md),
+  [0030 status page and withdrawal timeline](docs/decisions/0030-status-page-and-withdrawal-timeline.md)
 - Security: [controls & threat model](docs/security/threat-model.md) ·
   [dependency policy](docs/security/dependency-policy.md) ·
   [incident response (draft)](docs/security/incident-response.md)

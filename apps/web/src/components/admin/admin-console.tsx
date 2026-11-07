@@ -4,6 +4,7 @@ import type {
   ApprovalDto,
   KycReviewDto,
   ListingRequestDto,
+  StatusDto,
   SystemHealthDto,
   TicketDto,
 } from '@platform/shared';
@@ -108,6 +109,7 @@ export function AdminConsole({ t }: { t: Dictionary }) {
         {tab === 'users' && <Users a={a} />}
         {tab === 'audit' && <Audit a={a} />}
         {tab === 'listings' && <Listings a={a} />}
+        {tab === 'incidents' && <Incidents a={a} />}
       </div>
     </div>
   );
@@ -795,5 +797,117 @@ function Listings({ a }: { a: A }) {
         ))}
       </ul>
     </Section>
+  );
+}
+
+/** Incident reports for the public status page (ADR-0030). Updates are append-only. */
+function Incidents({ a }: { a: A }) {
+  const { data, error, reload } = useResource<StatusDto>('/v1/status', a);
+  const [title, setTitle] = useState('');
+  const [impact, setImpact] = useState<'minor' | 'major' | 'critical'>('minor');
+  const [body, setBody] = useState('');
+  const [update, setUpdate] = useState<Record<string, { status: string; body: string }>>({});
+  const [msg, setMsg] = useState<Msg>(null);
+
+  async function post(path: string, payload: object, done: () => void) {
+    setMsg(null);
+    try {
+      await api(path, { method: 'POST', body: payload });
+      setMsg({ tone: 'success', text: a.incidentPublished });
+      done();
+      reload();
+    } catch (err) {
+      setMsg({ tone: 'error', text: errText(err, a) });
+    }
+  }
+
+  if (error) return <Alert tone="error">{error}</Alert>;
+  const open = (data?.incidents ?? []).filter((i) => i.resolvedAt === null);
+  return (
+    <>
+      {msg && <Alert tone={msg.tone}>{msg.text}</Alert>}
+      <Section title={a.openIncident}>
+        <form
+          className="space-y-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void post('/v1/admin/incidents', { title, impact, body }, () => {
+              setTitle('');
+              setBody('');
+            });
+          }}
+        >
+          <div>
+            <Label htmlFor="inc-title">{a.incidentTitle}</Label>
+            <Input id="inc-title" value={title} onChange={(e) => setTitle(e.target.value)} />
+          </div>
+          <select
+            aria-label={a.incidentImpact}
+            className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+            value={impact}
+            onChange={(e) => setImpact(e.target.value as typeof impact)}
+          >
+            <option value="minor">minor</option>
+            <option value="major">major</option>
+            <option value="critical">critical</option>
+          </select>
+          <div>
+            <Label htmlFor="inc-body">{a.incidentBody}</Label>
+            <Input id="inc-body" value={body} onChange={(e) => setBody(e.target.value)} />
+          </div>
+          <Button type="submit" size="sm">
+            {a.publish}
+          </Button>
+        </form>
+      </Section>
+      <Section title={a.openIncidents}>
+        {open.length === 0 && <p className="text-sm text-muted">{a.noOpenIncidents}</p>}
+        <ul className="space-y-3">
+          {open.map((i) => {
+            const u = update[i.id] ?? { status: 'identified', body: '' };
+            const set = (v: Partial<typeof u>) =>
+              setUpdate((p) => ({ ...p, [i.id]: { ...u, ...v } }));
+            return (
+              <li key={i.id} className="rounded-md border border-border p-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{i.title}</span>
+                  <Badge>{i.impact}</Badge>
+                  <Badge>{i.status}</Badge>
+                </div>
+                <form
+                  className="mt-2 flex flex-wrap gap-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void post(`/v1/admin/incidents/${i.id}/updates`, u, () => set({ body: '' }));
+                  }}
+                >
+                  <select
+                    aria-label={a.incidentStatus}
+                    className="h-9 rounded-md border border-border bg-background px-2"
+                    value={u.status}
+                    onChange={(e) => set({ status: e.target.value })}
+                  >
+                    {['investigating', 'identified', 'monitoring', 'resolved'].map((st) => (
+                      <option key={st} value={st}>
+                        {st}
+                      </option>
+                    ))}
+                  </select>
+                  <Input
+                    aria-label={a.incidentBody}
+                    className="h-9 flex-1"
+                    value={u.body}
+                    onChange={(e) => set({ body: e.target.value })}
+                  />
+                  <Button type="submit" size="sm">
+                    {a.postUpdate}
+                  </Button>
+                </form>
+              </li>
+            );
+          })}
+        </ul>
+      </Section>
+    </>
   );
 }

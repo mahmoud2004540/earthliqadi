@@ -1255,3 +1255,34 @@ model CollateralAsset {
 
   @@map("collateral_assets")
 }
+
+/// Public incident reports (ADR-0030).
+model Incident {
+  id         String    @id @db.Uuid
+  title      String    @db.VarChar(160)
+  impact     String    @db.VarChar(10)
+  status     String    @db.VarChar(14)
+  createdBy  String    @map("created_by") @db.Uuid
+  startedAt  DateTime  @default(now()) @map("started_at") @db.Timestamptz(3)
+  resolvedAt DateTime? @map("resolved_at") @db.Timestamptz(3)
+
+  updates IncidentUpdate[]
+
+  @@index([startedAt], map: "incidents_started_idx")
+  @@map("incidents")
+}
+
+/// Append-only (trigger).
+model IncidentUpdate {
+  id         String   @id @db.Uuid
+  incidentId String   @map("incident_id") @db.Uuid
+  status     String   @db.VarChar(14)
+  body       String   @db.VarChar(2000)
+  createdBy  String   @map("created_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Restrict)
+
+  @@index([incidentId, createdAt], map: "incident_updates_incident_idx")
+  @@map("incident_updates")
+}

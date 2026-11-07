@@ -40,6 +40,7 @@ export const en = {
     legal: 'Legal information',
     terms: 'Terms of use',
     risk: 'Risk disclosures',
+    status: 'System status',
     disclaimer:
       'Digital assets are highly volatile and you can lose all of your investment. This software is under development and is not an offer of any financial service.',
   },
@@ -349,6 +350,18 @@ export const en = {
     },
   },
   vault: {
+    timeline: {
+      requested: 'Requested',
+      signed: 'Signed by the platform',
+      signedDetail: 'Funds are held for this withdrawal.',
+      waiting: 'Waiting for your wallet',
+      waitingDetail:
+        'Submit it from your wallet before {time}. If not, the funds return to your available balance.',
+      confirmed: 'Confirmed on-chain',
+      expired: 'Expired, funds returned',
+      expiredDetail:
+        'It was not submitted in time; the held funds are back in your available balance.',
+    },
     title: 'Vault deposits & withdrawals',
     testnet: 'Testnet',
     intro:
@@ -417,7 +430,18 @@ export const en = {
       users: 'Users',
       audit: 'Audit log',
       listings: 'Listings',
+      incidents: 'Incidents',
     },
+    openIncident: 'Report an incident',
+    openIncidents: 'Open incidents',
+    noOpenIncidents: 'No open incidents.',
+    incidentTitle: 'Title (what customers notice)',
+    incidentImpact: 'Impact',
+    incidentBody: 'Update (published as written; cannot be edited later)',
+    incidentStatus: 'Status',
+    publish: 'Publish',
+    postUpdate: 'Post update',
+    incidentPublished: 'Published on the status page.',
     listingsTitle: 'Listing requests',
     listingsEmpty: 'No open requests.',
     decision: 'Decision',
@@ -576,6 +600,39 @@ export const en = {
     profit: 'profit',
     list: 'List',
     unlist: 'Unlist',
+  },
+  statusPage: {
+    pageTitle: 'System status',
+    intro:
+      'Live checks of trading, the vault, chain indexing and sanctions screening, and every incident we report. A missing signal shows as degraded, never as fine.',
+    unreachable:
+      'The status service cannot be reached right now. That itself may indicate a problem.',
+    checked: 'Checked',
+    componentsTitle: 'Components',
+    incidentsTitle: 'Incidents',
+    noIncidents: 'No incidents reported in the last 90 days.',
+    lastSeen: 'last signal',
+    started: 'started',
+    resolved: 'resolved',
+    overall: {
+      operational: 'All systems operational',
+      degraded: 'Some systems degraded',
+      outage: 'Major outage',
+    },
+    state: { operational: 'Operational', degraded: 'Degraded', outage: 'Outage' },
+    components: {
+      trading: 'Trading',
+      vault: 'Vault balance roots',
+      chain: 'Deposits and withdrawals',
+      sanctions: 'Sanctions screening',
+    },
+    impact: { minor: 'Minor', major: 'Major', critical: 'Critical' },
+    incidentStatus: {
+      investigating: 'Investigating',
+      identified: 'Identified',
+      monitoring: 'Monitoring',
+      resolved: 'Resolved',
+    },
   },
   listings: {
     title: 'Listing requests',

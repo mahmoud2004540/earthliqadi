@@ -318,47 +318,89 @@ export function VaultPanel({ t, walletAddress }: { t: Dictionary; walletAddress:
         ))}
       </ul>
       {withdrawals.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] text-sm" data-testid="withdrawals">
-            <tbody>
-              {withdrawals.map((w) => (
-                <tr key={w.id} className="border-b border-border/60 last:border-0">
-                  <td className="py-2 font-mono">
+        <ul className="space-y-3" data-testid="withdrawals">
+          {withdrawals.map((w) => {
+            const expired = w.status === 'expired';
+            const executed = w.status === 'executed';
+            const open = w.status === 'signed' && Date.parse(w.expiresAt) > now;
+            const time = (iso: string) => new Date(iso).toLocaleString('en');
+            // The steps a withdrawal goes through; the current one is highlighted.
+            const steps: {
+              label: string;
+              detail: string;
+              state: 'done' | 'current' | 'todo' | 'stopped';
+            }[] = [
+              { label: v.timeline.requested, detail: time(w.createdAt), state: 'done' },
+              { label: v.timeline.signed, detail: v.timeline.signedDetail, state: 'done' },
+              executed
+                ? {
+                    label: v.timeline.confirmed,
+                    detail: w.txHash ? `${w.txHash.slice(0, 10)}…${w.txHash.slice(-6)}` : '',
+                    state: 'done',
+                  }
+                : expired
+                  ? {
+                      label: v.timeline.expired,
+                      detail: v.timeline.expiredDetail,
+                      state: 'stopped',
+                    }
+                  : {
+                      label: v.timeline.waiting,
+                      detail: v.timeline.waitingDetail.replace('{time}', time(w.expiresAt)),
+                      state: 'current',
+                    },
+            ];
+            return (
+              <li
+                key={w.id}
+                className="rounded-md border border-border p-3"
+                data-testid="withdrawal"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-mono text-sm">
                     {w.amount} {w.asset}
-                  </td>
-                  <td>
-                    <Badge
-                      tone={
-                        w.status === 'executed'
-                          ? 'positive'
-                          : w.status === 'expired'
-                            ? 'neutral'
-                            : 'info'
-                      }
-                    >
-                      {v.statuses[w.status]}
-                    </Badge>
-                  </td>
-                  <td className="text-xs text-muted">
-                    {new Date(w.createdAt).toLocaleString('en')}
-                  </td>
-                  <td className="text-end">
-                    {w.status === 'signed' && Date.parse(w.expiresAt) > now && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy}
-                        onClick={() => void submitWithdrawal(w)}
-                      >
-                        {v.submit}
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  </span>
+                  <Badge tone={executed ? 'positive' : expired ? 'neutral' : 'info'}>
+                    {v.statuses[w.status]}
+                  </Badge>
+                </div>
+                <ol className="mt-3 grid gap-2 sm:grid-cols-3">
+                  {steps.map((st) => (
+                    <li key={st.label} className="flex gap-2 text-xs">
+                      <span
+                        aria-hidden
+                        className={
+                          st.state === 'done'
+                            ? 'mt-1 size-2 shrink-0 rounded-full bg-positive'
+                            : st.state === 'current'
+                              ? 'mt-1 size-2 shrink-0 rounded-full bg-primary'
+                              : st.state === 'stopped'
+                                ? 'mt-1 size-2 shrink-0 rounded-full bg-muted'
+                                : 'mt-1 size-2 shrink-0 rounded-full border border-border'
+                        }
+                      />
+                      <span>
+                        <span className="block font-medium">{st.label}</span>
+                        <span className="block text-muted">{st.detail}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+                {open && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-3"
+                    disabled={busy}
+                    onClick={() => void submitWithdrawal(w)}
+                  >
+                    {v.submit}
+                  </Button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
       )}
     </Card>
   );

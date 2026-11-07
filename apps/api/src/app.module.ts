@@ -17,6 +17,7 @@ import { LeaderVaultsModule } from './leader-vaults/leader-vaults.module';
 import { AlgoOrdersModule } from './algo/algo-orders.module';
 import { ListingsModule } from './listings/listings.module';
 import { AccountOverviewModule } from './account/account-overview.module';
+import { StatusModule } from './status/status.module';
 import { CsrfGuard, PermissionsGuard, SessionAuthGuard } from './auth/guards';
 import { AUTH_RATE_LIMIT_KEY } from './common/decorators';
 import type { AppConfig } from './config/app-config';
@@ -113,6 +114,7 @@ export class AppModule {
         AlgoOrdersModule,
         ListingsModule,
         AccountOverviewModule,
+        StatusModule,
       ],
       controllers: [HealthController],
       providers: [
