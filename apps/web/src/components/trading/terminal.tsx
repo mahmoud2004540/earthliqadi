@@ -254,7 +254,14 @@ export function Terminal({ symbol, t }: { symbol: string; t: Dictionary }) {
           data-testid="ticker"
         >
           <Stat label={tt.last} value={ticker?.last ?? null} />
-          {isPerp && <PerpStatsStrip stats={perpStats} tp={tt.perp} inline />}
+          {isPerp && (
+            <PerpStatsStrip
+              stats={perpStats}
+              tp={tt.perp}
+              inline
+              cap={market?.perp?.maxOpenInterest ?? null}
+            />
+          )}
           <Stat
             label={tt.change24h}
             value={change === null ? null : `${change}%`}

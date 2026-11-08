@@ -12,7 +12,12 @@ import { APP_CONFIG, type AppConfig } from '../config/app-config';
 import { PrismaService } from '../infrastructure/prisma/prisma.service';
 import type { LedgerActor } from '../ledger/ledger.service';
 import { toMinorUnits } from '../ledger/ledger-domain';
-import { buildPerpConfig, parsePerpConfig, perpInfoDto } from '../perps/perp-config';
+import {
+  buildPerpConfig,
+  parsePerpConfig,
+  perpInfoDto,
+  withOpenInterestCap,
+} from '../perps/perp-config';
 import { lotsToQuantity, quantityToLots, quotePerTickLot, type MarketUnits } from './order-math';
 
 export type MarketWithAssets = Market & { baseAsset: Asset; quoteAsset: Asset };
@@ -202,6 +207,56 @@ export class MarketsService {
           targetId: symbol,
           context: { requestId: actor.requestId ?? null },
           metadata: { from: existing.status, to: status },
+        },
+        tx,
+      );
+      return market;
+    });
+  }
+
+  /** Sets or removes a perpetual market's open-interest cap (ADR-0032). Audited. */
+  async setOpenInterestCap(
+    symbol: string,
+    maxOpenInterest: string | null,
+    actor: LedgerActor,
+  ): Promise<MarketWithAssets> {
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.market.findUnique({
+        where: { symbol },
+        include: { quoteAsset: true },
+      });
+      if (!existing) throw AppError.notFound('Market not found');
+      if (existing.kind !== 'PERPETUAL')
+        throw new AppError(
+          HttpStatus.BAD_REQUEST,
+          'VALIDATION_FAILED',
+          'Open-interest caps apply to perpetual markets only',
+        );
+      const before = parsePerpConfig(existing.perpConfig).maxOpenInterest;
+      const market = await tx.market.update({
+        where: { symbol },
+        data: {
+          perpConfig: withOpenInterestCap(
+            existing.perpConfig,
+            maxOpenInterest,
+            existing.quoteAsset.scale,
+          ),
+        },
+        include: { baseAsset: true, quoteAsset: true },
+      });
+      await this.audit.record(
+        {
+          action: 'trading.market.open_interest_cap_changed',
+          outcome: 'SUCCESS',
+          actorType: actor.actorType,
+          actorUserId: actor.actorUserId ?? null,
+          targetType: 'market',
+          targetId: symbol,
+          context: { requestId: actor.requestId ?? null },
+          metadata: {
+            from: before === null ? null : before.toString(),
+            to: parsePerpConfig(market.perpConfig).maxOpenInterest?.toString() ?? null,
+          },
         },
         tx,
       );

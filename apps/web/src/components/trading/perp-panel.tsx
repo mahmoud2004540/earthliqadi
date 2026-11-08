@@ -45,9 +45,12 @@ export function PerpStatsStrip({
   stats,
   tp,
   inline = false,
+  cap = null,
 }: {
   stats: PerpStatsDto | null;
   tp: Tp;
+  /** Market open-interest cap in quote units (ADR-0032), or null when uncapped. */
+  cap?: string | null;
   /** Flow the stats into the parent row (terminal header) instead of a grid. */
   inline?: boolean;
 }) {
@@ -68,6 +71,15 @@ export function PerpStatsStrip({
           [tp.index, stats?.indexPrice ?? null, 'perp-index'],
           [tp.funding, rate === null ? null : `${rate}%`, 'perp-funding'],
           [tp.nextFunding, countdown(stats?.nextFundingAt ?? null, now), 'perp-next-funding'],
+          [
+            tp.openInterest,
+            stats?.openInterestNotional
+              ? cap
+                ? `${stats.openInterestNotional} / ${cap}`
+                : stats.openInterestNotional
+              : null,
+            'perp-open-interest',
+          ],
         ] as const
       ).map(([label, value, id]) => (
         <div key={id} className="min-w-0">

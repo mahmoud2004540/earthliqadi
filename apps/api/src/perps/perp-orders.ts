@@ -166,6 +166,36 @@ export async function checkPerpOrder(
         'Position would exceed the maximum size for the current leverage (lower the leverage or the size)',
       );
     }
+    await checkOpenInterestCap(tx, c, absBig(pos.size + dir * c.quantityLots) - absBig(pos.size));
   }
   return leverage;
+}
+
+/**
+ * Market-wide open-interest cap (ADR-0032). An order that would enlarge the
+ * user's position is refused when the market's open interest plus that
+ * enlargement, valued at the mark price, would exceed the cap. Counting the
+ * whole enlargement is conservative: a fill against someone closing does not
+ * really add open interest. Reducing a position is never blocked.
+ */
+export async function checkOpenInterestCap(
+  tx: Prisma.TransactionClient,
+  c: Pick<PerpOrderCheck, 'market' | 'config' | 'priceTicks' | 'mark'>,
+  growthLots: bigint,
+): Promise<void> {
+  const cap = c.config.maxOpenInterest;
+  if (cap === null || growthLots <= 0n) return;
+  const u = unitsOf(c.market);
+  const rows = await tx.$queryRaw<{ lots: bigint | null }[]>`
+    SELECT SUM("size_lots")::bigint AS "lots" FROM "positions"
+    WHERE "market_id" = ${c.market.id}::uuid AND "size_lots" > 0`;
+  const open = rows[0]?.lots ?? 0n;
+  const price = c.mark ?? c.priceTicks * u.tickSize;
+  if (notionalAt(price, open + growthLots, u, 'up') > cap) {
+    throw new AppError(
+      HttpStatus.CONFLICT,
+      'LIMIT_EXCEEDED',
+      'This market has reached its open-interest limit; only orders that reduce a position are accepted right now',
+    );
+  }
 }

@@ -419,6 +419,53 @@ describe('perpetual trading', () => {
     await expectReconciled();
   });
 
+  it('caps market open interest; reducing is always allowed (ADR-0032)', async () => {
+    const markets = app.get(MarketsService);
+    // Cap 250 quote at mark: two 1-unit positions at 100 fit, a third does not.
+    const p = await perpMarket({ maxOpenInterest: '250' });
+    expect(markets.toDto(p.market).perp!.maxOpenInterest).toBe('250');
+    await setMark(p, 100n * USD);
+    const a = await funded(p);
+    const b = await funded(p);
+    const open = { market: p.symbol, type: 'limit', price: '100', quantity: '1' };
+    for (let i = 0; i < 2; i++) {
+      await placed(a, { ...open, side: 'buy' });
+      const s = await placed(b, { ...open, side: 'sell' });
+      await fx.until(async () => (await fx.status(s)) === 'FILLED');
+    }
+    expect((await perps.stats(p.symbol)).openInterest).toBe('2');
+    expect((await perps.stats(p.symbol)).openInterestNotional).toBe('200');
+
+    // Either side growing open interest is refused; nothing is held for it.
+    const before = await balance(a.userId, p.quote, 'USER_AVAILABLE');
+    const refused = await fx.place(a, { ...open, side: 'buy' });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.code).toBe('LIMIT_EXCEEDED');
+    expect((await fx.place(b, { ...open, side: 'sell' })).status).toBe(409);
+    expect(await balance(a.userId, p.quote, 'USER_AVAILABLE')).toBe(before);
+    // A smaller order that still fits is accepted (it rests below the market).
+    await placed(a, { ...open, side: 'buy', price: '99', quantity: '0.5' });
+
+    // Closing is never blocked by the cap.
+    await placed(b, { ...open, side: 'buy', reduceOnly: true });
+    const close = await placed(a, { ...open, side: 'sell', reduceOnly: true });
+    await fx.until(async () => (await fx.status(close)) === 'FILLED');
+    expect((await perps.stats(p.symbol)).openInterest).toBe('1');
+
+    // Staff can raise or remove the cap; the change is audited.
+    const uncapped = await markets.setOpenInterestCap(p.symbol, null, SYSTEM);
+    expect(markets.toDto(uncapped).perp!.maxOpenInterest).toBeNull();
+    const audit = await prisma.auditLog.findFirst({
+      where: { action: 'trading.market.open_interest_cap_changed', targetId: p.symbol },
+    });
+    expect(audit?.metadata).toMatchObject({ from: '250000000', to: null });
+    expect(parsePerpConfig(uncapped.perpConfig).tiers).toHaveLength(2); // other parameters kept
+    await expect(markets.setOpenInterestCap(p.spot, '10', SYSTEM)).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+    });
+    await expectReconciled();
+  });
+
   it('enforces reduce-only size, the bankruptcy price and leverage rules', async () => {
     const p = await perpMarket();
     await setMark(p, 100n * USD);

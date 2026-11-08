@@ -138,8 +138,20 @@ export const perpConfigSchema = z.object({
     outlierBps: z.number().int().min(1).max(5000),
     minSources: z.number().int().min(1).max(10),
   }),
+  /**
+   * Market-wide open-interest cap (ADR-0032): the notional, in quote units at
+   * the mark price, of all open long positions (equal to all shorts). Orders
+   * that would grow open interest beyond it are refused; reducing is always
+   * allowed. Omitted = no cap.
+   */
+  maxOpenInterest: amountStringSchema.optional(),
 });
 export type PerpConfigInput = z.infer<typeof perpConfigSchema>;
+
+/** Sets or removes (null) a perpetual market's open-interest cap (ADR-0032). */
+export const openInterestCapSchema = z.object({
+  maxOpenInterest: amountStringSchema.nullable(),
+});
 
 export const createMarketSchema = z.object({
   base: assetCodeSchema,
@@ -214,6 +226,8 @@ export interface PerpMarketInfoDto {
   priceBandBps: number;
   /** Human-readable index source labels; simulated sources say so. */
   indexSources: string[];
+  /** Open-interest cap in quote units at mark, or null when uncapped (ADR-0032). */
+  maxOpenInterest: string | null;
 }
 
 /** Mark/index/funding snapshot for a perpetual market. Prices in quote units. */
@@ -230,6 +244,10 @@ export interface PerpStatsDto {
   /** True when there is no reliable index: funding and liquidations pause. */
   indexStale: boolean;
   sampledAt: string | null;
+  /** Open interest: total size of open long positions (= shorts), base units. */
+  openInterest: string;
+  /** Open interest valued at the mark price, quote units; null without a mark. */
+  openInterestNotional: string | null;
 }
 
 export interface PositionDto {

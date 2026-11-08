@@ -303,6 +303,7 @@ export const en = {
       index: 'Index price',
       funding: 'Funding (predicted)',
       nextFunding: 'Next funding',
+      openInterest: 'Open interest',
       indexStale:
         'No reliable index price right now. Funding and liquidations are paused and only reduce-only orders are accepted.',
       long: 'Buy / Long',

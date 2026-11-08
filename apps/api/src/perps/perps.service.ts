@@ -161,7 +161,7 @@ export class PerpsService {
 
   async stats(symbol: string, now = new Date()): Promise<PerpStatsDto> {
     const { market, config } = await this.perpMarket(symbol);
-    const [latest, state, lastRound] = await Promise.all([
+    const [latest, state, lastRound, oi] = await Promise.all([
       this.prisma.perpPriceSample.findFirst({
         where: { marketId: market.id },
         orderBy: { sampledAt: 'desc' },
@@ -171,7 +171,12 @@ export class PerpsService {
         where: { marketId: market.id },
         orderBy: { fundingTime: 'desc' },
       }),
+      this.prisma.position.aggregate({
+        where: { marketId: market.id, sizeLots: { gt: 0n } },
+        _sum: { sizeLots: true },
+      }),
     ]);
+    const openLots = oi._sum.sizeLots ?? 0n;
     const fresh =
       latest !== null && now.getTime() - latest.sampledAt.getTime() <= markMaxAgeMs(config);
     let predicted: string | null = null;
@@ -204,6 +209,14 @@ export class PerpsService {
       sourcesUsed: latest?.sourcesUsed ?? 0,
       indexStale: !fresh,
       sampledAt: latest?.sampledAt.toISOString() ?? null,
+      openInterest: lotsToQuantity(openLots, unitsOf(market)),
+      openInterestNotional:
+        fresh && latest
+          ? formatAmountTrimmed(
+              notionalAt(toMinorUnits(latest.markPrice), openLots, unitsOf(market)),
+              market.quoteAsset.scale,
+            )
+          : null,
     };
   }
 

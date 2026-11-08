@@ -29,6 +29,8 @@ export interface PerpConfig {
     outlierBps: number;
     minSources: number;
   };
+  /** Market-wide open-interest cap, quote minor units at mark; null = uncapped (ADR-0032). */
+  maxOpenInterest: bigint | null;
 }
 
 function invalid(message: string): AppError {
@@ -85,6 +87,11 @@ export function buildPerpConfig(input: PerpConfigInput, quoteScale: number): Pri
       outlierBps: input.index.outlierBps,
       minSources: input.index.minSources,
     },
+    ...(input.maxOpenInterest !== undefined
+      ? {
+          maxOpenInterest: amount(input.maxOpenInterest, quoteScale, 'maxOpenInterest').toString(),
+        }
+      : {}),
   };
 }
 
@@ -106,6 +113,7 @@ type StoredConfig = {
     outlierBps: number;
     minSources: number;
   };
+  maxOpenInterest?: string;
 };
 
 export function parsePerpConfig(json: Prisma.JsonValue | null): PerpConfig {
@@ -114,6 +122,7 @@ export function parsePerpConfig(json: Prisma.JsonValue | null): PerpConfig {
   const c = json as unknown as StoredConfig;
   return {
     ...c,
+    maxOpenInterest: c.maxOpenInterest !== undefined ? BigInt(c.maxOpenInterest) : null,
     tiers: c.tiers.map((t) => ({ ...t, maxNotional: BigInt(t.maxNotional) })),
     index: {
       ...c.index,
@@ -144,5 +153,27 @@ export function perpInfoDto(c: PerpConfig, quoteScale: number): PerpMarketInfoDt
     liquidationFeeBps: c.liquidationFeeBps,
     priceBandBps: c.priceBandBps,
     indexSources: c.index.sources.map((s) => sourceLabel(s, quoteScale)),
+    maxOpenInterest:
+      c.maxOpenInterest === null ? null : formatAmountTrimmed(c.maxOpenInterest, quoteScale),
   };
+}
+
+/**
+ * Returns the stored configuration with the open-interest cap set (a positive
+ * amount string) or removed (null). Other parameters are unchanged.
+ */
+export function withOpenInterestCap(
+  json: Prisma.JsonValue | null,
+  maxOpenInterest: string | null,
+  quoteScale: number,
+): Prisma.InputJsonValue {
+  parsePerpConfig(json); // must be a perpetual configuration
+  const { maxOpenInterest: _old, ...rest } = json as unknown as StoredConfig;
+  void _old;
+  return maxOpenInterest === null
+    ? rest
+    : {
+        ...rest,
+        maxOpenInterest: amount(maxOpenInterest, quoteScale, 'maxOpenInterest').toString(),
+      };
 }

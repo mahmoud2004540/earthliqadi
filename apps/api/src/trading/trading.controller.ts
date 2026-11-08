@@ -20,6 +20,7 @@ import {
   cancelAllSchema,
   createMarketSchema,
   marketStatusSchema,
+  openInterestCapSchema,
   marketSymbolSchema,
   orderListQuerySchema,
   placeOrderSchema,
@@ -236,6 +237,26 @@ export class AdminMarketsController {
     @ReqContext() ctx: RequestContext,
   ): Promise<MarketDto> {
     const market = await this.markets.setStatus(params.symbol, body.status, {
+      actorType: 'STAFF',
+      actorUserId: auth.user.id,
+      requestId: ctx.requestId,
+    });
+    return this.markets.toDto(market);
+  }
+
+  /** Sets or removes (null) a perpetual market's open-interest cap (ADR-0032). */
+  @Patch('markets/:symbol/open-interest-cap')
+  @RequireStepUp()
+  @RequirePermissions(PERMISSIONS.MARKETS_CONFIGURE)
+  @ApiZodBody(openInterestCapSchema)
+  async setOpenInterestCap(
+    @CurrentAuth() auth: AuthContext,
+    @Param(new ZodValidationPipe(symbolParam)) params: z.infer<typeof symbolParam>,
+    @Body(new ZodValidationPipe(openInterestCapSchema))
+    body: z.infer<typeof openInterestCapSchema>,
+    @ReqContext() ctx: RequestContext,
+  ): Promise<MarketDto> {
+    const market = await this.markets.setOpenInterestCap(params.symbol, body.maxOpenInterest, {
       actorType: 'STAFF',
       actorUserId: auth.user.id,
       requestId: ctx.requestId,
