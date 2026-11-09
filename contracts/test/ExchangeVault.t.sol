@@ -23,6 +23,14 @@ abstract contract TestBase {
     function eq(uint256 a, uint256 b, string memory what) internal pure {
         require(a == b, what);
     }
+
+    /// Deposit caps for `n` tokens, all uncapped.
+    function noCaps(uint256 n) internal pure returns (uint256[] memory caps) {
+        caps = new uint256[](n);
+        for (uint256 i = 0; i < n; i++) {
+            caps[i] = type(uint256).max;
+        }
+    }
 }
 
 contract ExchangeVaultTest is TestBase {
@@ -41,7 +49,7 @@ contract ExchangeVaultTest is TestBase {
         other = new TestToken("Unlisted", "UNL", 18, 1e30);
         address[] memory tokens = new address[](1);
         tokens[0] = address(usd);
-        vault = new ExchangeVault(operator, DELAY, tokens);
+        vault = new ExchangeVault(operator, DELAY, tokens, noCaps(1));
         for (uint256 i = 0; i < 2; i++) {
             address u = i == 0 ? alice : bob;
             usd.mint(u, 1_000_000e6);
@@ -145,6 +153,75 @@ contract ExchangeVaultTest is TestBase {
         vm.warp(block.timestamp + 2 hours);
         vm.expectRevert(ExchangeVault.Expired.selector);
         vault.withdraw(w, sig);
+    }
+
+    // ------------------------------------------------------- deposit cap
+
+    function test_cap_limitsNewDepositsOnly() public {
+        vm.expectRevert(ExchangeVault.NotOperator.selector);
+        vault.setDepositCap(address(usd), 1000e6);
+        vm.expectRevert(ExchangeVault.UnknownToken.selector);
+        vm.prank(operator);
+        vault.setDepositCap(address(other), 1000e6);
+        vm.prank(operator);
+        vault.setDepositCap(address(usd), 1000e6);
+        eq(vault.depositCap(address(usd)), 1000e6, "cap set");
+
+        _deposit(alice, 600e6);
+        _deposit(bob, 400e6); // exactly at the cap
+        eq(vault.held(address(usd)), 1000e6, "held");
+        vm.expectRevert(ExchangeVault.DepositCapExceeded.selector);
+        vm.prank(alice);
+        vault.deposit(address(usd), 1);
+
+        // A withdrawal frees room, and is never blocked by the cap.
+        ExchangeVault.Withdrawal memory w = _w(alice, 100e6, 0);
+        vault.withdraw(w, _sign(w, OPERATOR_KEY));
+        eq(vault.held(address(usd)), 900e6, "released");
+        _deposit(alice, 100e6);
+
+        // Lowering the cap below what is held stops deposits but not withdrawals.
+        vm.prank(operator);
+        vault.setDepositCap(address(usd), 10e6);
+        vm.expectRevert(ExchangeVault.DepositCapExceeded.selector);
+        vm.prank(bob);
+        vault.deposit(address(usd), 1);
+        ExchangeVault.Withdrawal memory w2 = _w(bob, 400e6, 0);
+        vault.withdraw(w2, _sign(w2, OPERATOR_KEY));
+        eq(vault.held(address(usd)), 600e6, "still released");
+    }
+
+    function test_cap_escapesAreNeverBlockedAndRelease() public {
+        vm.prank(operator);
+        vault.setDepositCap(address(usd), 500e6);
+        _deposit(alice, 300e6); // id 1
+        bytes32 la = vault.leaf(alice, address(usd), 300e6);
+        vm.prank(operator);
+        vault.commitState(1, la, 1);
+        uint64 late = _deposit(bob, 200e6); // id 2, after the root; cap now full
+        vm.prank(operator);
+        vault.setDepositCap(address(usd), 0); // even a zero cap blocks no exit
+        vm.warp(block.timestamp + DELAY + 1);
+        vault.freeze();
+        vm.prank(alice);
+        vault.escape(address(usd), 300e6, new bytes32[](0));
+        vm.prank(bob);
+        vault.escapeDeposit(late);
+        eq(vault.held(address(usd)), 0, "all released");
+        eq(usd.balanceOf(address(vault)), 0, "drained exactly");
+    }
+
+    function test_cap_directTransfersDoNotCountAndHeldNeverUnderflows() public {
+        vm.prank(operator);
+        vault.setDepositCap(address(usd), 100e6);
+        // Tokens sent without deposit() do not use up the cap ...
+        vm.prank(bob);
+        require(usd.transfer(address(vault), 500e6), "transfer");
+        _deposit(alice, 100e6);
+        // ... and a payout larger than held stops at zero instead of reverting.
+        ExchangeVault.Withdrawal memory w = _w(alice, 300e6, 0);
+        vault.withdraw(w, _sign(w, OPERATOR_KEY));
+        eq(vault.held(address(usd)), 0, "floored at zero");
     }
 
     // --------------------------------------------------- state commitments
@@ -318,7 +395,7 @@ contract ExchangeVaultInvariantTest is TestBase {
         usd = new TestToken("Test USD (no value)", "TUSD", 6, type(uint256).max);
         address[] memory tokens = new address[](1);
         tokens[0] = address(usd);
-        vault = new ExchangeVault(vm.addr(key), 7 days, tokens);
+        vault = new ExchangeVault(vm.addr(key), 7 days, tokens, noCaps(1));
         handler = new VaultHandler(vault, usd, key);
     }
 
@@ -329,6 +406,7 @@ contract ExchangeVaultInvariantTest is TestBase {
 
     function invariant_vaultHoldsExactlyNetDeposits() public view {
         require(usd.balanceOf(address(vault)) == handler.ghostIn() - handler.ghostOut(), "conservation");
+        require(vault.held(address(usd)) == handler.ghostIn() - handler.ghostOut(), "held tracks net deposits");
     }
 }
 

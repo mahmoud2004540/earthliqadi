@@ -154,7 +154,16 @@ hatch pays whatever the latest root says. Users can keep their latest proof
 4. **No upgrade path.** A bug fix means deploying a new vault and asking
    users to move their funds. This is deliberate: there is no admin key that
    could be abused.
-5. **Merkle tree.** Leaves are double-hashed and pairs are sorted. Please
+5. **Deposit cap (ADR-0033, added after the first readiness review).**
+   - **Storage:** `held` and `depositCap` per token.
+   - **Behaviour:** `deposit` checks `held + received <= cap` without
+     underflow, even when the cap was lowered below `held`. Every payout path
+     lowers `held` through `_release`, which stops at zero.
+   - **Who changes it:** `setDepositCap` is operator only.
+   - **Please confirm:** no payout path can be blocked by the cap, and
+     `held` cannot be manipulated into blocking deposits beyond the intended
+     limit. Direct token transfers are deliberately not counted.
+6. **Merkle tree.** Leaves are double-hashed and pairs are sorted. Please
    confirm there is no leaf/node confusion and no proof malleability that
    matters here.
 

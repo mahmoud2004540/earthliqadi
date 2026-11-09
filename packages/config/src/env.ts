@@ -340,6 +340,14 @@ export const apiEnvSchema = z
     if (env.CHAIN_FAUCET_ENABLED) {
       ctx.addIssue({ code: 'custom', path: ['CHAIN_FAUCET_ENABLED'], message: 'local/ci only' });
     }
+    if (env.CHAIN_RPC_URL && env.CHAIN_CONFIRMATIONS < 5) {
+      // Public chains reorganise; deposits are credited only after this depth (ADR-0034).
+      ctx.addIssue({
+        code: 'custom',
+        path: ['CHAIN_CONFIRMATIONS'],
+        message: 'must be at least 5 on a public chain',
+      });
+    }
     if (!env.PII_ENCRYPTION_KEY) {
       ctx.addIssue({
         code: 'custom',

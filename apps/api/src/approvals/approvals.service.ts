@@ -28,6 +28,7 @@ export const ACTION_PERMISSION: Record<ApprovalAction, Permission> = {
   'user.reactivate': PERMISSIONS.USERS_MANAGE_STATUS,
   'role.grant': PERMISSIONS.ROLES_ASSIGN,
   'treasury.withdraw': PERMISSIONS.LEDGER_ADJUST,
+  'vault.deposit_cap': PERMISSIONS.ASSETS_CONFIGURE,
 };
 
 export interface StaffActor {
@@ -139,6 +140,10 @@ export class ApprovalsService {
       }
       case 'treasury.withdraw': {
         await this.chain.treasuryPrecheck(input.payload.asset, input.payload.amount);
+        return;
+      }
+      case 'vault.deposit_cap': {
+        await this.chain.depositCapPrecheck(input.payload.asset, input.payload.cap);
         return;
       }
     }
@@ -358,6 +363,14 @@ export class ApprovalsService {
           requestId: approver.requestId ?? null,
         });
         return { withdrawalId: r.withdrawalId, status: r.status, txHash: r.txHash ?? '' };
+      }
+      case 'vault.deposit_cap': {
+        const r = await this.chain.setDepositCap(p.asset!, p.cap!, row.id, {
+          actorType: 'STAFF',
+          actorUserId: approver.userId,
+          requestId: approver.requestId ?? null,
+        });
+        return { asset: p.asset!, cap: p.cap!, txHash: r.txHash };
       }
     }
   }

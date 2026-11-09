@@ -152,12 +152,15 @@ tests/              (reserved) cross-service integration and browser e2e suites
   [0029 recurring orders](docs/decisions/0029-recurring-orders.md),
   [0030 status page and withdrawal timeline](docs/decisions/0030-status-page-and-withdrawal-timeline.md),
   [0031 treasury withdrawals](docs/decisions/0031-treasury-withdrawals.md),
-  [0032 open-interest caps](docs/decisions/0032-open-interest-caps.md)
+  [0032 open-interest caps](docs/decisions/0032-open-interest-caps.md),
+  [0033 vault deposit cap](docs/decisions/0033-vault-deposit-cap.md),
+  [0034 public testnet](docs/decisions/0034-public-testnet.md)
 - Security: [controls & threat model](docs/security/threat-model.md) ·
   [dependency policy](docs/security/dependency-policy.md) ·
   [incident response (draft)](docs/security/incident-response.md)
 - [API reference](docs/api/README.md)
 - Operations: [local development](docs/operations/local-development.md) ·
+  [public testnet launch](docs/operations/public-testnet.md) ·
   [known issues](docs/operations/known-issues.md) ·
   [runbooks](docs/operations/runbooks.md) ·
   [production readiness](docs/operations/production-readiness.md) ·

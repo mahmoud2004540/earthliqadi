@@ -130,6 +130,23 @@ describe('apiEnvSchema', () => {
     expect(local.TERMS_VERSION).toBe('draft-2');
   });
 
+  it('needs the signer and a reorg-safe confirmation depth for a public chain (ADR-0034)', () => {
+    const chain = { ...productionEnv, CHAIN_RPC_URL: 'https://rpc.invalid' };
+    expect(() => parseEnv(apiEnvSchema, chain)).toThrow(/SIGNER_URL/);
+    expect(() => parseEnv(apiEnvSchema, chain)).toThrow(/CHAIN_CONFIRMATIONS: must be at least 5/);
+    expect(() => parseEnv(apiEnvSchema, { ...chain, CHAIN_CONFIRMATIONS: '12' })).not.toThrow(
+      /CHAIN_CONFIRMATIONS/,
+    );
+    // Local chains may confirm immediately.
+    expect(
+      parseEnv(apiEnvSchema, {
+        ...localEnv,
+        CHAIN_RPC_URL: 'http://localhost:8545',
+        CHAIN_CONFIRMATIONS: '0',
+      }).CHAIN_CONFIRMATIONS,
+    ).toBe(0);
+  });
+
   it('treats empty strings as unset', () => {
     const env = parseEnv(apiEnvSchema, { ...localEnv, API_PORT: '' });
     expect(env.API_PORT).toBe(4000);

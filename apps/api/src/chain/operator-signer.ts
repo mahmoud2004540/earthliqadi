@@ -20,9 +20,13 @@ export interface WithdrawalMessage {
  */
 export interface OperatorSigner {
   readonly kind: 'local' | 'remote';
+  /** The operator address the vault must be deployed with. */
+  address(): Promise<Hex>;
   signWithdrawal(chainId: number, vault: Hex, message: WithdrawalMessage): Promise<Hex>;
   /** Sends commitState and waits for it; returns the transaction hash. */
   commitState(vault: Hex, index: bigint, root: Hex, lastDepositId: bigint): Promise<Hex>;
+  /** Sends setDepositCap (launch guard, ADR-0033) and waits for it; returns the transaction hash. */
+  setDepositCap(vault: Hex, token: Hex, cap: bigint): Promise<Hex>;
 }
 
 const WITHDRAWAL_TYPES = {
@@ -46,6 +50,10 @@ export class LocalOperatorSigner implements OperatorSigner {
     private readonly vaultAbi: readonly unknown[],
   ) {}
 
+  address(): Promise<Hex> {
+    return Promise.resolve(this.account.address);
+  }
+
   signWithdrawal(chainId: number, vault: Hex, message: WithdrawalMessage): Promise<Hex> {
     return this.account.signTypedData({
       domain: { name: 'ExchangeVault', version: '1', chainId, verifyingContract: vault },
@@ -68,6 +76,20 @@ export class LocalOperatorSigner implements OperatorSigner {
     if (r.status !== 'success') throw new Error('commitState reverted');
     return hash;
   }
+
+  async setDepositCap(vault: Hex, token: Hex, cap: bigint): Promise<Hex> {
+    const hash = await this.wallet.writeContract({
+      address: vault,
+      abi: this.vaultAbi as never,
+      functionName: 'setDepositCap',
+      args: [token, cap] as never,
+      account: this.account,
+      chain: null,
+    });
+    const r = await this.client.waitForTransactionReceipt({ hash });
+    if (r.status !== 'success') throw new Error('setDepositCap reverted');
+    return hash;
+  }
 }
 
 /** Calls the isolated signer service over HMAC-authenticated HTTP. */
@@ -78,22 +100,32 @@ export class RemoteOperatorSigner implements OperatorSigner {
     private readonly secret: string,
   ) {}
 
-  private async call<T>(path: string, body: unknown): Promise<{ status: number; json: T }> {
-    const text = JSON.stringify(body);
+  async address(): Promise<Hex> {
+    const r = await this.call<{ address?: Hex }>('/v1/address', undefined, 'GET');
+    if (r.status !== 200 || !r.json.address) throw new Error(`Signer error ${r.status}`);
+    return r.json.address;
+  }
+
+  private async call<T>(
+    path: string,
+    body: unknown,
+    method: 'GET' | 'POST' = 'POST',
+  ): Promise<{ status: number; json: T }> {
+    const text = body === undefined ? '' : JSON.stringify(body);
     const ts = String(Date.now());
     const requestId = randomUUID();
     const signature = createHmac('sha256', this.secret)
       .update(`${ts}.${requestId}.${text}`)
       .digest('hex');
     const res = await fetch(new URL(path, this.baseUrl), {
-      method: 'POST',
+      method,
       headers: {
         'content-type': 'application/json',
         'x-signer-timestamp': ts,
         'x-signer-request-id': requestId,
         'x-signer-signature': signature,
       },
-      body: text,
+      body: method === 'GET' ? undefined : text,
       signal: AbortSignal.timeout(60_000),
     });
     return { status: res.status, json: (await res.json()) as T };
@@ -133,6 +165,17 @@ export class RemoteOperatorSigner implements OperatorSigner {
     });
     if (r.status !== 200 || !r.json.txHash)
       throw new Error(`Signer refused commit: ${r.status} ${r.json.error ?? ''}`);
+    return r.json.txHash;
+  }
+
+  async setDepositCap(vault: Hex, token: Hex, cap: bigint): Promise<Hex> {
+    const r = await this.call<{ txHash?: Hex; error?: string }>('/v1/deposit-cap', {
+      vault,
+      token,
+      cap: cap.toString(),
+    });
+    if (r.status !== 200 || !r.json.txHash)
+      throw new Error(`Signer refused deposit cap: ${r.status} ${r.json.error ?? ''}`);
     return r.json.txHash;
   }
 }

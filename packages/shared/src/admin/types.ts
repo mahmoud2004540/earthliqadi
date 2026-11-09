@@ -52,6 +52,15 @@ export const approvalRequestSchema = z.discriminatedUnion('action', [
     reason,
   }),
   z.object({
+    /** On-chain deposit cap per vault token (ADR-0033); "unlimited" removes it. */
+    action: z.literal('vault.deposit_cap'),
+    payload: z.object({
+      asset: assetCodeSchema,
+      cap: z.union([amountStringSchema, z.literal('unlimited')]),
+    }),
+    reason,
+  }),
+  z.object({
     action: z.literal('role.grant'),
     payload: z.object({
       userId: z.uuid(),
@@ -228,12 +237,29 @@ export interface VaultConfigDto {
   enabled: boolean;
   chainId: number | null;
   vault: string | null;
-  tokens: { asset: string; address: string; decimals: number }[];
+  tokens: {
+    asset: string;
+    address: string;
+    decimals: number;
+    /** On-chain deposit cap (launch guard, ADR-0033), or null when uncapped. */
+    depositCap?: string | null;
+    /** Deposits minus payouts the cap is measured against. */
+    held?: string;
+  }[];
   freezeDelaySeconds: number | null;
   /** Always true: only testnets and local chains are supported. */
   testnet: boolean;
   /** Local chain only. */
   faucet?: boolean;
+  /** Network name, explorer and public RPC for wallets (ADR-0034). */
+  network?: {
+    name: string;
+    rpcUrl: string;
+    explorerUrl: string | null;
+    gasFaucetInfo: string | null;
+  } | null;
+  /** Public testnets: the test tokens can be minted from the user's own wallet. */
+  selfMint?: boolean;
 }
 
 export interface WithdrawalDto {

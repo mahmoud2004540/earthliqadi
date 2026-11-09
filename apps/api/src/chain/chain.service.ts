@@ -4,6 +4,8 @@ import {
   formatAmount,
   formatAmountTrimmed,
   parseAmount,
+  TEST_NETWORKS,
+  testNetwork,
   type VaultConfigDto,
   type VaultProofDto,
   type WithdrawalDto,
@@ -16,6 +18,7 @@ import {
   decodeEventLog,
   getAddress,
   http,
+  maxUint256,
   parseAbiItem,
   type Hex,
   type PublicClient,
@@ -35,7 +38,8 @@ import { buildTree, leafHash, proofFor, type BalanceLeaf } from './merkle';
 import { LocalOperatorSigner, RemoteOperatorSigner, type OperatorSigner } from './operator-signer';
 
 /** Testnets and local chains only (ADR-0014). Mainnets are refused outright. */
-export const ALLOWED_CHAIN_IDS = new Set([31337, 11155111, 17000, 84532, 421614]);
+/** Test networks only (no real value); see TEST_NETWORKS in @platform/shared. */
+export const ALLOWED_CHAIN_IDS = new Set(TEST_NETWORKS.map((n) => n.chainId));
 
 const CHAIN_ACTOR: LedgerActor = { actorType: 'SYSTEM', requestId: 'chain-indexer' };
 const STATE_LOCK_KEY = 0x7661756c74; // "vault"
@@ -194,8 +198,18 @@ export class ChainService {
   async deploy(input: {
     tokens: { code: string; name: string; decimals: number; faucetLimit: bigint }[];
     freezeDelaySeconds: number;
+    /** Launch guard per token code, in minor units (ADR-0033). Omitted = no cap. */
+    depositCaps?: Record<string, bigint>;
+    /**
+     * Pays for the deployment on a public testnet (ADR-0034). Defaults to the
+     * local operator key; the vault operator is always the configured signer.
+     */
+    deployer?: { wallet: WalletClient; account: PrivateKeyAccount };
+    /** Vault operator address; defaults to the configured operator signer's address. */
+    operator?: Hex;
   }): Promise<{ vault: Hex; tokens: Record<string, Hex> }> {
-    const { wallet, account } = this.signer();
+    const { wallet, account } = input.deployer ?? this.signer();
+    const operatorAddress = input.operator ?? (await this.operator().address());
     const chainId = await this.chainId();
     if (chainId === 31337) {
       // Local chain: give the development operator test ETH for gas.
@@ -219,7 +233,12 @@ export class ChainService {
     const hash = await wallet.deployContract({
       abi: VAULT_ABI as never,
       bytecode: vaultArtifact.bytecode as Hex,
-      args: [account.address, BigInt(input.freezeDelaySeconds), Object.values(tokens)] as never,
+      args: [
+        operatorAddress,
+        BigInt(input.freezeDelaySeconds),
+        input.tokens.map((t) => tokens[t.code]!),
+        input.tokens.map((t) => input.depositCaps?.[t.code] ?? maxUint256),
+      ] as never,
       account,
       chain: null,
     });
@@ -243,12 +262,12 @@ export class ChainService {
       create: {
         chainId,
         vaultAddress: lower(vault),
-        operatorAddress: lower(account.address),
+        operatorAddress: lower(operatorAddress),
         deployBlock: receipt.blockNumber,
       },
       update: {
         vaultAddress: lower(vault),
-        operatorAddress: lower(account.address),
+        operatorAddress: lower(operatorAddress),
         deployBlock: receipt.blockNumber,
       },
     });
@@ -263,7 +282,15 @@ export class ChainService {
       actorType: 'SYSTEM',
       targetType: 'vault',
       targetId: lower(vault),
-      metadata: { chainId, tokens, operator: account.address },
+      metadata: {
+        chainId,
+        tokens,
+        operator: operatorAddress,
+        deployer: account.address,
+        depositCaps: Object.fromEntries(
+          Object.entries(input.depositCaps ?? {}).map(([k, v]) => [k, v.toString()]),
+        ),
+      },
     });
     return { vault, tokens };
   }
@@ -278,6 +305,17 @@ export class ChainService {
     const cursor = await this.prisma.chainCursor.findUniqueOrThrow({
       where: { chainId: d.chainId },
     });
+    if (cursor.lastBlockHash) {
+      // A reorg deeper than CHAIN_CONFIRMATIONS would undo deposits the ledger
+      // already credited. Ledger entries are immutable, so stop and alert.
+      const seen = await client.getBlock({ blockNumber: cursor.lastBlock });
+      if (seen.hash.toLowerCase() !== cursor.lastBlockHash.toLowerCase()) {
+        await this.reportReorg(d.chainId, cursor.lastBlock, cursor.lastBlockHash, seen.hash);
+        throw new ChainInvariantError(
+          `Block ${cursor.lastBlock} changed after it was indexed (reorg deeper than CHAIN_CONFIRMATIONS); indexing is halted`,
+        );
+      }
+    }
     const head = await client.getBlockNumber();
     const safe = head - BigInt(this.config.CHAIN_CONFIRMATIONS);
     if (safe <= cursor.lastBlock) return 0;
@@ -637,6 +675,90 @@ export class ChainService {
     const id = await this.ledger.accountId(assetId, 'FEE_REVENUE', null);
     const acc = await this.prisma.ledgerAccount.findUnique({ where: { id } });
     return acc ? toMinorUnits(acc.balance) : 0n;
+  }
+
+  /** Audits a deep reorg once per block (ADR-0034); indexing stays halted until resolved. */
+  private async reportReorg(chainId: number, block: bigint, indexed: string, now: string) {
+    const already = await this.prisma.auditLog.findFirst({
+      where: { action: 'chain.reorg.detected', targetId: `${chainId}:${block}` },
+    });
+    if (already) return;
+    this.logger.error(`Deep reorg at block ${block} on chain ${chainId}: indexing halted`);
+    await this.audit.record({
+      action: 'chain.reorg.detected',
+      outcome: 'FAILURE',
+      actorType: 'SYSTEM',
+      targetType: 'chain',
+      targetId: `${chainId}:${block}`,
+      metadata: { indexedHash: indexed, currentHash: now },
+    });
+  }
+
+  // -------------------------------------------------------- deposit cap
+
+  /** Per vault token: the on-chain deposit cap (null = none) and the amount held (ADR-0033). */
+  private async depositCaps(
+    d: ChainDeployment,
+    assets: { chainTokenAddress: string | null }[],
+  ): Promise<{ cap: bigint | null; held: bigint }[]> {
+    return Promise.all(
+      assets.map(async (a) => {
+        const read = (functionName: 'depositCap' | 'held') =>
+          this.rpc().readContract({
+            address: d.vaultAddress as Hex,
+            abi: VAULT_ABI as never,
+            functionName,
+            args: [a.chainTokenAddress as Hex] as never,
+          }) as Promise<bigint>;
+        const [cap, held] = await Promise.all([read('depositCap'), read('held')]);
+        return { cap: cap === maxUint256 ? null : cap, held };
+      }),
+    );
+  }
+
+  /** Validates a deposit-cap change; returns the cap in minor units (maxUint256 = none). */
+  async depositCapPrecheck(assetCode: string, capText: string): Promise<bigint> {
+    await this.requireDeployment();
+    const asset = await this.ledger.requireAsset(assetCode);
+    if (!asset.chainTokenAddress) throw conflict(`${assetCode} is not held in the vault`);
+    if (capText === 'unlimited') return maxUint256;
+    try {
+      return parseAmount(capText, asset.scale);
+    } catch (err) {
+      throw new AppError(HttpStatus.BAD_REQUEST, 'VALIDATION_FAILED', (err as Error).message);
+    }
+  }
+
+  /**
+   * Sets a token's on-chain deposit cap after maker-checker approval
+   * (ADR-0033). It only limits new deposits; withdrawals and the escape
+   * hatch are never affected.
+   */
+  async setDepositCap(
+    assetCode: string,
+    capText: string,
+    approvalId: string,
+    actor: { actorType: 'STAFF'; actorUserId: string; requestId?: string | null },
+  ): Promise<{ txHash: string }> {
+    const cap = await this.depositCapPrecheck(assetCode, capText);
+    const d = await this.requireDeployment();
+    const asset = await this.ledger.requireAsset(assetCode);
+    const txHash = await this.operator().setDepositCap(
+      d.vaultAddress as Hex,
+      asset.chainTokenAddress as Hex,
+      cap,
+    );
+    await this.audit.record({
+      action: 'chain.vault.deposit_cap_changed',
+      outcome: 'SUCCESS',
+      actorType: actor.actorType,
+      actorUserId: actor.actorUserId,
+      targetType: 'asset',
+      targetId: assetCode,
+      context: { requestId: actor.requestId ?? null },
+      metadata: { approvalId, cap: capText, txHash },
+    });
+    return { txHash };
   }
 
   /** Validates a treasury withdrawal before it is requested; returns the amount in minor units. */
@@ -1104,6 +1226,7 @@ export class ChainService {
         testnet: true,
       };
     const assets = await this.vaultAssets(d);
+    const caps = await this.depositCaps(d, assets);
     const delay = (await this.rpc().readContract({
       address: d.vaultAddress as Hex,
       abi: VAULT_ABI as never,
@@ -1113,14 +1236,18 @@ export class ChainService {
       enabled: true,
       chainId: d.chainId,
       vault: getAddress(d.vaultAddress),
-      tokens: assets.map((a) => ({
+      tokens: assets.map((a, i) => ({
         asset: a.code,
         address: getAddress(a.chainTokenAddress!),
         decimals: a.scale,
+        depositCap: caps[i]!.cap === null ? null : formatAmountTrimmed(caps[i]!.cap, a.scale),
+        held: formatAmountTrimmed(caps[i]!.held, a.scale),
       })),
       freezeDelaySeconds: Number(delay),
       testnet: true,
       faucet: this.config.CHAIN_FAUCET_ENABLED && d.chainId === 31337,
+      network: testNetwork(d.chainId),
+      selfMint: d.chainId !== 31337,
     };
   }
 

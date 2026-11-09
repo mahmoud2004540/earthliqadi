@@ -384,6 +384,14 @@ export const en = {
     withdraw: 'Withdraw',
     submit: 'Submit',
     depositSent: 'Deposit sent. It is credited after the required confirmations.',
+    mint: 'Mint test tokens',
+    mintDone: 'Test tokens minted to your wallet. They have no value.',
+    gasHelp:
+      'You pay network fees in {gas}, which is free from public testnet faucets. Test tokens and test ETH have no value and cannot be sent to a real exchange.',
+    depositCap:
+      'Launch limit: the vault accepts at most {cap} {asset} in total ({held} held now). Deposits beyond it are refused by the contract; withdrawals are never limited.',
+    depositCapFull:
+      'This deposit would exceed the vault launch limit. At most {room} {asset} can be deposited right now.',
     withdrawalSent:
       'Withdrawal submitted from your wallet. It completes when the transaction confirms.',
     statuses: {
@@ -449,6 +457,14 @@ export const en = {
     treasuryRequested: 'Requested. Another staff member approves it in the Approvals tab.',
     treasuryHistory: 'Treasury withdrawals',
     treasuryNone: 'No treasury withdrawals yet.',
+    depositCapsTitle: 'Vault deposit limits',
+    depositCapsHelp:
+      'An on-chain limit per token on how much the vault accepts (deposits minus payouts). It only stops new deposits; withdrawals and the escape hatch are never limited. Changes need a second staff member.',
+    depositCapHeld: 'Held',
+    depositCapLimit: 'Limit',
+    depositCapNone: 'No limit',
+    depositCapNew: 'New limit (blank = no limit)',
+    depositCapRequested: 'Requested. Another staff member approves it in the Approvals tab.',
     openIncident: 'Report an incident',
     openIncidents: 'Open incidents',
     noOpenIncidents: 'No open incidents.',

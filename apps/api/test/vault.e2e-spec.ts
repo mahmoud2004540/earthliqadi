@@ -246,6 +246,68 @@ describe('non-custodial vault on the local chain', () => {
   );
 
   it_(
+    'a contract-level deposit cap limits the vault, changed only with two staff (ADR-0033)',
+    async () => {
+      const suffix = randomBytes(3).toString('hex').toUpperCase();
+      const USD = `TC${suffix}`;
+      const { vault, tokens } = await chain.deploy({
+        tokens: [{ code: USD, name: 'Test USD', decimals: 6, faucetLimit: 10n ** 15n }],
+        freezeDelaySeconds: 3600,
+        depositCaps: { [USD]: 150_000_000n },
+      });
+      const usd = tokens[USD]!;
+      const key = generatePrivateKey();
+      const user = await signInWallet(key);
+      expect((await user.http.post('/v1/vault/faucet', {})).status).toBe(200);
+      const wallet = createWalletClient({
+        account: privateKeyToAccount(key),
+        transport: http(RPC),
+      });
+      const write = async (address: Hex, abi: never, functionName: string, args: unknown[]) => {
+        const hash = await wallet.writeContract({ address, abi, functionName, args, chain: null });
+        return (await client.waitForTransactionReceipt({ hash })).status;
+      };
+      await write(usd, TOKEN_ABI as never, 'approve', [vault, 2n ** 255n]);
+      expect(await write(vault, VAULT_ABI as never, 'deposit', [usd, 100_000_000n])).toBe(
+        'success',
+      );
+      const token = async () => (await chain.publicConfig()).tokens.find((t) => t.asset === USD)!;
+      expect(await token()).toMatchObject({ depositCap: '150', held: '100' });
+      // 60 more would pass the cap: the contract refuses it.
+      await expect(write(vault, VAULT_ABI as never, 'deposit', [usd, 60_000_000n])).rejects.toThrow(
+        /DepositCapExceeded|revert/,
+      );
+
+      const approvals = app.get(ApprovalsService);
+      const maker = (await signInWallet(generatePrivateKey())).userId;
+      const checker = (await signInWallet(generatePrivateKey())).userId;
+      const staff = (userId: string) => ({ userId, permissions: ['assets:configure' as const] });
+      const raise = await approvals.request(
+        { action: 'vault.deposit_cap', payload: { asset: USD, cap: '200' }, reason: 'Phase 2' },
+        staff(maker),
+      );
+      await expect(approvals.approve(raise.id, staff(maker))).rejects.toThrow();
+      expect((await approvals.approve(raise.id, staff(checker))).status).toBe('approved');
+      expect(await token()).toMatchObject({ depositCap: '200', held: '100' });
+      expect(await write(vault, VAULT_ABI as never, 'deposit', [usd, 60_000_000n])).toBe('success');
+      await chain.indexOnce();
+      expect((await balance(user.userId, USD))?.available).toBe('160.000000');
+
+      const lift = await approvals.request(
+        { action: 'vault.deposit_cap', payload: { asset: USD, cap: 'unlimited' }, reason: 'Open' },
+        staff(maker),
+      );
+      await approvals.approve(lift.id, staff(checker));
+      expect((await token()).depositCap).toBeNull();
+      const audit = await prisma.auditLog.findMany({
+        where: { action: 'chain.vault.deposit_cap_changed', targetId: USD },
+      });
+      expect(audit).toHaveLength(2);
+      expect((await chain.custodyCheck()).filter((c) => !c.ok)).toEqual([]);
+    },
+  );
+
+  it_(
     'deposits, withdrawals, state roots and the escape hatch stay consistent with the ledger',
     async () => {
       const suffix = randomBytes(3).toString('hex').toUpperCase();
@@ -546,5 +608,33 @@ describe('non-custodial vault on the local chain', () => {
         committedCovered: true,
       }),
     ]);
+  });
+  // Last in this suite: it rewinds the local chain (later suites deploy afresh).
+  it_('halts indexing on a reorg deeper than the confirmation depth (ADR-0034)', async () => {
+    const suffix = randomBytes(3).toString('hex').toUpperCase();
+    await chain.deploy({
+      tokens: [{ code: `TR${suffix}`, name: 'Test USD', decimals: 6, faucetLimit: 10n ** 15n }],
+      freezeDelaySeconds: 3600,
+    });
+    const snapshot = await rpc('evm_snapshot');
+    await rpc('anvil_mine', ['0x3']);
+    await chain.indexOnce(); // the cursor now records the hash of the head block
+    const d = (await chain.deployment())!;
+    const cursor = await prisma.chainCursor.findUniqueOrThrow({ where: { chainId: d.chainId } });
+
+    // Rewind and build a different chain over the same heights.
+    await rpc('evm_revert', [snapshot]);
+    const head = (await client.getBlock()).timestamp;
+    await rpc('evm_setNextBlockTimestamp', [`0x${(head + 1000n).toString(16)}`]);
+    await rpc('anvil_mine', ['0x5']);
+    const replaced = await client.getBlock({ blockNumber: cursor.lastBlock });
+    expect(replaced.hash).not.toBe(cursor.lastBlockHash);
+
+    await expect(chain.indexOnce()).rejects.toThrow(/reorg deeper than CHAIN_CONFIRMATIONS/);
+    await expect(chain.indexOnce()).rejects.toThrow(/indexing is halted/);
+    const audits = await prisma.auditLog.findMany({
+      where: { action: 'chain.reorg.detected', targetId: `${d.chainId}:${cursor.lastBlock}` },
+    });
+    expect(audits).toHaveLength(1); // reported once, not on every poll
   });
 });

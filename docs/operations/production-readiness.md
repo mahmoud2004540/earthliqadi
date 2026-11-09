@@ -6,19 +6,21 @@ outside engineering. **No item marked external has been done or is claimed.**
 
 ## Security
 
-| Item                                                          | Status                                    |
-| ------------------------------------------------------------- | ----------------------------------------- |
-| Double-entry ledger, DB invariants, reconciliation            | Done                                      |
-| Staff MFA, step-up for sensitive actions, admin IP allow-list | Done                                      |
-| Maker-checker for value-moving / access-restoring actions     | Done                                      |
-| Operator key in an isolated signer with limits and audit log  | Done (software key)                       |
-| Operator key in an HSM/KMS                                    | External                                  |
-| Audit preparation (100% coverage, Slither triaged, brief)     | Done (`docs/security/audit-readiness.md`) |
-| Smart-contract audit of `ExchangeVault`                       | External                                  |
-| Penetration test (web, API, admin, signer)                    | External                                  |
-| Bug bounty programme                                          | External                                  |
-| Secrets in a secret manager with rotation                     | To do (Phase 10 infra)                    |
-| Separate admin origin and staff SSO                           | To do                                     |
+| Item                                                            | Status                                    |
+| --------------------------------------------------------------- | ----------------------------------------- |
+| Double-entry ledger, DB invariants, reconciliation              | Done                                      |
+| Staff MFA, step-up for sensitive actions, admin IP allow-list   | Done                                      |
+| Maker-checker for value-moving / access-restoring actions       | Done                                      |
+| Operator key in an isolated signer with limits and audit log    | Done (software key)                       |
+| Operator key in an HSM/KMS                                      | External                                  |
+| Audit preparation (100% coverage, Slither triaged, brief)       | Done (`docs/security/audit-readiness.md`) |
+| Smart-contract audit of `ExchangeVault`                         | External                                  |
+| Contract-level deposit cap (launch guard, ADR-0033)             | Done                                      |
+| Public testnet support, reorg halt, 5+ confirmations (ADR-0034) | Done; hosting is external (owner)         |
+| Penetration test (web, API, admin, signer)                      | External                                  |
+| Bug bounty programme                                            | External                                  |
+| Secrets in a secret manager with rotation                       | To do (Phase 10 infra)                    |
+| Separate admin origin and staff SSO                             | To do                                     |
 
 ## Operations
 

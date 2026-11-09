@@ -1,8 +1,11 @@
 /**
  * Vault CLI (ADR-0014). Testnets and local chains only.
  *
- *   chain deploy [--freeze-delay 604800] [--suffix X]  # test tokens TUSD (6) + TBTC (8), the vault,
+ *   chain deploy [--freeze-delay 604800] [--suffix X] [--cap TUSD=100000 --cap TBTC=2]
+ *                                          # test tokens TUSD (6) + TBTC (8), the vault,
  *                                          # and the markets TBTC-TUSD (spot) and TBTC-TUSD-PERP
+ *                                          # Public testnet (ADR-0034): CHAIN_DEPLOYER_KEY=0x… pays
+ *                                          # for the deployment; --operator 0x… is the signer's wallet.
  *   chain index                            # one indexer pass
  *   chain commit                           # snapshot + commit the balance root
  *   chain custody                          # ledger vs on-chain custody
@@ -10,6 +13,9 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { parseArgs } from 'node:util';
+import { parseAmount } from '@platform/shared';
+import { createPublicClient, createWalletClient, http, type Hex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { AppModule } from '../app.module';
 import { ChainService } from '../chain/chain.service';
 import { MarketsService } from '../trading/markets.service';
@@ -18,7 +24,14 @@ import { loadAppConfigOrExit } from '../config/app-config';
 async function run(): Promise<void> {
   const { positionals, values } = parseArgs({
     allowPositionals: true,
-    options: { 'freeze-delay': { type: 'string' }, suffix: { type: 'string' } },
+    options: {
+      'freeze-delay': { type: 'string' },
+      suffix: { type: 'string' },
+      /** Launch guard per token (ADR-0033), whole units: --cap TUSD=100000 */
+      cap: { type: 'string', multiple: true },
+      /** Vault operator (the signer's wallet). Default: ask the configured signer. */
+      operator: { type: 'string' },
+    },
   });
   const config = loadAppConfigOrExit();
   // CLI runs never start the background workers.
@@ -44,7 +57,38 @@ async function run(): Promise<void> {
         // Asset codes are permanent once linked to a token: redeploys use a --suffix.
         const sfx = (values.suffix ?? '').toUpperCase();
         if (!/^[A-Z0-9]{0,8}$/.test(sfx)) throw new Error('--suffix: up to 8 of [A-Z0-9]');
+        const depositCaps: Record<string, bigint> = {};
+        for (const c of values.cap ?? []) {
+          const m = /^([A-Z0-9]+)=(\d+(?:\.\d+)?)$/.exec(c);
+          if (!m) throw new Error(`--cap: expected CODE=AMOUNT, got "${c}"`);
+          const decimals = m[1] === 'TBTC' ? 8 : m[1] === 'TUSD' ? 6 : null;
+          if (decimals === null) throw new Error(`--cap: unknown token ${m[1]} (TUSD or TBTC)`);
+          depositCaps[`${m[1]}${sfx}`] = parseAmount(m[2]!, decimals);
+        }
+        // A one-off deployer key (public testnets) is read here only, never by the server.
+        const deployerKey = process.env.CHAIN_DEPLOYER_KEY;
+        let deployer: Parameters<ChainService['deploy']>[0]['deployer'];
+        if (deployerKey) {
+          if (!/^0x[0-9a-fA-F]{64}$/.test(deployerKey))
+            throw new Error('CHAIN_DEPLOYER_KEY must be a 0x-prefixed 32-byte hex key');
+          if (!config.CHAIN_RPC_URL) throw new Error('CHAIN_RPC_URL is required');
+          const account = privateKeyToAccount(deployerKey as Hex);
+          const wallet = createWalletClient({ account, transport: http(config.CHAIN_RPC_URL) });
+          const gas = await createPublicClient({
+            transport: http(config.CHAIN_RPC_URL),
+          }).getBalance({ address: account.address });
+          if (gas === 0n)
+            throw new Error(
+              `The deployer ${account.address} has no test ETH for gas; fund it from a testnet faucet first`,
+            );
+          deployer = { wallet, account };
+        }
+        if (values.operator !== undefined && !/^0x[0-9a-fA-F]{40}$/.test(values.operator))
+          throw new Error('--operator must be a 0x-prefixed address');
         const r = await chain.deploy({
+          deployer,
+          operator: values.operator as Hex | undefined,
+          depositCaps,
           tokens: [
             { code: `TUSD${sfx}`, name: 'Test USD', decimals: 6, faucetLimit: 10n ** 15n },
             { code: `TBTC${sfx}`, name: 'Test BTC', decimals: 8, faucetLimit: 10n ** 12n },

@@ -23,6 +23,10 @@ interface IERC20 {
 ///    withdrawals signed against the latest commitments. Signed withdrawals the
 ///    frozen root no longer contains stay payable (`withdrawAfterFreeze`).
 ///    The operator is not needed and cannot stop it.
+///  - Deposit cap (launch guard): per token, the amount the vault holds for
+///    users (deposits minus payouts) may not exceed `depositCap`. The operator
+///    can raise or lower the cap; it only limits new deposits and never
+///    blocks a withdrawal or an escape.
 contract ExchangeVault {
     // ------------------------------------------------------------------ types
 
@@ -53,6 +57,8 @@ contract ExchangeVault {
     uint256 private constant HALF_N = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
 
     mapping(address => bool) public isToken;
+    /// Maximum `held` per token; type(uint256).max means no cap.
+    mapping(address => uint256) public depositCap;
 
     // ------------------------------------------------------------------ state
 
@@ -71,6 +77,9 @@ contract ExchangeVault {
     mapping(address => mapping(address => mapping(uint64 => uint256))) public withdrawnAt;
     mapping(address => mapping(address => bool)) public escaped;
     mapping(uint64 => bool) public depositEscaped;
+    /// Deposits minus payouts per token (never below zero). Used for the cap only;
+    /// tokens sent to the vault without `deposit` are not counted.
+    mapping(address => uint256) public held;
 
     uint256 private locked = 1;
 
@@ -81,6 +90,7 @@ contract ExchangeVault {
     event StateCommitted(uint64 indexed index, bytes32 root, uint64 lastDepositId);
     event Frozen(uint256 at);
     event Escaped(address indexed user, address indexed token, uint256 amount);
+    event DepositCapChanged(address indexed token, uint256 cap);
 
     // ----------------------------------------------------------------- errors
 
@@ -99,6 +109,7 @@ contract ExchangeVault {
     error TransferFailed();
     error Reentrancy();
     error BadConfig();
+    error DepositCapExceeded();
 
     /// Shortest allowed silence before anyone may freeze (stops instant-freeze griefing).
     uint256 public constant MIN_FREEZE_DELAY = 1 hours;
@@ -118,14 +129,19 @@ contract ExchangeVault {
         locked = 2;
     }
 
-    constructor(address operator_, uint256 freezeDelay_, address[] memory tokens) {
+    constructor(address operator_, uint256 freezeDelay_, address[] memory tokens, uint256[] memory caps) {
         // A zero operator could never sign or commit; a tiny delay would let anyone freeze at once.
-        if (operator_ == address(0) || freezeDelay_ < MIN_FREEZE_DELAY || tokens.length == 0) revert BadConfig();
+        if (
+            operator_ == address(0) || freezeDelay_ < MIN_FREEZE_DELAY || tokens.length == 0
+                || caps.length != tokens.length
+        ) revert BadConfig();
         operator = operator_;
         freezeDelay = freezeDelay_;
         for (uint256 i = 0; i < tokens.length; i++) {
             if (tokens[i].code.length == 0) revert BadConfig(); // tokens must be contracts
             isToken[tokens[i]] = true;
+            depositCap[tokens[i]] = caps[i];
+            emit DepositCapChanged(tokens[i], caps[i]);
         }
         lastCommitAt = block.timestamp;
         DOMAIN_SEPARATOR_ = keccak256(
@@ -155,9 +171,21 @@ contract ExchangeVault {
         _safeTransferFrom(token, msg.sender, address(this), amount);
         uint256 received = IERC20(token).balanceOf(address(this)) - before;
         if (received == 0) revert ZeroAmount();
+        uint256 cap = depositCap[token];
+        if (held[token] > cap || received > cap - held[token]) revert DepositCapExceeded();
+        held[token] += received;
         id = ++depositCount;
         deposits[id] = DepositRecord({user: msg.sender, token: token, amount: received});
         emit Deposited(id, msg.sender, token, received);
+    }
+
+    /// @notice Operator only: sets a token's deposit cap (launch guard). Lowering it
+    ///         below `held` only stops new deposits; payouts are never affected.
+    function setDepositCap(address token, uint256 cap) external {
+        if (msg.sender != operator) revert NotOperator();
+        if (!isToken[token]) revert UnknownToken();
+        depositCap[token] = cap;
+        emit DepositCapChanged(token, cap);
     }
 
     // ------------------------------------------------------------ withdrawals
@@ -180,6 +208,7 @@ contract ExchangeVault {
         if (_recover(hashWithdrawal(w), signature) != operator) revert BadSignature();
         withdrawalUsed[w.id] = true;
         withdrawnAt[w.user][w.token][w.afterState] += w.amount;
+        _release(w.token, w.amount);
         _safeTransfer(w.token, w.user, w.amount);
         emit Withdrawn(w.id, w.user, w.token, w.amount);
     }
@@ -208,6 +237,7 @@ contract ExchangeVault {
         if (_recover(hashWithdrawal(w), signature) != operator) revert BadSignature();
         withdrawalUsed[w.id] = true;
         withdrawnAt[w.user][w.token][w.afterState] += w.amount;
+        _release(w.token, w.amount);
         _safeTransfer(w.token, w.user, w.amount);
         emit Withdrawn(w.id, w.user, w.token, w.amount);
     }
@@ -250,7 +280,10 @@ contract ExchangeVault {
         escaped[msg.sender][token] = true;
         uint256 spent = withdrawnAt[msg.sender][token][stateIndex] + withdrawnAt[msg.sender][token][stateIndex + 1];
         uint256 payout = balance > spent ? balance - spent : 0;
-        if (payout > 0) _safeTransfer(token, msg.sender, payout);
+        if (payout > 0) {
+            _release(token, payout);
+            _safeTransfer(token, msg.sender, payout);
+        }
         emit Escaped(msg.sender, token, payout);
     }
 
@@ -262,11 +295,19 @@ contract ExchangeVault {
         DepositRecord memory d = deposits[depositId];
         if (d.user != msg.sender) revert NotDepositor();
         depositEscaped[depositId] = true;
+        _release(d.token, d.amount);
         _safeTransfer(d.token, d.user, d.amount);
         emit Escaped(d.user, d.token, d.amount);
     }
 
     // --------------------------------------------------------------- helpers
+
+    /// Lowers `held` by a payout, never below zero (a payout can include tokens
+    /// that were sent to the vault directly, without `deposit`).
+    function _release(address token, uint256 amount) private {
+        uint256 h = held[token];
+        held[token] = amount < h ? h - amount : 0;
+    }
 
     function _verify(bytes32[] calldata proof, bytes32 root, bytes32 node) private pure returns (bool) {
         bytes32 h = node;

@@ -20,7 +20,14 @@ export interface SignerConfig {
 const VAULT_ABI = parseAbi([
   'function commitState(uint64 index, bytes32 root, uint64 lastDepositId)',
   'function stateIndex() view returns (uint64)',
+  'function setDepositCap(address token, uint256 cap)',
 ]);
+
+const depositCapSchema = z.object({
+  vault: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+  token: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+  cap: z.string().regex(/^\d{1,78}$/),
+});
 
 const withdrawalSchema = z.object({
   chainId: z.number().int(),
@@ -175,6 +182,35 @@ export function createSignerServer(
       });
       policy.record(request, now);
       return { status: 200, json: { signature } };
+    }
+
+    if (req.method === 'POST' && url === '/v1/deposit-cap') {
+      // Launch guard (ADR-0033): only limits new deposits, never moves funds.
+      const parsed = depositCapSchema.safeParse(JSON.parse(body || '{}'));
+      if (!parsed.success) return { status: 400, json: { error: 'invalid request' } };
+      const c = parsed.data;
+      if (BigInt(c.cap) >= 2n ** 256n) return { status: 400, json: { error: 'invalid request' } };
+      if (c.vault.toLowerCase() !== config.policy.vault)
+        return { status: 403, json: { error: 'WRONG_VAULT' } };
+      const hash = await wallet.writeContract({
+        address: getAddress(c.vault),
+        abi: VAULT_ABI,
+        functionName: 'setDepositCap',
+        args: [getAddress(c.token), BigInt(c.cap)],
+        chain: null,
+      });
+      const receipt = await client.waitForTransactionReceipt({ hash });
+      audit({
+        kind: 'deposit_cap.set',
+        token: c.token,
+        cap: c.cap,
+        tx: hash,
+        status: receipt.status,
+      });
+      return {
+        status: receipt.status === 'success' ? 200 : 502,
+        json: { txHash: hash, status: receipt.status },
+      };
     }
 
     if (req.method === 'POST' && url === '/v1/commit-state') {

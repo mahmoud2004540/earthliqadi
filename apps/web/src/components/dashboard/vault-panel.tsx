@@ -2,7 +2,7 @@
 
 import type { VaultConfigDto, VaultProofDto, WithdrawalDto } from '@platform/shared';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { encodeFunctionData, parseAbi, parseUnits, type Hex } from 'viem';
+import { encodeFunctionData, parseAbi, formatUnits, parseUnits, type Hex } from 'viem';
 import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,11 @@ const VAULT_ABI = parseAbi([
   'function deposit(address token, uint256 amount) returns (uint64)',
   'function withdraw((bytes32 id, address user, address token, uint256 amount, uint64 afterState, uint64 expiry) w, bytes signature)',
 ]);
-const ERC20_ABI = parseAbi(['function approve(address spender, uint256 amount) returns (bool)']);
+const ERC20_ABI = parseAbi([
+  'function approve(address spender, uint256 amount) returns (bool)',
+  // Test tokens only (no value): anyone can mint up to a per-call limit.
+  'function mint(address to, uint256 amount)',
+]);
 
 interface Eip1193 {
   request(args: { method: string; params?: unknown[] }): Promise<unknown>;
@@ -90,15 +94,18 @@ export function VaultPanel({ t, walletAddress }: { t: Dictionary; walletAddress:
           params: [{ chainId: hexId }],
         });
       } catch (err) {
-        if ((err as { code?: number }).code !== 4902 || config!.chainId !== 31337) throw err;
+        // 4902: the wallet does not know the network yet; offer to add it (test networks only).
+        const net = config!.network;
+        if ((err as { code?: number }).code !== 4902 || !net) throw err;
         await provider.request({
           method: 'wallet_addEthereumChain',
           params: [
             {
               chainId: hexId,
-              chainName: 'Local test chain (no value)',
-              rpcUrls: ['http://localhost:8545'],
+              chainName: net.name,
+              rpcUrls: [net.rpcUrl],
               nativeCurrency: { name: 'Test ETH', symbol: 'ETH', decimals: 18 },
+              ...(net.explorerUrl ? { blockExplorerUrls: [net.explorerUrl] } : {}),
             },
           ],
         });
@@ -145,8 +152,20 @@ export function VaultPanel({ t, walletAddress }: { t: Dictionary; walletAddress:
     void run(async () => {
       const provider = eth();
       if (!provider || !token) throw new Error(v.noWallet);
-      const from = await ensureChain(provider);
       const units = parseUnits(amount, token.decimals);
+      if (token.depositCap) {
+        // The contract would refuse it; say why before the wallet asks to sign.
+        const room =
+          parseUnits(token.depositCap, token.decimals) -
+          parseUnits(token.held ?? '0', token.decimals);
+        if (units > room)
+          throw new Error(
+            v.depositCapFull
+              .replace('{room}', formatUnits(room > 0n ? room : 0n, token.decimals))
+              .replace('{asset}', token.asset),
+          );
+      }
+      const from = await ensureChain(provider);
       await send(
         provider,
         from,
@@ -257,6 +276,35 @@ export function VaultPanel({ t, walletAddress }: { t: Dictionary; walletAddress:
               {v.faucet}
             </Button>
           )}
+          {config.selfMint && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() =>
+                void run(async () => {
+                  const provider = eth();
+                  if (!provider) throw new Error(v.noWallet);
+                  const from = await ensureChain(provider);
+                  for (const x of config.tokens) {
+                    await send(
+                      provider,
+                      from,
+                      x.address,
+                      encodeFunctionData({
+                        abi: ERC20_ABI,
+                        functionName: 'mint',
+                        args: [from as Hex, 1000n * 10n ** BigInt(x.decimals)],
+                      }),
+                    );
+                  }
+                  return v.mintDone;
+                })
+              }
+            >
+              {v.mint}
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -271,8 +319,26 @@ export function VaultPanel({ t, walletAddress }: { t: Dictionary; walletAddress:
         </div>
       </div>
       <p className="font-mono text-xs text-muted">
-        {v.vault}: {config.vault} · chain {config.chainId}
+        {v.vault}:{' '}
+        {config.network?.explorerUrl ? (
+          <a
+            className="underline"
+            href={`${config.network.explorerUrl}/address/${config.vault}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {config.vault}
+          </a>
+        ) : (
+          config.vault
+        )}{' '}
+        · {config.network?.name ?? `chain ${config.chainId}`}
       </p>
+      {config.selfMint && config.network?.gasFaucetInfo && (
+        <p className="text-xs text-muted" data-testid="gas-help">
+          {v.gasHelp.replace('{gas}', config.network.gasFaucetInfo)}
+        </p>
+      )}
       <form
         className="grid gap-3 sm:grid-cols-[160px_1fr_auto_auto] sm:items-end"
         onSubmit={deposit}
@@ -309,6 +375,14 @@ export function VaultPanel({ t, walletAddress }: { t: Dictionary; walletAddress:
           {v.withdraw}
         </Button>
       </form>
+      {token?.depositCap && (
+        <p className="text-xs text-muted" data-testid="deposit-cap">
+          {v.depositCap
+            .replace('{cap}', token.depositCap)
+            .replace('{held}', token.held ?? '0')
+            .replaceAll('{asset}', token.asset)}
+        </p>
+      )}
       {msg && <Alert tone={msg.tone === 'info' ? 'warning' : msg.tone}>{msg.text}</Alert>}
       <ul className="list-disc space-y-1 ps-5 text-xs text-muted">
         {v.notes.map((n) => (

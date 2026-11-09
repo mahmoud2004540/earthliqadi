@@ -6,6 +6,7 @@ import type {
   ListingRequestDto,
   StatusDto,
   TreasuryDto,
+  VaultConfigDto,
   SystemHealthDto,
   TicketDto,
 } from '@platform/shared';
@@ -111,7 +112,12 @@ export function AdminConsole({ t }: { t: Dictionary }) {
         {tab === 'audit' && <Audit a={a} />}
         {tab === 'listings' && <Listings a={a} />}
         {tab === 'incidents' && <Incidents a={a} />}
-        {tab === 'treasury' && <Treasury a={a} />}
+        {tab === 'treasury' && (
+          <>
+            <Treasury a={a} />
+            <DepositCaps a={a} />
+          </>
+        )}
       </div>
     </div>
   );
@@ -919,6 +925,100 @@ function Incidents({ a }: { a: A }) {
  * configured treasury wallet. A request needs a second staff member's approval
  * (Approvals tab) before anything is signed.
  */
+/** On-chain deposit limits per vault token (ADR-0033); changes go through approvals. */
+function DepositCaps({ a }: { a: A }) {
+  const { data, error, reload } = useResource<VaultConfigDto>('/v1/vault/config', a);
+  const [asset, setAsset] = useState('');
+  const [cap, setCap] = useState('');
+  const [reason, setReason] = useState('');
+  const [msg, setMsg] = useState<Msg>(null);
+
+  async function request(e: FormEvent) {
+    e.preventDefault();
+    setMsg(null);
+    try {
+      await api('/v1/admin/approvals', {
+        method: 'POST',
+        body: {
+          action: 'vault.deposit_cap',
+          payload: { asset: asset || data?.tokens[0]?.asset, cap: cap || 'unlimited' },
+          reason,
+        },
+      });
+      setMsg({ tone: 'success', text: a.depositCapRequested });
+      setCap('');
+      setReason('');
+      reload();
+    } catch (err) {
+      setMsg({ tone: 'error', text: errText(err, a) });
+    }
+  }
+
+  if (error) return <Alert tone="error">{error}</Alert>;
+  if (!data?.enabled || data.tokens.length === 0) return null;
+  return (
+    <Section title={a.depositCapsTitle}>
+      {msg && <Alert tone={msg.tone}>{msg.text}</Alert>}
+      <p className="text-xs text-muted">{a.depositCapsHelp}</p>
+      <table className="mt-3 w-full text-sm">
+        <thead className="text-left text-xs text-muted">
+          <tr>
+            <th className="py-1">{a.treasuryAsset}</th>
+            <th className="py-1">{a.depositCapHeld}</th>
+            <th className="py-1">{a.depositCapLimit}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.tokens.map((t) => (
+            <tr key={t.asset} className="border-t border-border font-mono">
+              <td className="py-1.5 font-sans">{t.asset}</td>
+              <td className="py-1.5">{t.held ?? '—'}</td>
+              <td className="py-1.5" data-testid={`deposit-cap-${t.asset}`}>
+                {t.depositCap ?? a.depositCapNone}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <form className="mt-4 flex flex-wrap items-end gap-2" onSubmit={(e) => void request(e)}>
+        <select
+          aria-label={a.treasuryAsset}
+          className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+          value={asset || data.tokens[0]!.asset}
+          onChange={(e) => setAsset(e.target.value)}
+        >
+          {data.tokens.map((t) => (
+            <option key={t.asset} value={t.asset}>
+              {t.asset}
+            </option>
+          ))}
+        </select>
+        <div>
+          <Label htmlFor="deposit-cap">{a.depositCapNew}</Label>
+          <Input
+            id="deposit-cap"
+            className="h-9"
+            value={cap}
+            onChange={(e) => setCap(e.target.value.trim())}
+          />
+        </div>
+        <div className="min-w-48 flex-1">
+          <Label htmlFor="deposit-cap-reason">{a.treasuryReason}</Label>
+          <Input
+            id="deposit-cap-reason"
+            className="h-9"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </div>
+        <Button type="submit" size="sm">
+          {a.requestApproval}
+        </Button>
+      </form>
+    </Section>
+  );
+}
+
 function Treasury({ a }: { a: A }) {
   const { data, error, reload } = useResource<TreasuryDto>('/v1/admin/vault/treasury', a);
   const [asset, setAsset] = useState('');

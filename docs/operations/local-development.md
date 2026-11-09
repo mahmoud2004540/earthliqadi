@@ -111,7 +111,7 @@ Paper trading is retired (ADR-0016).
 
 ```bash
 docker compose up -d chain                                  # Anvil, chain id 31337
-docker compose exec api node dist/cli/chain.js deploy       # TUSD + TBTC test tokens and the vault
+docker compose exec api node dist/cli/chain.js deploy       # TUSD + TBTC test tokens and the vault (add --cap TUSD=100000 for a deposit limit)
 docker compose exec api node dist/cli/chain.js custody      # ledger vs on-chain
 (cd contracts && ./forge.sh test)                           # contract tests (Foundry image)
 ```

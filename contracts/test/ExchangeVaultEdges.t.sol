@@ -112,7 +112,7 @@ contract ExchangeVaultEdgeTest is TestBase {
         tokens[1] = address(falsy);
         tokens[2] = address(eater);
         tokens[3] = address(reentrant);
-        vault = new ExchangeVault(operator, DELAY, tokens);
+        vault = new ExchangeVault(operator, DELAY, tokens, noCaps(tokens.length));
         reentrant.setVault(vault);
         usd.mint(alice, 1_000e6);
         vm.prank(alice);
@@ -158,14 +158,16 @@ contract ExchangeVaultEdgeTest is TestBase {
         address[] memory tokens = new address[](1);
         tokens[0] = address(usd);
         vm.expectRevert(ExchangeVault.BadConfig.selector);
-        new ExchangeVault(address(0), DELAY, tokens);
+        new ExchangeVault(address(0), DELAY, tokens, noCaps(1));
         vm.expectRevert(ExchangeVault.BadConfig.selector);
-        new ExchangeVault(operator, 1 hours - 1, tokens);
+        new ExchangeVault(operator, 1 hours - 1, tokens, noCaps(1));
         vm.expectRevert(ExchangeVault.BadConfig.selector);
-        new ExchangeVault(operator, DELAY, new address[](0));
+        new ExchangeVault(operator, DELAY, new address[](0), noCaps(0));
+        vm.expectRevert(ExchangeVault.BadConfig.selector);
+        new ExchangeVault(operator, DELAY, tokens, noCaps(2)); // one cap per token
         tokens[0] = address(0xBEEF); // not a contract
         vm.expectRevert(ExchangeVault.BadConfig.selector);
-        new ExchangeVault(operator, DELAY, tokens);
+        new ExchangeVault(operator, DELAY, tokens, noCaps(1));
     }
 
     // ------------------------------------------------------------ tokens
