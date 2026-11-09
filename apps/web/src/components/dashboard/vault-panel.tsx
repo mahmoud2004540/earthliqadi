@@ -1,6 +1,7 @@
 'use client';
 
 import type { VaultConfigDto, VaultProofDto, WithdrawalDto } from '@platform/shared';
+import Link from 'next/link';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { encodeFunctionData, parseAbi, formatUnits, parseUnits, type Hex } from 'viem';
 import { Alert } from '@/components/ui/alert';
@@ -339,6 +340,12 @@ export function VaultPanel({ t, walletAddress }: { t: Dictionary; walletAddress:
           {v.gasHelp.replace('{gas}', config.network.gasFaucetInfo)}
         </p>
       )}
+      <Alert tone="warning" data-testid="direct-transfer-warning">
+        {v.directWarning.replace('{network}', config.network?.name ?? `chain ${config.chainId}`)}{' '}
+        <Link className="underline" href="/deposit-guide">
+          {v.guideLink}
+        </Link>
+      </Alert>
       <form
         className="grid gap-3 sm:grid-cols-[160px_1fr_auto_auto] sm:items-end"
         onSubmit={deposit}

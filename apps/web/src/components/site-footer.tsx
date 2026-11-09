@@ -32,6 +32,7 @@ export function SiteFooter({ t }: { t: Dictionary }) {
         {col(t.footer.resources, [
           { href: 'security', label: t.nav.security },
           { href: 'fees', label: t.nav.fees },
+          { href: 'deposit-guide', label: t.footer.depositGuide },
           { href: 'api-docs', label: t.nav.api },
           { href: 'status', label: t.footer.status },
         ])}

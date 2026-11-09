@@ -41,6 +41,7 @@ export const en = {
     terms: 'Terms of use',
     risk: 'Risk disclosures',
     status: 'System status',
+    depositGuide: 'How to deposit',
     disclaimer:
       'Digital assets are highly volatile and you can lose all of your investment. This software is under development and is not an offer of any financial service.',
   },
@@ -178,6 +179,41 @@ export const en = {
         {
           heading: 'Status',
           body: 'Scoped API keys, IP allow-listing, rate limits and WebSocket market data are on the roadmap. Developer documentation will be published here when the APIs are available.',
+        },
+      ],
+    },
+    depositGuide: {
+      title: 'How to deposit',
+      intro:
+        'Funds reach the exchange only through the Deposit button, from your own wallet, on the network shown in Dashboard → Balances. The platform is currently a testnet beta: it accepts only test tokens, which have no value. Real funds are not accepted.',
+      sections: [
+        {
+          heading: '1. Use your own wallet',
+          body: 'Deposits come from a browser wallet you control, such as MetaMask. Sign in with that wallet. The exchange does not hold your keys and cannot move your wallet funds.',
+        },
+        {
+          heading: '2. Be on the right network',
+          body: 'The vault exists on one network only. Its name is shown next to the vault address in Dashboard → Balances. If your wallet does not know it, the panel offers to add it. Tokens on any other network cannot be deposited; move them to this network yourself first.',
+        },
+        {
+          heading: '3. Get the tokens into your wallet',
+          body: 'On the testnet, press "Mint test tokens" and get free test ETH for network fees from a public faucet. When real funds are supported, tokens bought elsewhere must first be withdrawn to your own wallet, on the vault network, before you deposit them.',
+        },
+        {
+          heading: '4. Deposit',
+          body: 'Choose the asset and amount, then press Deposit. Your wallet asks you to sign twice: an approval, then the deposit. The balance is credited after the required block confirmations.',
+        },
+        {
+          heading: 'Never send tokens directly to the vault address',
+          body: 'A plain transfer to the vault address, from another wallet or from an exchange withdrawal, is not linked to any account. It is not credited, and the contract has no function to return it, so it is lost. Always use the Deposit button.',
+        },
+        {
+          heading: 'No card or bank deposits',
+          body: 'The platform does not accept card payments or bank transfers and does not sell tokens. It has no partnership with any exchange or payment provider.',
+        },
+        {
+          heading: 'Withdrawing',
+          body: 'Withdrawals are paid to the wallet you signed in with. From there you can move tokens wherever you like. Test tokens have no value and cannot be sent to a real exchange.',
         },
       ],
     },
@@ -390,6 +426,9 @@ export const en = {
       'You pay network fees in {gas}, which is free from public testnet faucets. Test tokens and test ETH have no value and cannot be sent to a real exchange.',
     depositCap:
       'Launch limit: the vault accepts at most {cap} {asset} in total ({held} held now). Deposits beyond it are refused by the contract; withdrawals are never limited.',
+    directWarning:
+      'Deposit only with the Deposit button below, on {network}. Tokens sent straight to the vault address, from another wallet or an exchange, are not credited to any account and cannot be returned.',
+    guideLink: 'How to deposit',
     depositCapFull:
       'This deposit would exceed the vault launch limit. At most {room} {asset} can be deposited right now.',
     withdrawalSent:
