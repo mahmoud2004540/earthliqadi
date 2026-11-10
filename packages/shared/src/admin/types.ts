@@ -247,7 +247,7 @@ export interface VaultConfigDto {
     held?: string;
   }[];
   freezeDelaySeconds: number | null;
-  /** Always true: only testnets and local chains are supported. */
+  /** False only on a real-value network (CHAIN_MAINNET, ADR-0038). */
   testnet: boolean;
   /** Local chain only. */
   faucet?: boolean;

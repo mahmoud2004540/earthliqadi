@@ -147,6 +147,29 @@ describe('apiEnvSchema', () => {
     ).toBe(0);
   });
 
+  it('allows real-value networks only in production, with 20+ confirmations (ADR-0038)', () => {
+    expect(() =>
+      parseEnv(apiEnvSchema, {
+        ...localEnv,
+        CHAIN_MAINNET: 'true',
+        CHAIN_RPC_URL: 'http://localhost:8545',
+      }),
+    ).toThrow(/CHAIN_MAINNET: production only/);
+    const real = {
+      ...productionEnv,
+      CHAIN_MAINNET: 'true',
+      CHAIN_RPC_URL: 'https://rpc.invalid',
+      CHAIN_CONFIRMATIONS: '12',
+    };
+    expect(() => parseEnv(apiEnvSchema, real)).toThrow(/CHAIN_CONFIRMATIONS: must be at least 20/);
+    expect(() => parseEnv(apiEnvSchema, { ...real, CHAIN_CONFIRMATIONS: '20' })).not.toThrow(
+      /CHAIN_CONFIRMATIONS|CHAIN_MAINNET/,
+    );
+    expect(() => parseEnv(apiEnvSchema, { ...productionEnv, CHAIN_MAINNET: 'true' })).toThrow(
+      /CHAIN_RPC_URL: required with CHAIN_MAINNET/,
+    );
+  });
+
   it('treats empty strings as unset', () => {
     const env = parseEnv(apiEnvSchema, { ...localEnv, API_PORT: '' });
     expect(env.API_PORT).toBe(4000);

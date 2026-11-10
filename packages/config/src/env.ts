@@ -295,10 +295,32 @@ export const apiEnvSchema = z
     VAULT_WITHDRAWAL_TTL_SECONDS: z.coerce.number().int().min(60).max(86_400).default(3600),
     /** Local chain only: gas + test tokens for a connected wallet. */
     CHAIN_FAUCET_ENABLED: booleanString.default(false),
+    /**
+     * REAL-VALUE networks (ADR-0038). Off by default: only test networks are
+     * accepted. On: only MAINNET_NETWORKS are accepted, in production only,
+     * with a deposit cap on every token and a deep confirmation count.
+     */
+    CHAIN_MAINNET: booleanString.default(false),
     /** Bearer token for GET /metrics (Prometheus). Unset = endpoint disabled. */
     METRICS_TOKEN: z.string().min(32).optional(),
   })
   .superRefine((env, ctx) => {
+    if (env.CHAIN_MAINNET) {
+      if (env.DEPLOY_ENV !== 'production')
+        ctx.addIssue({ code: 'custom', path: ['CHAIN_MAINNET'], message: 'production only' });
+      if (!env.CHAIN_RPC_URL)
+        ctx.addIssue({
+          code: 'custom',
+          path: ['CHAIN_RPC_URL'],
+          message: 'required with CHAIN_MAINNET',
+        });
+      if (env.CHAIN_CONFIRMATIONS < 20)
+        ctx.addIssue({
+          code: 'custom',
+          path: ['CHAIN_CONFIRMATIONS'],
+          message: 'must be at least 20 with real funds',
+        });
+    }
     if (env.SIGNER_URL && !env.SIGNER_HMAC_SECRET) {
       ctx.addIssue({
         code: 'custom',
@@ -458,6 +480,8 @@ export const webEnvSchema = z.object({
    * Privy app id for email wallets (ADR-0035). Public by design (it is shipped
    * to browsers). Unset = only browser-extension wallets. Never the app secret.
    */
+  /** Real-funds wording on the site (ADR-0038). Build-time; the API decides the network. */
+  NEXT_PUBLIC_REAL_FUNDS: booleanString.default(false),
   NEXT_PUBLIC_PRIVY_APP_ID: z
     .string()
     .regex(/^[A-Za-z0-9_-]{8,64}$/, 'must be a Privy app id')

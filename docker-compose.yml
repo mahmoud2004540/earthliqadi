@@ -117,6 +117,7 @@ services:
       args:
         NEXT_PUBLIC_BRAND_NAME: ${NEXT_PUBLIC_BRAND_NAME:-Exchange}
         NEXT_PUBLIC_PRIVY_APP_ID: ${NEXT_PUBLIC_PRIVY_APP_ID:-}
+        NEXT_PUBLIC_REAL_FUNDS: ${NEXT_PUBLIC_REAL_FUNDS:-false}
     image: exchange-platform/web:dev
     read_only: true
     tmpfs: [/tmp, /app/apps/web/.next/cache]

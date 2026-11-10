@@ -35,6 +35,7 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_BRAND_NAME: env.NEXT_PUBLIC_BRAND_NAME,
     NEXT_PUBLIC_PRIVY_APP_ID: env.NEXT_PUBLIC_PRIVY_APP_ID ?? '',
+    NEXT_PUBLIC_REAL_FUNDS: String(env.NEXT_PUBLIC_REAL_FUNDS),
   },
   headers: () => Promise.resolve([{ source: '/:path*', headers: securityHeaders }]),
   // Development only: proxy /api to the API so cookies stay first-party.

@@ -16,8 +16,10 @@ COPY apps/web apps/web
 # Public env is resolved at build time. /api is routed by the edge proxy, not Next.js.
 ARG NEXT_PUBLIC_BRAND_NAME=Exchange
 ARG NEXT_PUBLIC_PRIVY_APP_ID=
+ARG NEXT_PUBLIC_REAL_FUNDS=false
 ENV NEXT_PUBLIC_BRAND_NAME=${NEXT_PUBLIC_BRAND_NAME} \
     NEXT_PUBLIC_PRIVY_APP_ID=${NEXT_PUBLIC_PRIVY_APP_ID} \
+    NEXT_PUBLIC_REAL_FUNDS=${NEXT_PUBLIC_REAL_FUNDS} \
     NEXT_TELEMETRY_DISABLED=1 \
     NODE_ENV=production
 RUN pnpm --filter @platform/config --filter @platform/shared run build \

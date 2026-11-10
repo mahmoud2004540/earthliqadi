@@ -337,7 +337,7 @@ export function VaultPanel({ t, walletAddress }: { t: Dictionary; walletAddress:
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <CardTitle>
-            {v.title} <Badge tone="warning">{v.testnet}</Badge>
+            {v.title} {config.testnet && <Badge tone="warning">{v.testnet}</Badge>}
           </CardTitle>
           <CardDescription>{v.intro}</CardDescription>
         </div>

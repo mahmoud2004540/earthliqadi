@@ -157,7 +157,8 @@ tests/              (reserved) cross-service integration and browser e2e suites
   [0034 public testnet](docs/decisions/0034-public-testnet.md),
   [0035 email wallets via Privy](docs/decisions/0035-email-wallets-privy.md),
   [0036 deposit sheet](docs/decisions/0036-deposit-sheet.md),
-  [0037 freeze-safe withdrawals](docs/decisions/0037-freeze-safe-withdrawals.md)
+  [0037 freeze-safe withdrawals](docs/decisions/0037-freeze-safe-withdrawals.md),
+  [0038 real-funds mode](docs/decisions/0038-real-funds-mode.md)
 - Security: [controls & threat model](docs/security/threat-model.md) ·
   [dependency policy](docs/security/dependency-policy.md) ·
   [incident response (draft)](docs/security/incident-response.md) ·

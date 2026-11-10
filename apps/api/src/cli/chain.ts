@@ -6,6 +6,10 @@
  *                                          # and the markets TBTC-TUSD (spot) and TBTC-TUSD-PERP
  *                                          # Public testnet (ADR-0034): CHAIN_DEPLOYER_KEY=0x… pays
  *                                          # for the deployment; --operator 0x… is the signer's wallet.
+ *   CHAIN_MAINNET=true (ADR-0038): `chain deploy --cap USDC=5000` deploys only the vault,
+ *                                          # with the network's real USDC and a required cap;
+ *                                          # no test tokens and no markets (add perps with
+ *                                          # verified oracle feeds through the admin API).
  *   chain index                            # one indexer pass
  *   chain commit                           # snapshot + commit the balance root
  *   chain custody                          # ledger vs on-chain custody
@@ -13,7 +17,7 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { parseArgs } from 'node:util';
-import { parseAmount } from '@platform/shared';
+import { mainNetwork, parseAmount } from '@platform/shared';
 import { createPublicClient, createWalletClient, http, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { AppModule } from '../app.module';
@@ -57,13 +61,16 @@ async function run(): Promise<void> {
         // Asset codes are permanent once linked to a token: redeploys use a --suffix.
         const sfx = (values.suffix ?? '').toUpperCase();
         if (!/^[A-Z0-9]{0,8}$/.test(sfx)) throw new Error('--suffix: up to 8 of [A-Z0-9]');
+        const real = config.CHAIN_MAINNET;
         const depositCaps: Record<string, bigint> = {};
         for (const c of values.cap ?? []) {
           const m = /^([A-Z0-9]+)=(\d+(?:\.\d+)?)$/.exec(c);
           if (!m) throw new Error(`--cap: expected CODE=AMOUNT, got "${c}"`);
-          const decimals = m[1] === 'TBTC' ? 8 : m[1] === 'TUSD' ? 6 : null;
-          if (decimals === null) throw new Error(`--cap: unknown token ${m[1]} (TUSD or TBTC)`);
-          depositCaps[`${m[1]}${sfx}`] = parseAmount(m[2]!, decimals);
+          const known: Record<string, number> = real ? { USDC: 6 } : { TBTC: 8, TUSD: 6 };
+          const decimals = known[m[1]!];
+          if (decimals === undefined)
+            throw new Error(`--cap: unknown token ${m[1]} (${Object.keys(known).join(' or ')})`);
+          depositCaps[real ? m[1]! : `${m[1]}${sfx}`] = parseAmount(m[2]!, decimals);
         }
         // A one-off deployer key (public testnets) is read here only, never by the server.
         const deployerKey = process.env.CHAIN_DEPLOYER_KEY;
@@ -79,12 +86,31 @@ async function run(): Promise<void> {
           }).getBalance({ address: account.address });
           if (gas === 0n)
             throw new Error(
-              `The deployer ${account.address} has no test ETH for gas; fund it from a testnet faucet first`,
+              real
+                ? `The deployer ${account.address} has no ETH for gas`
+                : `The deployer ${account.address} has no test ETH for gas; fund it from a testnet faucet first`,
             );
           deployer = { wallet, account };
         }
         if (values.operator !== undefined && !/^0x[0-9a-fA-F]{40}$/.test(values.operator))
           throw new Error('--operator must be a 0x-prefixed address');
+        if (real) {
+          // Real funds: the network's USDC only, a required cap, no markets here.
+          const net = mainNetwork(await chain.chainId());
+          if (!net) throw new Error('This RPC is not an allowed real-value network');
+          if (!deployer) throw new Error('CHAIN_DEPLOYER_KEY is required on a real network');
+          if (!values.operator) throw new Error('--operator is required on a real network');
+          const r = await chain.deploy({
+            deployer,
+            operator: values.operator as Hex,
+            depositCaps,
+            tokens: [],
+            existing: [{ code: 'USDC', address: net.usdc as Hex }],
+            freezeDelaySeconds: Number(values['freeze-delay'] ?? 7 * 24 * 3600),
+          });
+          process.stdout.write(`${JSON.stringify({ ...r, network: net.name }, null, 2)}\n`);
+          break;
+        }
         const r = await chain.deploy({
           deployer,
           operator: values.operator as Hex | undefined,

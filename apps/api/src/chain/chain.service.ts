@@ -5,6 +5,7 @@ import {
   formatAmountTrimmed,
   parseAmount,
   TEST_NETWORKS,
+  mainNetwork,
   testNetwork,
   type VaultConfigDto,
   type WalletBalancesDto,
@@ -134,8 +135,13 @@ export class ChainService {
   async chainId(): Promise<number> {
     if (this.chainIdCache === null) {
       const id = await this.rpc().getChainId();
-      if (!ALLOWED_CHAIN_IDS.has(id))
-        throw new ChainInvariantError(`Chain ${id} is not an allowed testnet (ADR-0014)`);
+      // Real-value networks only with CHAIN_MAINNET (ADR-0038); otherwise test networks only.
+      if (this.config.CHAIN_MAINNET ? !mainNetwork(id) : !ALLOWED_CHAIN_IDS.has(id))
+        throw new ChainInvariantError(
+          this.config.CHAIN_MAINNET
+            ? `Chain ${id} is not an allowed real-value network (ADR-0038)`
+            : `Chain ${id} is not an allowed testnet (ADR-0014)`,
+        );
       this.chainIdCache = id;
     }
     return this.chainIdCache;
@@ -210,10 +216,62 @@ export class ChainService {
     deployer?: { wallet: WalletClient; account: PrivateKeyAccount };
     /** Vault operator address; defaults to the configured operator signer's address. */
     operator?: Hex;
+    /**
+     * Real-value networks (ADR-0038): tokens that already exist (only the
+     * network's USDC), instead of deploying test tokens.
+     */
+    existing?: { code: string; address: Hex }[];
   }): Promise<{ vault: Hex; tokens: Record<string, Hex> }> {
     const { wallet, account } = input.deployer ?? this.signer();
     const operatorAddress = input.operator ?? (await this.operator().address());
     const chainId = await this.chainId();
+    const existing = input.existing ?? [];
+    const real = mainNetwork(chainId);
+    if (this.config.CHAIN_MAINNET) {
+      if (!real) throw conflict(`Chain ${chainId} is not an allowed real-value network`);
+      if (input.tokens.length > 0)
+        throw conflict('Test tokens are never deployed on a real-value network');
+      if (existing.length === 0) throw conflict('Name the collateral token (USDC)');
+      for (const t of existing) {
+        if (lower(t.address) !== lower(real.usdc))
+          throw conflict(`Only ${real.name}'s USDC (${real.usdc}) is allowed as collateral`);
+        const cap = input.depositCaps?.[t.code];
+        if (cap === undefined || cap <= 0n || cap === maxUint256)
+          throw conflict(`A finite deposit cap is required for ${t.code} (ADR-0033, ADR-0038)`);
+        // A token links to one asset code for good (unique chain_token_address).
+        const linked = await this.prisma.asset.findFirst({
+          where: { chainTokenAddress: lower(t.address) },
+        });
+        if (linked && linked.code !== t.code)
+          throw conflict(`${t.address} is already the asset ${linked.code}; deploy with that code`);
+        // Custody is tracked per asset: a new vault must not start while an older one
+        // still holds this asset in the ledger (move users out first).
+        const prior = await this.prisma.asset.findUnique({ where: { code: t.code } });
+        if (prior) {
+          const custody = await this.prisma.ledgerAccount.findFirst({
+            where: { assetId: prior.id, type: 'VAULT_CUSTODY' },
+          });
+          if (custody && toMinorUnits(custody.balance) !== 0n)
+            throw conflict(`A previous vault still holds ${t.code}; migrate it before redeploying`);
+        }
+      }
+    } else if (existing.length > 0) {
+      throw conflict('Existing tokens are only used on a real-value network (CHAIN_MAINNET)');
+    }
+    // Read what each existing token says about itself; refuse anything unexpected.
+    const existingMeta = new Map<string, { name: string; decimals: number }>();
+    for (const t of existing) {
+      const read = (functionName: string) =>
+        this.rpc().readContract({ address: t.address, abi: TOKEN_ABI as never, functionName });
+      const [name, symbol, decimals] = (await Promise.all([
+        read('name'),
+        read('symbol'),
+        read('decimals'),
+      ])) as [string, string, number];
+      if (symbol !== 'USDC' || Number(decimals) !== 6)
+        throw conflict(`${t.address} reports ${symbol}/${decimals}, expected USDC/6`);
+      existingMeta.set(t.code, { name, decimals: Number(decimals) });
+    }
     if (chainId === 31337) {
       // Local chain: give the development operator test ETH for gas.
       await this.rpc().request({
@@ -233,27 +291,43 @@ export class ChainService {
       const r = await this.rpc().waitForTransactionReceipt({ hash });
       tokens[t.code] = r.contractAddress!;
     }
+    for (const t of existing) tokens[t.code] = getAddress(t.address);
+    const all = [...input.tokens.map((t) => t.code), ...existing.map((t) => t.code)];
     const hash = await wallet.deployContract({
       abi: VAULT_ABI as never,
       bytecode: vaultArtifact.bytecode as Hex,
       args: [
         operatorAddress,
         BigInt(input.freezeDelaySeconds),
-        input.tokens.map((t) => tokens[t.code]!),
-        input.tokens.map((t) => input.depositCaps?.[t.code] ?? maxUint256),
+        all.map((code) => tokens[code]!),
+        all.map((code) => input.depositCaps?.[code] ?? maxUint256),
       ] as never,
       account,
       chain: null,
     });
     const receipt = await this.rpc().waitForTransactionReceipt({ hash });
     const vault = receipt.contractAddress!;
-    for (const t of input.tokens) {
-      const existing = await this.prisma.asset.findUnique({ where: { code: t.code } });
-      if (!existing) {
+    const assets = [
+      ...input.tokens.map((t) => ({
+        code: t.code,
+        name: `${t.name} (testnet, no value)`,
+        scale: t.decimals,
+      })),
+      ...existing.map((t) => ({
+        code: t.code,
+        name: existingMeta.get(t.code)!.name,
+        scale: existingMeta.get(t.code)!.decimals,
+      })),
+    ];
+    for (const t of assets) {
+      const found = await this.prisma.asset.findUnique({ where: { code: t.code } });
+      if (!found) {
         await this.ledger.createAsset(
-          { code: t.code, name: `${t.name} (testnet, no value)`, scale: t.decimals },
+          { code: t.code, name: t.name, scale: t.scale },
           { actorType: 'SYSTEM' },
         );
+      } else if (found.scale !== t.scale) {
+        throw conflict(`Asset ${t.code} exists with scale ${found.scale}, token has ${t.scale}`);
       }
       await this.prisma.asset.update({
         where: { code: t.code },
@@ -656,7 +730,7 @@ export class ChainService {
         {
           type: 'WITHDRAWAL_HOLD',
           idempotencyKey: `withdrawal-hold:${id}`,
-          description: `Withdrawal to ${getAddress(user.walletAddress!)} (testnet)`,
+          description: `Withdrawal to ${getAddress(user.walletAddress!)}${this.config.CHAIN_MAINNET ? '' : ' (testnet)'}`,
           postings: [
             { accountId: available, direction: 'DEBIT', amount },
             { accountId: withdrawing, direction: 'CREDIT', amount },
@@ -859,7 +933,11 @@ export class ChainService {
     await this.requireDeployment();
     const asset = await this.ledger.requireAsset(assetCode);
     if (!asset.chainTokenAddress) throw conflict(`${assetCode} is not held in the vault`);
-    if (capText === 'unlimited') return maxUint256;
+    if (capText === 'unlimited') {
+      // With real funds the cap bounds the loss from an unknown contract bug (ADR-0038).
+      if (this.config.CHAIN_MAINNET) throw conflict('A deposit cap is required with real funds');
+      return maxUint256;
+    }
     try {
       return parseAmount(capText, asset.scale);
     } catch (err) {
@@ -1374,7 +1452,7 @@ export class ChainService {
         vault: null,
         tokens: [],
         freezeDelaySeconds: null,
-        testnet: true,
+        testnet: !this.config.CHAIN_MAINNET,
       };
     const assets = await this.vaultAssets(d);
     const caps = await this.depositCaps(d, assets);
@@ -1395,10 +1473,10 @@ export class ChainService {
         held: formatAmountTrimmed(caps[i]!.held, a.scale),
       })),
       freezeDelaySeconds: Number(delay),
-      testnet: true,
+      testnet: !this.config.CHAIN_MAINNET,
       faucet: this.config.CHAIN_FAUCET_ENABLED && d.chainId === 31337,
-      network: testNetwork(d.chainId),
-      selfMint: d.chainId !== 31337,
+      network: this.config.CHAIN_MAINNET ? mainNetwork(d.chainId) : testNetwork(d.chainId),
+      selfMint: !this.config.CHAIN_MAINNET && d.chainId !== 31337,
       confirmations: this.config.CHAIN_CONFIRMATIONS,
     };
   }

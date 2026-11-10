@@ -54,3 +54,29 @@ export const TEST_NETWORKS: readonly TestNetwork[] = [
 export function testNetwork(chainId: number): TestNetwork | null {
   return TEST_NETWORKS.find((n) => n.chainId === chainId) ?? null;
 }
+
+/**
+ * Networks with REAL value (ADR-0038). Used only when the server runs with
+ * CHAIN_MAINNET=true. Addresses were checked against the issuer's official
+ * page and on-chain (name, symbol, decimals) on 2026-11-10.
+ */
+export interface MainNetwork extends TestNetwork {
+  /** Circle's native USDC on this network. */
+  usdc: string;
+}
+
+export const MAINNET_NETWORKS: readonly MainNetwork[] = [
+  {
+    chainId: 8453,
+    name: 'Base',
+    // Public, rate-limited RPC offered to wallets only; the server needs its own provider.
+    rpcUrl: 'https://mainnet.base.org',
+    explorerUrl: 'https://basescan.org',
+    gasFaucetInfo: null,
+    usdc: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+  },
+];
+
+export function mainNetwork(chainId: number): MainNetwork | null {
+  return MAINNET_NETWORKS.find((n) => n.chainId === chainId) ?? null;
+}
