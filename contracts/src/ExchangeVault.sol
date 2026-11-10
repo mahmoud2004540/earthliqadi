@@ -80,6 +80,10 @@ contract ExchangeVault {
     /// Deposits minus payouts per token (never below zero). Used for the cap only;
     /// tokens sent to the vault without `deposit` are not counted.
     mapping(address => uint256) public held;
+    /// After a freeze: how much of a user's withdrawals against the frozen root
+    /// (`withdrawnAt[stateIndex]` + `withdrawnAt[stateIndex + 1]`) has already been
+    /// netted against `escape` and `escapeDeposit` payouts.
+    mapping(address => mapping(address => uint256)) public escapeNetted;
 
     uint256 private locked = 1;
 
@@ -278,8 +282,7 @@ contract ExchangeVault {
         if (escaped[msg.sender][token]) revert AlreadyUsed();
         if (!_verify(proof, stateRoot, leaf(msg.sender, token, balance))) revert BadProof();
         escaped[msg.sender][token] = true;
-        uint256 spent = withdrawnAt[msg.sender][token][stateIndex] + withdrawnAt[msg.sender][token][stateIndex + 1];
-        uint256 payout = balance > spent ? balance - spent : 0;
+        uint256 payout = _netOfWithdrawals(msg.sender, token, balance);
         if (payout > 0) {
             _release(token, payout);
             _safeTransfer(token, msg.sender, payout);
@@ -287,7 +290,9 @@ contract ExchangeVault {
         emit Escaped(msg.sender, token, payout);
     }
 
-    /// @notice After a freeze: reclaim a deposit made after the latest commitment.
+    /// @notice After a freeze: reclaim a deposit made after the latest commitment,
+    ///         minus withdrawals against the frozen root not yet netted by `escape`
+    ///         (a post-root deposit may already have been withdrawn).
     function escapeDeposit(uint64 depositId) external nonReentrant {
         if (!frozen) revert NotFrozen();
         if (depositId <= stateLastDepositId || depositId > depositCount) revert BadStateIndex();
@@ -295,12 +300,30 @@ contract ExchangeVault {
         DepositRecord memory d = deposits[depositId];
         if (d.user != msg.sender) revert NotDepositor();
         depositEscaped[depositId] = true;
-        _release(d.token, d.amount);
-        _safeTransfer(d.token, d.user, d.amount);
-        emit Escaped(d.user, d.token, d.amount);
+        uint256 payout = _netOfWithdrawals(d.user, d.token, d.amount);
+        if (payout > 0) {
+            _release(d.token, payout);
+            _safeTransfer(d.token, d.user, payout);
+        }
+        emit Escaped(d.user, d.token, payout);
     }
 
     // --------------------------------------------------------------- helpers
+
+    /// After a freeze, a user's claims (committed balance via `escape`, and each
+    /// post-root deposit via `escapeDeposit`) are reduced by the withdrawals
+    /// executed against the frozen root, in whatever order they are made:
+    /// total paid = committed + post-root deposits − those withdrawals (≥ 0).
+    /// Those withdrawal totals cannot change once frozen (`withdraw` is closed and
+    /// `withdrawAfterFreeze` records under older indices).
+    function _netOfWithdrawals(address user, address token, uint256 claim) private returns (uint256) {
+        uint256 spent = withdrawnAt[user][token][stateIndex] + withdrawnAt[user][token][stateIndex + 1];
+        uint256 netted = escapeNetted[user][token];
+        uint256 left = spent > netted ? spent - netted : 0;
+        uint256 offset = claim < left ? claim : left;
+        escapeNetted[user][token] = netted + offset;
+        return claim - offset;
+    }
 
     /// Lowers `held` by a payout, never below zero (a payout can include tokens
     /// that were sent to the vault directly, without `deposit`).

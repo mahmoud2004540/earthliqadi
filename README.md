@@ -156,10 +156,12 @@ tests/              (reserved) cross-service integration and browser e2e suites
   [0033 vault deposit cap](docs/decisions/0033-vault-deposit-cap.md),
   [0034 public testnet](docs/decisions/0034-public-testnet.md),
   [0035 email wallets via Privy](docs/decisions/0035-email-wallets-privy.md),
-  [0036 deposit sheet](docs/decisions/0036-deposit-sheet.md)
+  [0036 deposit sheet](docs/decisions/0036-deposit-sheet.md),
+  [0037 freeze-safe withdrawals](docs/decisions/0037-freeze-safe-withdrawals.md)
 - Security: [controls & threat model](docs/security/threat-model.md) ·
   [dependency policy](docs/security/dependency-policy.md) ·
-  [incident response (draft)](docs/security/incident-response.md)
+  [incident response (draft)](docs/security/incident-response.md) ·
+  [internal contract review, Nov 2026 (not an audit)](docs/security/internal-review-2026-11.md)
 - [API reference](docs/api/README.md)
 - Operations: [local development](docs/operations/local-development.md) ·
   [public testnet launch](docs/operations/public-testnet.md) ·

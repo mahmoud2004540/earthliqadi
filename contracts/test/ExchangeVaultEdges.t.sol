@@ -293,6 +293,105 @@ contract ExchangeVaultEdgeTest is TestBase {
         eq(usd.balanceOf(alice), 1_000e6, "deposit reclaimed in full");
     }
 
+    // ------------------------------------- post-root deposits that were withdrawn
+
+    /// Internal review finding: a deposit made after the latest root, credited and
+    /// withdrawn before a freeze, must not be paid again by escapeDeposit.
+    function test_freeze_withdrawnPostRootDepositIsNotPaidTwice() public {
+        usd.mint(bob, 500e6);
+        vm.prank(bob);
+        usd.approve(address(vault), type(uint256).max);
+        vm.prank(bob);
+        vault.deposit(address(usd), 500e6); // id 1: other users' money in the vault
+        bytes32 root = vault.leaf(bob, address(usd), 500e6);
+        vm.prank(operator);
+        vault.commitState(1, root, 1); // root 1: bob 500, alice 0
+
+        vm.prank(alice);
+        uint64 id = vault.deposit(address(usd), 100e6); // id 2, after root 1
+        ExchangeVault.Withdrawal memory w = _w(address(usd), alice, 100e6, 1);
+        vault.withdraw(w, _sign(w)); // alice takes the 100 back out
+        eq(usd.balanceOf(alice), 1_000e6, "alice is whole again");
+
+        _freeze();
+        vm.prank(alice);
+        try vault.escapeDeposit(id) {} catch {}
+        eq(usd.balanceOf(alice), 1_000e6, "alice must not be paid her deposit twice");
+        bytes32[] memory none = new bytes32[](0);
+        vm.prank(bob);
+        vault.escape(address(usd), 500e6, none);
+        eq(usd.balanceOf(bob), 500e6, "bob can still take his full balance");
+    }
+
+    /// Any committed balance, post-root deposits and withdrawals against the root,
+    /// claimed in any order: alice gets exactly committed + deposits − withdrawn,
+    /// and bob (whose money shares the vault) always gets his full balance.
+    function testFuzz_freeze_postRootClaimsAreNettedInAnyOrder(
+        uint96 rootSeed,
+        uint96 depSeed,
+        uint96 wSeed,
+        bool nextSnapshot,
+        uint8 order
+    ) public {
+        uint256 committed = bound(rootSeed, 0, 300e6);
+        uint256 dep = bound(depSeed, 1, 300e6);
+        usd.mint(bob, 500e6);
+        vm.prank(bob);
+        usd.approve(address(vault), type(uint256).max);
+        vm.prank(bob);
+        vault.deposit(address(usd), 500e6);
+        if (committed > 0) {
+            vm.prank(alice);
+            vault.deposit(address(usd), committed);
+        }
+        bytes32 lb = vault.leaf(bob, address(usd), 500e6);
+        bytes32 la = vault.leaf(alice, address(usd), committed);
+        bytes32 root = lb < la ? keccak256(abi.encode(lb, la)) : keccak256(abi.encode(la, lb));
+        uint64 lastId = vault.depositCount();
+        vm.prank(operator);
+        vault.commitState(1, root, lastId);
+
+        vm.prank(alice);
+        uint64 id = vault.deposit(address(usd), dep);
+        uint256 withdrawn = bound(wSeed, 0, committed + dep);
+        if (withdrawn > 0) {
+            ExchangeVault.Withdrawal memory w = _w(address(usd), alice, withdrawn, nextSnapshot ? 2 : 1);
+            vault.withdraw(w, _sign(w));
+        }
+        uint256 aliceBefore = usd.balanceOf(alice);
+        _freeze();
+
+        bytes32[] memory pa = new bytes32[](1);
+        pa[0] = lb;
+        bytes32[] memory pb = new bytes32[](1);
+        pb[0] = la;
+        if (order % 3 == 0) {
+            vm.prank(alice);
+            vault.escapeDeposit(id);
+            vm.prank(alice);
+            vault.escape(address(usd), committed, pa);
+        } else if (order % 3 == 1) {
+            vm.prank(alice);
+            vault.escape(address(usd), committed, pa);
+            vm.prank(alice);
+            vault.escapeDeposit(id);
+        } else {
+            vm.prank(bob);
+            vault.escape(address(usd), 500e6, pb);
+            vm.prank(alice);
+            vault.escapeDeposit(id);
+            vm.prank(alice);
+            vault.escape(address(usd), committed, pa);
+        }
+        eq(usd.balanceOf(alice) - aliceBefore, committed + dep - withdrawn, "alice: net of withdrawals");
+        if (order % 3 != 2) {
+            vm.prank(bob);
+            vault.escape(address(usd), 500e6, pb);
+        }
+        eq(usd.balanceOf(bob), 500e6, "bob: full balance");
+        eq(usd.balanceOf(address(vault)), 0, "nothing left, nothing missing");
+    }
+
     // ------------------------------------------ signed withdrawals after a freeze
 
     /// Root 1: alice 100. Operator holds 40 after snapshot 1 and signs it (afterState 1).

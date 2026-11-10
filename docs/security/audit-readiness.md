@@ -1,7 +1,10 @@
 # ExchangeVault: audit readiness
 
 This is the brief for an external smart-contract audit. **The contract has
-not been audited.** Nothing in this repository claims otherwise. Until an
+not been audited.** Nothing in this repository claims otherwise.
+An internal review (not an audit) found and fixed two issues in November
+2026; see [internal-review-2026-11.md](internal-review-2026-11.md) and
+ADR-0037. Auditors should look closely at the freeze accounting. Until an
 audit report is published and its findings are fixed, the contract is for
 test networks only.
 

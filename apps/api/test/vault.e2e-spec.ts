@@ -202,6 +202,16 @@ describe('non-custodial vault on the local chain', () => {
       const maker = (await signInWallet(generatePrivateKey())).userId;
       const checker = (await signInWallet(generatePrivateKey())).userId;
       const staff = (userId: string) => ({ userId, permissions: ['ledger:adjust' as const] });
+      // ADR-0037: until a committed root reflects the fee, a freeze would still owe it to
+      // the customer (their deposit is reclaimable in full), so the treasury must wait.
+      await expect(
+        approvals.request(
+          { action: 'treasury.withdraw', payload: { asset: USD, amount: '5' }, reason: 'Early' },
+          staff(maker),
+        ),
+      ).rejects.toThrow(/settled outside every possible frozen state/);
+      expect(await chain.commitState()).not.toBeNull();
+      await chain.indexOnce();
       // More than the collected revenue is refused up front: customer funds are never reachable.
       await expect(
         approvals.request(
@@ -515,6 +525,97 @@ describe('non-custodial vault on the local chain', () => {
       const run = await app.get(ReconciliationService).run('CLI');
       expect(run.findings).toEqual([]);
     },
+  );
+
+  it_(
+    'withdrawals never exceed what a frozen root would still owe (ADR-0037)',
+    async () => {
+      const suffix = randomBytes(3).toString('hex').toUpperCase();
+      const USD = `TG${suffix}`;
+      const { vault, tokens } = await chain.deploy({
+        tokens: [{ code: USD, name: 'Test USD', decimals: 6, faucetLimit: 10n ** 15n }],
+        freezeDelaySeconds: 3600,
+      });
+      const usd = tokens[USD]!;
+      const fund = async (key: Hex, amount: bigint) => {
+        const wallet = createWalletClient({
+          account: privateKeyToAccount(key),
+          transport: http(RPC),
+        });
+        for (const [address, abi, fn, args] of [
+          [usd, TOKEN_ABI, 'approve', [vault, 2n ** 255n]],
+          [vault, VAULT_ABI, 'deposit', [usd, amount]],
+        ] as const) {
+          const hash = await wallet.writeContract({
+            address,
+            abi: abi as never,
+            functionName: fn,
+            args,
+            chain: null,
+          });
+          expect((await client.waitForTransactionReceipt({ hash })).status).toBe('success');
+        }
+      };
+      const aliceKey = generatePrivateKey();
+      const bobKey = generatePrivateKey();
+      const alice = await signInWallet(aliceKey);
+      const bob = await signInWallet(bobKey);
+      for (const u of [alice, bob])
+        expect((await u.http.post('/v1/vault/faucet', {})).status).toBe(200);
+      await fund(aliceKey, 100_000_000n);
+      await fund(bobKey, 100_000_000n);
+      await chain.indexOnce();
+      expect(await chain.commitState()).not.toBeNull(); // root: alice 100, bob 100
+      await chain.indexOnce();
+
+      // After the root, bob loses 30 to alice (as a trade would).
+      const asset = await ledger.requireAsset(USD);
+      await ledger.post(
+        {
+          type: 'TRADE',
+          idempotencyKey: `test-gain:${suffix}`,
+          description: 'Test trade',
+          postings: [
+            {
+              accountId: await ledger.accountId(asset.id, 'USER_AVAILABLE', bob.userId),
+              direction: 'DEBIT',
+              amount: 30_000_000n,
+            },
+            {
+              accountId: await ledger.accountId(asset.id, 'USER_AVAILABLE', alice.userId),
+              direction: 'CREDIT',
+              amount: 30_000_000n,
+            },
+          ],
+        },
+        SYSTEM,
+      );
+
+      // A freeze now would pay bob his committed 100, so alice's new 30 must wait.
+      const tooMuch = await alice.http.post('/v1/vault/withdrawals', { asset: USD, amount: '130' });
+      expect(tooMuch.status).toBe(409);
+      expect(tooMuch.body.error.message).toMatch(/At most 100 /);
+      expect(
+        (await alice.http.post('/v1/vault/withdrawals', { asset: USD, amount: '100' })).status,
+      ).toBe(201);
+      expect(
+        (await alice.http.post('/v1/vault/withdrawals', { asset: USD, amount: '1' })).status,
+      ).toBe(409);
+
+      // A deposit after the root is withdrawable at once (it is reclaimable either way).
+      await fund(bobKey, 50_000_000n);
+      await chain.indexOnce();
+      const bobOut = await bob.http.post('/v1/vault/withdrawals', { asset: USD, amount: '120' });
+      expect(bobOut.status).toBe(201);
+
+      // Once a root includes the gain, it can leave.
+      expect(await chain.commitState()).not.toBeNull();
+      await chain.indexOnce();
+      expect(
+        (await alice.http.post('/v1/vault/withdrawals', { asset: USD, amount: '30' })).status,
+      ).toBe(201);
+    },
+    180_000,
   );
 
   it_('vault-backed markets are for wallet accounts only', async () => {

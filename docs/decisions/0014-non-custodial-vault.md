@@ -29,7 +29,9 @@ Testnet and local chain only. **Not audited.**
   - `escape(token, balance, proof)` once: committed balance minus withdrawals
     signed against the latest or next snapshot (`withdrawnAt[stateIndex]` +
     `withdrawnAt[stateIndex+1]`);
-  - `escapeDeposit(id)` for their deposits made after the snapshot.
+  - `escapeDeposit(id)` for their deposits made after the snapshot. Since
+    ADR-0037, both calls share one netting of the withdrawals above, so a
+    post-root deposit that was already withdrawn is not paid twice.
   - `withdrawAfterFreeze(w, sig)` for a signed withdrawal they never
     submitted, when the frozen root provably excludes it:
     `afterState < stateIndex` and `expiry >= lastCommitAt`. Without this, such

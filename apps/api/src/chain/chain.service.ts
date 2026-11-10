@@ -44,6 +44,8 @@ export const ALLOWED_CHAIN_IDS = new Set(TEST_NETWORKS.map((n) => n.chainId));
 
 const CHAIN_ACTOR: LedgerActor = { actorType: 'SYSTEM', requestId: 'chain-indexer' };
 const STATE_LOCK_KEY = 0x7661756c74; // "vault"
+/** Two-key advisory lock namespace serialising withdrawal limits per wallet (ADR-0037). */
+const WITHDRAW_LOCK_NS = 0x7764; // "wd"
 const MAX_LOG_RANGE = 2000n;
 
 const VAULT_ABI = vaultArtifact.abi;
@@ -483,6 +485,132 @@ export class ChainService {
     return s?.index ?? 0n;
   }
 
+  // ------------------------------------------------- freeze safety (ADR-0037)
+
+  /**
+   * The states a freeze could leave the vault on: afterState − 1 and afterState,
+   * except those older than the contract's state index at the indexed (confirmed)
+   * block, since the on-chain index never goes back.
+   */
+  private async freezeCandidates(
+    tx: Prisma.TransactionClient,
+    d: ChainDeployment,
+    afterState: bigint,
+  ): Promise<bigint[]> {
+    const cursor = await tx.chainCursor.findUniqueOrThrow({ where: { chainId: d.chainId } });
+    const floor = (await this.rpc().readContract({
+      address: d.vaultAddress as Hex,
+      abi: VAULT_ABI as never,
+      functionName: 'stateIndex',
+      blockNumber: cursor.lastBlock,
+    })) as bigint;
+    const fs = [afterState - 1n, afterState].filter((f) => f >= 0n && f >= floor);
+    return fs.length > 0 ? fs : [afterState];
+  }
+
+  /**
+   * If the vault froze now, its root would be state F = afterState − 1 or
+   * afterState (`withdraw` accepts afterState ≤ stateIndex + 1), never one
+   * older than the confirmed on-chain index. For that F a
+   * wallet can claim its leaf plus its deposits after F, minus its withdrawals
+   * signed against F or F + 1 (the contract nets those). So a new withdrawal
+   * must fit, for both F, in:
+   *   leaf_F + deposits after F − withdrawals at {F, F+1} (signed or executed).
+   * Trading gains made after F are not in leaf_F: they wait for the next root.
+   */
+  private async freezeSafeRoom(
+    tx: Prisma.TransactionClient,
+    d: ChainDeployment,
+    assetId: string,
+    afterState: bigint,
+    wallet: string,
+  ): Promise<bigint> {
+    let room: bigint | null = null;
+    for (const f of await this.freezeCandidates(tx, d, afterState)) {
+      const [r] = await tx.$queryRaw<{ leaf: string; deps: string; wd: string }[]>`
+        WITH st AS (
+          SELECT COALESCE(MAX("last_deposit_id"), 0) AS last
+            FROM "vault_states"
+           WHERE "chain_id" = ${d.chainId} AND "vault_address" = ${d.vaultAddress} AND "index" = ${f}
+        ), tok AS (SELECT "chain_token_address" AS t FROM "assets" WHERE "id" = ${assetId}::uuid)
+        SELECT
+          (SELECT COALESCE(SUM(l."balance"), 0) FROM "vault_state_leaves" l, tok
+            WHERE l."chain_id" = ${d.chainId} AND l."vault_address" = ${d.vaultAddress}
+              AND l."index" = ${f} AND lower(l."wallet_address") = ${wallet}
+              AND lower(l."token_address") = lower(tok.t))::text AS "leaf",
+          (SELECT COALESCE(SUM(c."amount"), 0) FROM "chain_deposits" c, st
+            WHERE c."chain_id" = ${d.chainId} AND c."vault_address" = ${d.vaultAddress}
+              AND c."asset_id" = ${assetId}::uuid AND lower(c."wallet_address") = ${wallet}
+              AND c."deposit_id" > st.last)::text AS "deps",
+          (SELECT COALESCE(SUM(w."amount"), 0) FROM "withdrawals" w
+            WHERE w."chain_id" = ${d.chainId} AND w."vault_address" = ${d.vaultAddress}
+              AND w."asset_id" = ${assetId}::uuid AND lower(w."wallet_address") = ${wallet}
+              AND NOT w."is_treasury" AND w."status" IN ('SIGNED', 'EXECUTED')
+              AND w."after_state" IN (${f}, ${f + 1n}))::text AS "wd"`;
+      const v = BigInt(r!.leaf) + BigInt(r!.deps) - BigInt(r!.wd);
+      room = room === null || v < room ? v : room;
+    }
+    return room!;
+  }
+
+  /**
+   * Fee revenue the treasury may take without leaving a frozen root short:
+   * the vault's balance at the indexed block, minus every signed withdrawal
+   * not yet executed, minus what all wallets could claim for F (as above), for
+   * both possible F. Users' fees collected after F are still in their leaves.
+   */
+  private surplusError(surplus: bigint, asset: { code: string; scale: number }): AppError {
+    return conflict(
+      `Only ${formatAmountTrimmed(surplus > 0n ? surplus : 0n, asset.scale)} ${asset.code} of fee revenue is ` +
+        'settled outside every possible frozen state; try again after the next state commitment.',
+    );
+  }
+
+  private async freezeSurplus(
+    tx: Prisma.TransactionClient,
+    d: ChainDeployment,
+    assetId: string,
+    afterState: bigint,
+  ): Promise<bigint> {
+    const asset = await tx.asset.findUniqueOrThrow({ where: { id: assetId } });
+    const cursor = await tx.chainCursor.findUniqueOrThrow({ where: { chainId: d.chainId } });
+    const balance = (await this.rpc().readContract({
+      address: asset.chainTokenAddress as Hex,
+      abi: TOKEN_ABI as never,
+      functionName: 'balanceOf',
+      args: [d.vaultAddress as Hex] as never,
+      blockNumber: cursor.lastBlock,
+    })) as bigint;
+    let surplus: bigint | null = null;
+    for (const f of await this.freezeCandidates(tx, d, afterState)) {
+      const [r] = await tx.$queryRaw<{ leaves: string; deps: string; wd: string; open: string }[]>`
+        WITH st AS (
+          SELECT COALESCE(MAX("last_deposit_id"), 0) AS last
+            FROM "vault_states"
+           WHERE "chain_id" = ${d.chainId} AND "vault_address" = ${d.vaultAddress} AND "index" = ${f}
+        )
+        SELECT
+          (SELECT COALESCE(SUM(l."balance"), 0) FROM "vault_state_leaves" l
+            WHERE l."chain_id" = ${d.chainId} AND l."vault_address" = ${d.vaultAddress}
+              AND l."index" = ${f} AND lower(l."token_address") = lower(${asset.chainTokenAddress}))::text AS "leaves",
+          (SELECT COALESCE(SUM(c."amount"), 0) FROM "chain_deposits" c, st
+            WHERE c."chain_id" = ${d.chainId} AND c."vault_address" = ${d.vaultAddress}
+              AND c."asset_id" = ${assetId}::uuid AND c."deposit_id" > st.last)::text AS "deps",
+          (SELECT COALESCE(SUM(w."amount"), 0) FROM "withdrawals" w
+            WHERE w."chain_id" = ${d.chainId} AND w."vault_address" = ${d.vaultAddress}
+              AND w."asset_id" = ${assetId}::uuid AND NOT w."is_treasury"
+              AND w."status" IN ('SIGNED', 'EXECUTED')
+              AND w."after_state" IN (${f}, ${f + 1n}))::text AS "wd",
+          (SELECT COALESCE(SUM(w."amount"), 0) FROM "withdrawals" w
+            WHERE w."chain_id" = ${d.chainId} AND w."vault_address" = ${d.vaultAddress}
+              AND w."asset_id" = ${assetId}::uuid AND w."status" = 'SIGNED')::text AS "open"`;
+      const owed = BigInt(r!.leaves) + BigInt(r!.deps) - BigInt(r!.wd);
+      const v = balance - BigInt(r!.open) - owed;
+      surplus = surplus === null || v < surplus ? v : surplus;
+    }
+    return surplus!;
+  }
+
   async requestWithdrawal(
     userId: string,
     assetCode: string,
@@ -514,6 +642,15 @@ export class ChainService {
       // Shared lock: a snapshot cannot be taken between reading the state index and the hold.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(${STATE_LOCK_KEY})`;
       const afterState = await this.latestStateIndex(tx, d);
+      // A frozen root must never owe more than the vault holds (ADR-0037).
+      const wallet = user.walletAddress!.toLowerCase();
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${WITHDRAW_LOCK_NS}::int, hashtext(${wallet}))`;
+      const room = await this.freezeSafeRoom(tx, d, asset.id, afterState, wallet);
+      if (amount > room)
+        throw conflict(
+          `At most ${formatAmountTrimmed(room > 0n ? room : 0n, asset.scale)} ${asset.code} can be withdrawn right now. ` +
+            'Recent trading gains become withdrawable after the next on-chain state commitment.',
+        );
       await this.ledger.postWithin(
         tx,
         {
@@ -779,6 +916,15 @@ export class ChainService {
       throw new AppError(HttpStatus.BAD_REQUEST, 'VALIDATION_FAILED', 'Amount must be positive');
     if (amount > (await this.feeRevenue(asset.id)))
       throw conflict('The amount is more than the collected fee revenue');
+    // Also checked again, under the lock, when it executes (ADR-0037).
+    const d = await this.requireDeployment();
+    const surplus = await this.freezeSurplus(
+      this.prisma,
+      d,
+      asset.id,
+      await this.latestStateIndex(this.prisma, d),
+    );
+    if (amount > surplus) throw this.surplusError(surplus, asset);
     return amount;
   }
 
@@ -812,6 +958,10 @@ export class ChainService {
     const row = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(${STATE_LOCK_KEY})`;
       const afterState = await this.latestStateIndex(tx, d);
+      // Fees collected after the frozen root are still in users' leaves (ADR-0037).
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${WITHDRAW_LOCK_NS}::int, 0)`;
+      const surplus = await this.freezeSurplus(tx, d, asset.id, afterState);
+      if (amount > surplus) throw this.surplusError(surplus, asset);
       // FEE_REVENUE cannot go negative: the ledger refuses more than was collected.
       await this.ledger.postWithin(
         tx,
