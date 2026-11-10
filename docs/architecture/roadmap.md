@@ -143,6 +143,34 @@ tests, security review and documentation are done.
 4. **Launch gates:** audit findings fixed, pen-test retest, legal sign-off,
    geo-restriction live, on-call staffed, incident drill done. Real assets
    only behind explicit per-asset limits, starting very small.
+5. **Easier funding, before real assets only** (owner request, 2026-11-10;
+   modelled on how Hyperliquid funds accounts). Both need real networks, so
+   neither is possible on the testnet:
+   - **Deposit addresses from other networks and assets.** A user gets an
+     address, sends USDC, ETH or BTC to it from an exchange or wallet on a
+     supported network, and a third-party service converts and bridges it to
+     the user's wallet on the vault network. Candidates: Privy's funding
+     features (the SDK we already use exports `useDepositAddress` and
+     `useFundWallet`) or Across.
+     - **Check before choosing:** terms, fees, supported networks and
+       countries, who can refund a wrong deposit, and how it fits the region
+       block.
+     - **Rules:**
+       - the service delivers to the user's own wallet, never to the vault
+         address;
+       - the user still presses Deposit, so the "direct transfers are lost"
+         rule (deposit guide) stays true;
+       - the minimum amount, the networks and the loss warnings are shown
+         before the address;
+       - the third party is named on the page.
+   - **Buy USDC with a card or Apple Pay / Google Pay** through a licensed
+     on-ramp provider.
+     - The provider performs its own KYC; the exchange still receives only
+       the wallet address.
+     - **Requires legal sign-off first.** It touches the no-KYC decision
+       (ADR-0013) and the region block (ADR-0024).
+     - The provider is named, and the platform never holds the fiat.
+   - **Each gets its own ADR** and is enabled per environment.
 
 ## Product track (product brief rev 2)
 
