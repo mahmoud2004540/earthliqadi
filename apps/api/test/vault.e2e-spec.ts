@@ -614,6 +614,13 @@ describe('non-custodial vault on the local chain', () => {
       expect(
         (await alice.http.post('/v1/vault/withdrawals', { asset: USD, amount: '30' })).status,
       ).toBe(201);
+
+      // Monitoring (ADR-0038): liveness of this vault as the alerts see it.
+      const health = await chain.vaultHealth();
+      expect(health).toMatchObject({ frozen: false, freezeDelaySeconds: 3600 });
+      expect(health!.commitAgeSeconds).toBeLessThan(60);
+      expect(health!.operatorGasEth).toBeGreaterThan(0);
+      expect(health!.indexerLagBlocks).toBeLessThan(10);
     },
     180_000,
   );

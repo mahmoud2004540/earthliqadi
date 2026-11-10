@@ -84,3 +84,56 @@ groups:
         annotations:
           summary: More than 50 identity verifications are waiting
           runbook: docs/operations/runbooks.md#compliance-queue-backlog
+  # Vault liveness (ADR-0038). A missed commit window lets ANYONE freeze the
+  # vault for good, and commits cost operator gas.
+  - name: exchange-vault
+    rules:
+      - alert: VaultFrozen
+        expr: exchange_vault_frozen == 1
+        for: 0m
+        labels: { severity: page }
+        annotations:
+          summary: The vault is frozen; users must use the escape hatch
+          runbook: docs/operations/runbooks.md#vault-frozen
+      - alert: VaultCommitLate
+        expr: exchange_vault_commit_age_seconds > 1800
+        for: 5m
+        labels: { severity: ticket }
+        annotations:
+          summary: No state commit for over 30 minutes
+          runbook: docs/operations/runbooks.md#vault-commit-late
+      - alert: VaultFreezeWindowAtRisk
+        expr: exchange_vault_commit_age_seconds > 0.1 * exchange_vault_freeze_delay_seconds
+        for: 0m
+        labels: { severity: page }
+        annotations:
+          summary: 10% of the freeze window has passed without a commit
+          runbook: docs/operations/runbooks.md#vault-commit-late
+      - alert: VaultReadFailing
+        expr: exchange_vault_read_ok == 0
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: The vault cannot be read from the chain (RPC down?)
+          runbook: docs/operations/runbooks.md#vault-read-failing
+      - alert: OperatorGasLow
+        expr: exchange_vault_operator_gas_eth < 0.01
+        for: 5m
+        labels: { severity: ticket }
+        annotations:
+          summary: 'The vault operator holds {{ $value }} ETH; top it up'
+          runbook: docs/operations/runbooks.md#operator-gas-low
+      - alert: OperatorGasCritical
+        expr: exchange_vault_operator_gas_eth < 0.002
+        for: 0m
+        labels: { severity: page }
+        annotations:
+          summary: 'The vault operator holds {{ $value }} ETH; commits will fail'
+          runbook: docs/operations/runbooks.md#operator-gas-low
+      - alert: ChainIndexerLagging
+        expr: exchange_chain_indexer_lag_blocks > 200
+        for: 10m
+        labels: { severity: ticket }
+        annotations:
+          summary: Deposits are being credited late (indexer behind the chain head)
+          runbook: docs/operations/runbooks.md#chain-indexer-lagging

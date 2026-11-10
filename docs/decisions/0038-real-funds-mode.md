@@ -59,8 +59,14 @@ checklist below is done.
 
 1. **Signer key in a KMS/HSM**, not a software key (audit-readiness O-1).
    _Not done: needs the owner's AWS account._
-2. **Alerts:** on commit lag and on the operator's ETH balance (O-2). A
-   missed commit window lets anyone freeze the vault for good.
+2. **Alerts (done; delivery still needs a destination):** the alert group
+   `exchange-vault` covers a frozen vault, a late commit, 10% of the freeze
+   window used, a failed vault read, low or critical operator gas, and
+   indexer lag. A missed commit window lets anyone freeze the vault for
+   good. The gauges are `exchange_vault_*` and
+   `exchange_chain_indexer_lag_blocks`, and the runbook sections are in
+   `runbooks.md`. Alertmanager needs a real receiver (e-mail, phone) set up
+   by the owner.
 3. **Legal pages:** the terms, the privacy policy (naming Privy if email
    wallets are on) and the legal entity, provided by counsel. The site
    currently says these are unpublished.

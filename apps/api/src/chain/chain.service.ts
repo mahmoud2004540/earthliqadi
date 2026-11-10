@@ -1481,6 +1481,43 @@ export class ChainService {
     };
   }
 
+  /**
+   * Liveness of the vault for monitoring (ADR-0038): a missed commit window
+   * lets anyone freeze the vault for good, and commits need operator gas.
+   * Null when no vault is deployed.
+   */
+  async vaultHealth(): Promise<{
+    commitAgeSeconds: number;
+    freezeDelaySeconds: number;
+    frozen: boolean;
+    operatorGasEth: number;
+    indexerLagBlocks: number;
+  } | null> {
+    const d = await this.deployment();
+    if (!d) return null;
+    const read = (functionName: string) =>
+      this.rpc().readContract({
+        address: d.vaultAddress as Hex,
+        abi: VAULT_ABI as never,
+        functionName,
+      });
+    const [lastCommitAt, freezeDelay, frozen, head, gas, cursor] = await Promise.all([
+      read('lastCommitAt') as Promise<bigint>,
+      read('freezeDelay') as Promise<bigint>,
+      read('frozen') as Promise<boolean>,
+      this.rpc().getBlock(),
+      this.rpc().getBalance({ address: getAddress(d.operatorAddress) }),
+      this.prisma.chainCursor.findUnique({ where: { chainId: d.chainId } }),
+    ]);
+    return {
+      commitAgeSeconds: Math.max(0, Number(head.timestamp - lastCommitAt)),
+      freezeDelaySeconds: Number(freezeDelay),
+      frozen,
+      operatorGasEth: Number(gas) / 1e18, // monitoring only
+      indexerLagBlocks: cursor ? Math.max(0, Number(head.number - cursor.lastBlock)) : 0,
+    };
+  }
+
   /** The user's own wallet balances on the vault network (not exchange balances). */
   async walletBalances(userId: string): Promise<WalletBalancesDto> {
     const d = await this.requireDeployment();

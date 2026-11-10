@@ -103,6 +103,48 @@ escalate. Never edit chain records by hand.
 reorg or an RPC returning stale data, re-run the indexer, and halt vault-backed
 markets if the difference persists.
 
+## Vault frozen
+
+Someone called `freeze()` after the operator stopped committing for the
+freeze delay. **It cannot be undone.**
+
+1. Announce it on the status page: users withdraw on their own with
+   `escape` (their downloaded proof) and `escapeDeposit`. Signed but
+   unsubmitted withdrawals stay payable (`withdrawAfterFreeze`).
+2. Stop trading and withdrawals in the backend: the contract refuses them
+   anyway.
+3. Find why commits stopped (see the next section) before any new
+   deployment.
+
+## Vault commit late
+
+The state committer has not committed for a while. After `freezeDelay`
+seconds (7 days by default) anyone can freeze the vault.
+
+1. Check the API logs for `commitState` errors and `exchange_chain_failures_total`.
+2. Check the operator's gas (`exchange_vault_operator_gas_eth`) and the
+   signer service.
+3. Run `chain commit` by hand once the cause is fixed. It is safe to retry.
+
+## Vault read failing
+
+The API cannot read the vault, which usually means the RPC is down or
+rate-limited. Deposits are not credited and commits may fail. Switch to the
+backup RPC provider (`CHAIN_RPC_URL`). If the outage lasts, the commit-late
+alerts follow.
+
+## Operator gas low
+
+The operator wallet pays gas for commits and treasury relays. Send ETH on
+the vault's network to the operator address shown in Admin → Treasury, or in
+`chain_deployments.operator_address`. Never send it from a customer wallet.
+
+## Chain indexer lagging
+
+Deposits are credited late. Check the RPC (rate limits) and the indexer
+logs. A `ChainInvariantError` means indexing halted on purpose (see "Vault
+indexer halted").
+
 ## Backups
 
 Run `scripts/backup.sh` on schedule and `scripts/restore-drill.sh <dump>` at
