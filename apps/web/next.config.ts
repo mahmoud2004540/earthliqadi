@@ -1,28 +1,15 @@
 import { parseEnv, webEnvSchema } from '@platform/config';
+import { TEST_NETWORKS } from '@platform/shared';
 import type { NextConfig } from 'next';
 import path from 'node:path';
+import { buildCsp } from './src/lib/csp';
 
 const env = parseEnv(webEnvSchema);
 const isDev = env.NODE_ENV !== 'production';
 
-/**
- * Content Security Policy. Next.js App Router injects inline bootstrap
- * scripts, so 'unsafe-inline' is required for scripts until nonce-based CSP is
- * adopted (tracked in docs/security/threat-model.md). Everything else is
- * locked to same-origin; the API is reached through the /api rewrite.
- */
-const csp = [
-  "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data:",
-  "font-src 'self'",
-  `connect-src 'self'${isDev ? ' ws:' : ''}`,
-  "frame-ancestors 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "object-src 'none'",
-].join('; ');
+// Email wallets (ADR-0035) are enabled by setting a Privy app id at build time.
+const privy = Boolean(env.NEXT_PUBLIC_PRIVY_APP_ID);
+const csp = buildCsp({ isDev, privy, rpcUrls: TEST_NETWORKS.map((n) => n.rpcUrl) });
 
 const securityHeaders = [
   { key: 'Content-Security-Policy', value: csp },
@@ -45,7 +32,10 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: path.join(__dirname, '../../'),
   poweredByHeader: false,
   reactStrictMode: true,
-  env: { NEXT_PUBLIC_BRAND_NAME: env.NEXT_PUBLIC_BRAND_NAME },
+  env: {
+    NEXT_PUBLIC_BRAND_NAME: env.NEXT_PUBLIC_BRAND_NAME,
+    NEXT_PUBLIC_PRIVY_APP_ID: env.NEXT_PUBLIC_PRIVY_APP_ID ?? '',
+  },
   headers: () => Promise.resolve([{ source: '/:path*', headers: securityHeaders }]),
   // Development only: proxy /api to the API so cookies stay first-party.
   // In every other environment the edge proxy routes /api directly to the API

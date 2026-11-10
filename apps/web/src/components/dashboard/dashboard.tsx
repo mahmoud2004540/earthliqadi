@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardDescription } from '@/components/ui/card';
+import { useEmailWallet } from '@/components/wallet/email-wallet';
 import type { Dictionary } from '@/i18n';
 import { ApiError, api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -26,6 +27,7 @@ export function Dashboard({ t }: { t: Dictionary }) {
   const [tab, setTab] = useState<Tab>('overview');
 
   const [version, setVersion] = useState(0);
+  const email = useEmailWallet();
   const reload = useCallback(() => setVersion((v) => v + 1), []);
 
   useEffect(() => {
@@ -44,6 +46,8 @@ export function Dashboard({ t }: { t: Dictionary }) {
 
   async function logout() {
     await api('/v1/auth/logout', { method: 'POST' }).catch(() => undefined);
+    // Also end the email-wallet session, so the next person on this browser starts clean.
+    await email.logout().catch(() => undefined);
     router.replace('/login');
     router.refresh();
   }

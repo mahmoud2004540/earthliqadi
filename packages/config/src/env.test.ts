@@ -157,4 +157,15 @@ describe('webEnvSchema', () => {
   it('provides a neutral brand default', () => {
     expect(parseEnv(webEnvSchema, {}).NEXT_PUBLIC_BRAND_NAME).toBe('Exchange');
   });
+
+  it('accepts a Privy app id, and refuses anything that is not one', () => {
+    expect(parseEnv(webEnvSchema, {}).NEXT_PUBLIC_PRIVY_APP_ID).toBeUndefined();
+    expect(
+      parseEnv(webEnvSchema, { NEXT_PUBLIC_PRIVY_APP_ID: 'cm1abcdefgh0123456789xyz' })
+        .NEXT_PUBLIC_PRIVY_APP_ID,
+    ).toBe('cm1abcdefgh0123456789xyz');
+    expect(() =>
+      parseEnv(webEnvSchema, { NEXT_PUBLIC_PRIVY_APP_ID: 'https://x.example/?a=b' }),
+    ).toThrow(EnvValidationError);
+  });
 });

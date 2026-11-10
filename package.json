@@ -11,7 +11,7 @@
     "build": "pnpm -r --workspace-concurrency=1 run build",
     "build:packages": "pnpm --filter './packages/*' run build",
     "dev": "pnpm build:packages && pnpm -r --parallel --filter './apps/*' run dev",
-    "lint": "eslint . --max-warnings=0",
+    "lint": "NODE_OPTIONS=--max-old-space-size=6144 eslint . --max-warnings=0",
     "typecheck": "pnpm build:packages && pnpm -r run typecheck",
     "test": "pnpm build:packages && pnpm -r --filter '!@platform/e2e' run test",
     "test:integration": "pnpm build:packages && pnpm --filter @platform/api run test:integration",

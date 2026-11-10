@@ -454,6 +454,14 @@ export const webEnvSchema = z.object({
   API_INTERNAL_URL: z.string().url().default('http://localhost:4000'),
   /** Display brand. Temporary until the final brand is chosen; never used in business logic. */
   NEXT_PUBLIC_BRAND_NAME: z.string().min(1).max(40).default('Exchange'),
+  /**
+   * Privy app id for email wallets (ADR-0035). Public by design (it is shipped
+   * to browsers). Unset = only browser-extension wallets. Never the app secret.
+   */
+  NEXT_PUBLIC_PRIVY_APP_ID: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{8,64}$/, 'must be a Privy app id')
+    .optional(),
 });
 
 export type WebEnv = z.infer<typeof webEnvSchema>;

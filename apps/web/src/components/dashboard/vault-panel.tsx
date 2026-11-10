@@ -10,7 +10,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardTitle } from '@/components/ui/card';
 import { Input, Label } from '@/components/ui/input';
 import type { Dictionary } from '@/i18n';
+import { useEmailWallet } from '@/components/wallet/email-wallet';
 import { ApiError, api } from '@/lib/api';
+import { walletProvider, type Eip1193 } from '@/lib/wallet';
 
 const VAULT_ABI = parseAbi([
   'function deposit(address token, uint256 amount) returns (uint64)',
@@ -21,14 +23,6 @@ const ERC20_ABI = parseAbi([
   // Test tokens only (no value): anyone can mint up to a per-call limit.
   'function mint(address to, uint256 amount)',
 ]);
-
-interface Eip1193 {
-  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
-}
-
-function eth(): Eip1193 | null {
-  return (window as unknown as { ethereum?: Eip1193 }).ethereum ?? null;
-}
 
 type Msg = { tone: 'error' | 'success' | 'info'; text: string } | null;
 
@@ -46,6 +40,8 @@ function message(err: unknown): string {
  */
 export function VaultPanel({ t, walletAddress }: { t: Dictionary; walletAddress: string | null }) {
   const v = t.vault;
+  const email = useEmailWallet();
+  const [copied, setCopied] = useState(false);
   const [config, setConfig] = useState<VaultConfigDto | null>(null);
   const [withdrawals, setWithdrawals] = useState<WithdrawalDto[]>([]);
   const [asset, setAsset] = useState('');
@@ -151,7 +147,7 @@ export function VaultPanel({ t, walletAddress }: { t: Dictionary; walletAddress:
   const deposit = (e: FormEvent) => {
     e.preventDefault();
     void run(async () => {
-      const provider = eth();
+      const provider = await walletProvider(walletAddress, config.chainId ?? undefined);
       if (!provider || !token) throw new Error(v.noWallet);
       const units = parseUnits(amount, token.decimals);
       if (token.depositCap) {
@@ -194,7 +190,7 @@ export function VaultPanel({ t, walletAddress }: { t: Dictionary; walletAddress:
 
   const submitWithdrawal = (w: WithdrawalDto) =>
     run(async () => {
-      const provider = eth();
+      const provider = await walletProvider(walletAddress, config.chainId ?? undefined);
       if (!provider) throw new Error(v.noWallet);
       const from = await ensureChain(provider);
       const c = w.call.withdrawal;
@@ -284,7 +280,7 @@ export function VaultPanel({ t, walletAddress }: { t: Dictionary; walletAddress:
               disabled={busy}
               onClick={() =>
                 void run(async () => {
-                  const provider = eth();
+                  const provider = await walletProvider(walletAddress, config.chainId ?? undefined);
                   if (!provider) throw new Error(v.noWallet);
                   const from = await ensureChain(provider);
                   for (const x of config.tokens) {
@@ -335,6 +331,44 @@ export function VaultPanel({ t, walletAddress }: { t: Dictionary; walletAddress:
         )}{' '}
         · {config.network?.name ?? `chain ${config.chainId}`}
       </p>
+      {email.address && email.address.toLowerCase() === walletAddress.toLowerCase() && (
+        <div
+          className="space-y-2 rounded-md border border-border p-3"
+          data-testid="email-wallet-card"
+        >
+          <p className="text-sm font-medium">{v.emailWalletTitle}</p>
+          <p className="break-all font-mono text-xs">{email.address}</p>
+          <p className="text-xs text-muted">
+            {v.emailWalletHelp.replace(
+              '{network}',
+              config.network?.name ?? `chain ${config.chainId}`,
+            )}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                void navigator.clipboard.writeText(email.address ?? '').then(() => setCopied(true))
+              }
+            >
+              {copied ? v.copied : v.copy}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                void email
+                  .exportKey()
+                  .catch((err: unknown) => setMsg({ tone: 'error', text: message(err) }))
+              }
+            >
+              {v.exportKey}
+            </Button>
+          </div>
+          <p className="text-xs text-muted">{v.exportHelp}</p>
+        </div>
+      )}
       {config.selfMint && config.network?.gasFaucetInfo && (
         <p className="text-xs text-muted" data-testid="gas-help">
           {v.gasHelp.replace('{gas}', config.network.gasFaucetInfo)}

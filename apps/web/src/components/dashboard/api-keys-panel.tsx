@@ -9,14 +9,7 @@ import { Card, CardDescription, CardTitle } from '@/components/ui/card';
 import { Input, Label } from '@/components/ui/input';
 import type { Dictionary } from '@/i18n';
 import { ApiError, api } from '@/lib/api';
-
-interface Eip1193 {
-  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
-}
-
-function toHex(text: string): string {
-  return `0x${Array.from(new TextEncoder().encode(text), (b) => b.toString(16).padStart(2, '0')).join('')}`;
-}
+import { toHex, walletProvider } from '@/lib/wallet';
 
 /**
  * Agent API keys (ADR-0017). The bot generates an Ed25519 key pair and keeps
@@ -49,7 +42,7 @@ export function ApiKeysPanel({
 
   async function create(e: FormEvent) {
     e.preventDefault();
-    const eth = (window as unknown as { ethereum?: Eip1193 }).ethereum;
+    const eth = await walletProvider(walletAddress);
     if (!eth || !walletAddress) {
       setMsg({ tone: 'error', text: k.needWallet });
       return;

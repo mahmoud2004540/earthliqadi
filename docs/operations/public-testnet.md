@@ -107,6 +107,29 @@ docker compose exec api node dist/cli/grant-role.js --email you@… --role admin
 Enable MFA when asked. A second staff member is needed for approvals: a
 deposit-limit change, a treasury withdrawal or a role grant.
 
+## 4b. Email wallets (optional, ADR-0035)
+
+Lets people without a browser wallet sign up with an e-mail address. Privy
+creates the wallet; the exchange receives only its address.
+
+1. Create an app at privy.io (check its current plans and terms yourself).
+2. In the Privy dashboard:
+   - **Login methods:** e-mail only.
+   - **Embedded wallets:** Ethereum, create on login for users without a wallet.
+   - **Allowed domains:** `https://your-domain.example` only (add `www.` if you use it).
+3. Put the **App ID** in `.env` as `NEXT_PUBLIC_PRIVY_APP_ID`. It is public by
+   design. **Never** put the Privy **App Secret** in `.env`, the repository or a
+   chat: the exchange does not use it.
+4. Rebuild the web image, because the id is baked in at build time:
+   `docker compose up --build -d web`.
+5. Check: `/connect` shows **No wallet? Continue with email**; sign up with a
+   test inbox; Dashboard → Balances shows **Your email wallet**; mint, deposit
+   and withdraw work as with an extension wallet; **Export private key** opens
+   Privy's window.
+
+Email wallets work on the public test networks only, not on the local Anvil
+chain.
+
 ## 5. Check
 
 - [ ] `https://your-domain.example/status` shows all components operational.

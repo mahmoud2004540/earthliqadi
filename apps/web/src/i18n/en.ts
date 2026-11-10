@@ -189,7 +189,7 @@ export const en = {
       sections: [
         {
           heading: '1. Use your own wallet',
-          body: 'Deposits come from a browser wallet you control, such as MetaMask. Sign in with that wallet. The exchange does not hold your keys and cannot move your wallet funds.',
+          body: 'Deposits come from a wallet you control: a browser wallet such as MetaMask, or, where offered, an email wallet created for you by Privy when you choose "Continue with email". The exchange does not hold your keys and cannot move your wallet funds. An email wallet\'s address is shown in Dashboard → Balances, and you can export its private key there.',
         },
         {
           heading: '2. Be on the right network',
@@ -429,6 +429,14 @@ export const en = {
     directWarning:
       'Deposit only with the Deposit button below, on {network}. Tokens sent straight to the vault address, from another wallet or an exchange, are not credited to any account and cannot be returned.',
     guideLink: 'How to deposit',
+    emailWalletTitle: 'Your email wallet',
+    emailWalletHelp:
+      'Created by Privy when you signed up with email. It can receive tokens on {network} at this address. Before you deposit, keep a little test ETH in it for network fees.',
+    copy: 'Copy address',
+    copied: 'Copied',
+    exportKey: 'Export private key',
+    exportHelp:
+      'Shows the private key only to you, in a Privy window. Anyone with the key controls the wallet: store it offline and never share it.',
     depositCapFull:
       'This deposit would exceed the vault launch limit. At most {room} {asset} can be deposited right now.',
     withdrawalSent:
@@ -446,8 +454,7 @@ export const en = {
   },
   wallet: {
     title: 'Connect your wallet',
-    intro:
-      'Sign in with an Ethereum wallet. No email, no password and no identity documents: your wallet address is your account.',
+    intro: 'Your wallet address is your account. No password and no identity documents.',
     connect: 'Connect wallet',
     waiting: 'Check your wallet…',
     statement:
@@ -462,6 +469,11 @@ export const en = {
       'Pre-launch: test chain only until the contract audit and legal review are complete.',
     ],
     staff: 'Staff sign-in (email, password and authenticator)',
+    email: 'No wallet? Continue with email',
+    emailCancelled: 'Email sign-in was closed before it finished.',
+    emailUnavailable: 'Email sign-in is unavailable right now. Try again later, or use a wallet.',
+    emailHelp:
+      'Privy, an external wallet provider, creates a wallet for you from your email address. The exchange receives only the wallet address, never your email. Privy states that neither it nor the exchange can use the wallet without you. You can export its private key at any time.',
   },
   admin: {
     title: 'Admin console',

@@ -17,6 +17,7 @@ outside engineering. **No item marked external has been done or is claimed.**
 | Smart-contract audit of `ExchangeVault`                         | External                                  |
 | Contract-level deposit cap (launch guard, ADR-0033)             | Done                                      |
 | Public testnet support, reorg halt, 5+ confirmations (ADR-0034) | Done; hosting is external (owner)         |
+| Email wallets via Privy, optional (ADR-0035)                    | Done; Privy account is external (owner)   |
 | Penetration test (web, API, admin, signer)                      | External                                  |
 | Bug bounty programme                                            | External                                  |
 | Secrets in a secret manager with rotation                       | To do (Phase 10 infra)                    |

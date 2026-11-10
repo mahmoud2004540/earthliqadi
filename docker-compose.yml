@@ -116,6 +116,7 @@ services:
       dockerfile: infrastructure/docker/web.Dockerfile
       args:
         NEXT_PUBLIC_BRAND_NAME: ${NEXT_PUBLIC_BRAND_NAME:-Exchange}
+        NEXT_PUBLIC_PRIVY_APP_ID: ${NEXT_PUBLIC_PRIVY_APP_ID:-}
     image: exchange-platform/web:dev
     read_only: true
     tmpfs: [/tmp, /app/apps/web/.next/cache]
