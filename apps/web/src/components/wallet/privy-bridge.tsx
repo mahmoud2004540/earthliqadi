@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  PrivyErrorCode,
   PrivyProvider,
   useExportWallet,
   useLogin,
@@ -46,11 +45,10 @@ function Bridge({ children }: { children: ReactNode }) {
   const { exportWallet } = useExportWallet();
   const waiter = useRef<Waiter | null>(null);
   const { login } = useLogin({
+    // PrivyErrorCode is a type-only export at runtime, so compare its string value.
     onError: (err) => {
       waiter.current?.reject(
-        new EmailWalletError(
-          err === PrivyErrorCode.USER_EXITED_AUTH_FLOW ? 'cancelled' : 'unavailable',
-        ),
+        new EmailWalletError(String(err) === 'exited_auth_flow' ? 'cancelled' : 'unavailable'),
       );
       waiter.current = null;
     },

@@ -147,6 +147,15 @@ describe('non-custodial vault on the local chain', () => {
       const key = generatePrivateKey();
       const user = await signInWallet(key);
       expect((await user.http.post('/v1/vault/faucet', {})).status).toBe(200);
+      // The wallet's own balances (ADR-0036): what the faucet just sent, before any deposit.
+      const own = await user.http.get('/v1/vault/wallet');
+      expect(own.status).toBe(200);
+      expect(own.body).toMatchObject({
+        address: privateKeyToAccount(key).address,
+        chainId: 31337,
+        gas: '1',
+        tokens: [{ asset: USD, balance: '1000' }],
+      });
       const wallet = createWalletClient({
         account: privateKeyToAccount(key),
         transport: http(RPC),

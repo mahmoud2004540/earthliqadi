@@ -7,6 +7,7 @@ import {
   TEST_NETWORKS,
   testNetwork,
   type VaultConfigDto,
+  type WalletBalancesDto,
   type VaultProofDto,
   type WithdrawalDto,
   type TreasuryDto,
@@ -1248,6 +1249,37 @@ export class ChainService {
       faucet: this.config.CHAIN_FAUCET_ENABLED && d.chainId === 31337,
       network: testNetwork(d.chainId),
       selfMint: d.chainId !== 31337,
+      confirmations: this.config.CHAIN_CONFIRMATIONS,
+    };
+  }
+
+  /** The user's own wallet balances on the vault network (not exchange balances). */
+  async walletBalances(userId: string): Promise<WalletBalancesDto> {
+    const d = await this.requireDeployment();
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    if (!user.walletAddress) throw conflict('Sign in with a wallet first');
+    const wallet = getAddress(user.walletAddress);
+    const assets = await this.vaultAssets(d);
+    const [gas, ...balances] = await Promise.all([
+      this.rpc().getBalance({ address: wallet }),
+      ...assets.map(
+        (a) =>
+          this.rpc().readContract({
+            address: a.chainTokenAddress as Hex,
+            abi: TOKEN_ABI as never,
+            functionName: 'balanceOf',
+            args: [wallet] as never,
+          }) as Promise<bigint>,
+      ),
+    ]);
+    return {
+      address: wallet,
+      chainId: d.chainId,
+      gas: formatAmountTrimmed(gas, 18),
+      tokens: assets.map((a, i) => ({
+        asset: a.code,
+        balance: formatAmountTrimmed(balances[i]!, a.scale),
+      })),
     };
   }
 

@@ -1,8 +1,15 @@
 'use client';
 
-import type { VaultConfigDto, VaultProofDto, WithdrawalDto } from '@platform/shared';
+import type {
+  VaultConfigDto,
+  VaultProofDto,
+  WalletBalancesDto,
+  WithdrawalDto,
+} from '@platform/shared';
 import Link from 'next/link';
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import QRCode from 'qrcode';
+import { createPortal } from 'react-dom';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { encodeFunctionData, parseAbi, formatUnits, parseUnits, type Hex } from 'viem';
 import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -42,6 +49,12 @@ export function VaultPanel({ t, walletAddress }: { t: Dictionary; walletAddress:
   const v = t.vault;
   const email = useEmailWallet();
   const [copied, setCopied] = useState(false);
+  // Deposit / withdraw sheet, modelled on the usual exchange flow (ADR-0036).
+  const [sheet, setSheet] = useState<null | 'menu' | 'transfer' | 'fiat' | 'withdraw'>(null);
+  const [walletTokens, setWalletTokens] = useState<WalletBalancesDto | null>(null);
+  const [arrived, setArrived] = useState<string | null>(null);
+  const [qr, setQr] = useState<string | null>(null);
+  const lastSeen = useRef<Map<string, string>>(new Map());
   const [config, setConfig] = useState<VaultConfigDto | null>(null);
   const [withdrawals, setWithdrawals] = useState<WithdrawalDto[]>([]);
   const [asset, setAsset] = useState('');
@@ -66,6 +79,49 @@ export function VaultPanel({ t, walletAddress }: { t: Dictionary; walletAddress:
   }, []);
   useEffect(load, [load]);
 
+  // While the transfer view is open, watch the wallet so arrivals show up.
+  useEffect(() => {
+    if (sheet !== 'transfer' || !walletAddress) return;
+    let active = true;
+    const poll = () =>
+      api<WalletBalancesDto>('/v1/vault/wallet')
+        .then((w) => {
+          if (!active) return;
+          for (const x of w.tokens) {
+            const before = lastSeen.current.get(x.asset);
+            if (before !== undefined && Number(x.balance) > Number(before))
+              setArrived(
+                t.vault.arrived.replaceAll('{asset}', x.asset).replace('{balance}', x.balance),
+              );
+            lastSeen.current.set(x.asset, x.balance);
+          }
+          setWalletTokens(w);
+        })
+        .catch(() => undefined);
+    void poll();
+    const id = setInterval(() => void poll(), 8000);
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+  }, [sheet, walletAddress, t.vault.arrived]);
+
+  // Escape closes the sheet, unless a wallet request is in progress.
+  useEffect(() => {
+    if (!sheet) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !busy) setSheet(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sheet, busy]);
+
+  // QR code of the wallet address, drawn locally (no third-party image service).
+  useEffect(() => {
+    if (!walletAddress) return;
+    void QRCode.toDataURL(walletAddress, { margin: 1, width: 400 }).then(setQr, () => setQr(null));
+  }, [walletAddress]);
+
   if (!config) return null;
   if (!config.enabled)
     return (
@@ -76,6 +132,8 @@ export function VaultPanel({ t, walletAddress }: { t: Dictionary; walletAddress:
     );
 
   const token = config.tokens.find((x) => x.asset === asset);
+  const networkName = config.network?.name ?? `chain ${config.chainId}`;
+  const walletBalance = walletTokens?.tokens.find((x) => x.asset === asset)?.balance;
 
   async function ensureChain(provider: Eip1193): Promise<string> {
     const [from] = (await provider.request({ method: 'eth_requestAccounts' })) as string[];
@@ -188,6 +246,32 @@ export function VaultPanel({ t, walletAddress }: { t: Dictionary; walletAddress:
     });
   };
 
+  const faucet = () =>
+    void run(async () => {
+      await api('/v1/vault/faucet', { method: 'POST', body: {} });
+      return v.faucetDone;
+    });
+
+  const mint = () =>
+    void run(async () => {
+      const provider = await walletProvider(walletAddress, config.chainId ?? undefined);
+      if (!provider) throw new Error(v.noWallet);
+      const from = await ensureChain(provider);
+      for (const x of config.tokens) {
+        await send(
+          provider,
+          from,
+          x.address,
+          encodeFunctionData({
+            abi: ERC20_ABI,
+            functionName: 'mint',
+            args: [from as Hex, 1000n * 10n ** BigInt(x.decimals)],
+          }),
+        );
+      }
+      return v.mintDone;
+    });
+
   const submitWithdrawal = (w: WithdrawalDto) =>
     run(async () => {
       const provider = await walletProvider(walletAddress, config.chainId ?? undefined);
@@ -259,46 +343,12 @@ export function VaultPanel({ t, walletAddress }: { t: Dictionary; walletAddress:
         </div>
         <div className="flex gap-2">
           {config.faucet && (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() =>
-                void run(async () => {
-                  await api('/v1/vault/faucet', { method: 'POST', body: {} });
-                  return v.faucetDone;
-                })
-              }
-            >
+            <Button size="sm" variant="outline" disabled={busy} onClick={faucet}>
               {v.faucet}
             </Button>
           )}
           {config.selfMint && (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() =>
-                void run(async () => {
-                  const provider = await walletProvider(walletAddress, config.chainId ?? undefined);
-                  if (!provider) throw new Error(v.noWallet);
-                  const from = await ensureChain(provider);
-                  for (const x of config.tokens) {
-                    await send(
-                      provider,
-                      from,
-                      x.address,
-                      encodeFunctionData({
-                        abi: ERC20_ABI,
-                        functionName: 'mint',
-                        args: [from as Hex, 1000n * 10n ** BigInt(x.decimals)],
-                      }),
-                    );
-                  }
-                  return v.mintDone;
-                })
-              }
-            >
+            <Button size="sm" variant="outline" disabled={busy} onClick={mint}>
               {v.mint}
             </Button>
           )}
@@ -369,61 +419,289 @@ export function VaultPanel({ t, walletAddress }: { t: Dictionary; walletAddress:
           <p className="text-xs text-muted">{v.exportHelp}</p>
         </div>
       )}
-      {config.selfMint && config.network?.gasFaucetInfo && (
-        <p className="text-xs text-muted" data-testid="gas-help">
-          {v.gasHelp.replace('{gas}', config.network.gasFaucetInfo)}
-        </p>
-      )}
-      <Alert tone="warning" data-testid="direct-transfer-warning">
-        {v.directWarning.replace('{network}', config.network?.name ?? `chain ${config.chainId}`)}{' '}
-        <Link className="underline" href="/deposit-guide">
-          {v.guideLink}
-        </Link>
-      </Alert>
-      <form
-        className="grid gap-3 sm:grid-cols-[160px_1fr_auto_auto] sm:items-end"
-        onSubmit={deposit}
-      >
-        <div>
-          <Label htmlFor="vault-asset">{v.asset}</Label>
-          <select
-            id="vault-asset"
-            value={asset}
-            onChange={(e) => setAsset(e.target.value)}
-            className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm"
-          >
-            {config.tokens.map((x) => (
-              <option key={x.asset} value={x.asset}>
-                {x.asset}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <Label htmlFor="vault-amount">{v.amount}</Label>
-          <Input
-            id="vault-amount"
-            inputMode="decimal"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value.trim())}
-            dir="ltr"
-          />
-        </div>
-        <Button type="submit" disabled={busy || !amount}>
+      <div className="grid grid-cols-2 gap-3">
+        <Button onClick={() => setSheet('menu')} data-testid="open-deposit">
           {v.deposit}
         </Button>
-        <Button type="button" variant="outline" disabled={busy || !amount} onClick={withdraw}>
+        <Button variant="outline" onClick={() => setSheet('withdraw')} data-testid="open-withdraw">
           {v.withdraw}
         </Button>
-      </form>
-      {token?.depositCap && (
-        <p className="text-xs text-muted" data-testid="deposit-cap">
-          {v.depositCap
-            .replace('{cap}', token.depositCap)
-            .replace('{held}', token.held ?? '0')
-            .replaceAll('{asset}', token.asset)}
-        </p>
-      )}
+      </div>
+      {sheet &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="vault-sheet-title"
+            onClick={(e) => {
+              if (e.target === e.currentTarget && !busy) setSheet(null);
+            }}
+          >
+            <div
+              className="max-h-[92dvh] w-full max-w-lg space-y-4 overflow-y-auto rounded-t-2xl border border-border bg-surface p-5 sm:rounded-2xl"
+              data-testid={`sheet-${sheet}`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                {sheet !== 'menu' && sheet !== 'withdraw' ? (
+                  <button
+                    type="button"
+                    className="text-sm text-muted hover:text-foreground"
+                    onClick={() => setSheet('menu')}
+                    aria-label={v.back}
+                  >
+                    ‹ {v.back}
+                  </button>
+                ) : (
+                  <span />
+                )}
+                <button
+                  type="button"
+                  className="text-xl leading-none text-muted hover:text-foreground"
+                  onClick={() => setSheet(null)}
+                  disabled={busy}
+                  aria-label={v.close}
+                >
+                  ×
+                </button>
+              </div>
+              <h2 id="vault-sheet-title" className="text-2xl font-semibold tracking-tight">
+                {sheet === 'menu'
+                  ? v.deposit
+                  : sheet === 'transfer'
+                    ? v.transferTitle.replace('{asset}', asset).replace('{network}', networkName)
+                    : sheet === 'fiat'
+                      ? v.fiatTitle
+                      : v.withdraw}
+              </h2>
+
+              {sheet === 'menu' && (
+                <div className="space-y-3">
+                  <button
+                    type="button"
+                    className="w-full rounded-xl border border-border p-4 text-start hover:border-primary"
+                    onClick={() => setSheet('transfer')}
+                    data-testid="choose-transfer"
+                  >
+                    <span className="block text-lg font-medium">{v.transferOption}</span>
+                    <span className="block text-sm text-muted">{v.transferOptionHelp}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full rounded-xl border border-border p-4 text-start hover:border-primary"
+                    onClick={() => setSheet('fiat')}
+                    data-testid="choose-fiat"
+                  >
+                    <span className="flex items-center gap-2 text-lg font-medium">
+                      {v.fiatOption} <Badge tone="neutral">{v.atLaunch}</Badge>
+                    </span>
+                    <span className="block text-sm text-muted">{v.fiatOptionHelp}</span>
+                  </button>
+                </div>
+              )}
+
+              {sheet === 'fiat' && (
+                <div className="space-y-3 text-sm text-muted">
+                  {v.fiatNotYet.map((line) => (
+                    <p key={line}>{line}</p>
+                  ))}
+                </div>
+              )}
+
+              {sheet === 'transfer' && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
+                    <div>
+                      <Label htmlFor="vault-asset">{v.youSend}</Label>
+                      <select
+                        id="vault-asset"
+                        value={asset}
+                        onChange={(e) => setAsset(e.target.value)}
+                        className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm"
+                      >
+                        {config.tokens.map((x) => (
+                          <option key={x.asset} value={x.asset}>
+                            {x.asset}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <span className="pb-2 text-sm text-muted">{v.on}</span>
+                    <div>
+                      <Label htmlFor="vault-network">{v.network}</Label>
+                      <select
+                        id="vault-network"
+                        disabled
+                        className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm"
+                      >
+                        <option>{networkName}</option>
+                      </select>
+                    </div>
+                  </div>
+                  {qr && (
+                    // A local data: URL; next/image would add nothing here.
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={qr}
+                      alt={v.qrAlt}
+                      width={200}
+                      height={200}
+                      className="mx-auto rounded-md bg-white p-2"
+                      data-testid="deposit-qr"
+                    />
+                  )}
+                  <div>
+                    <p className="text-sm text-muted">{v.yourAddress}</p>
+                    <button
+                      type="button"
+                      className="mt-1 w-full break-all rounded-md bg-background px-3 py-3 text-start font-mono text-sm"
+                      onClick={() =>
+                        void navigator.clipboard
+                          .writeText(walletAddress)
+                          .then(() => setCopied(true))
+                      }
+                      data-testid="deposit-address"
+                    >
+                      {walletAddress}{' '}
+                      <span className="text-muted">· {copied ? v.copied : v.copy}</span>
+                    </button>
+                    <p className="mt-1 text-xs text-muted">{v.yourAddressHelp}</p>
+                  </div>
+                  <dl className="space-y-2 rounded-md border border-border p-3 text-sm">
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-muted">{v.inWallet}</dt>
+                      <dd className="font-mono" data-testid="wallet-balance">
+                        {walletTokens?.tokens.find((x) => x.asset === asset)?.balance ?? '…'}{' '}
+                        {asset}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-muted">{v.gasInWallet}</dt>
+                      <dd className="font-mono">{walletTokens?.gas ?? '…'} ETH</dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-muted">{v.youReceive}</dt>
+                      <dd>{v.youReceiveValue.replace('{asset}', asset)}</dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-muted">{v.processing}</dt>
+                      <dd>{v.processingValue.replace('{n}', String(config.confirmations ?? 0))}</dd>
+                    </div>
+                  </dl>
+                  {arrived && (
+                    <Alert tone="success" data-testid="arrived">
+                      {arrived}
+                    </Alert>
+                  )}
+                  <form
+                    className="grid grid-cols-[1fr_auto_auto] items-end gap-2"
+                    onSubmit={deposit}
+                  >
+                    <div>
+                      <Label htmlFor="vault-amount">{v.amount}</Label>
+                      <Input
+                        id="vault-amount"
+                        inputMode="decimal"
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value.trim())}
+                        placeholder={walletTokens?.tokens.find((x) => x.asset === asset)?.balance}
+                        dir="ltr"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={busy || !walletBalance || walletBalance === '0'}
+                      onClick={() => setAmount(walletBalance ?? '')}
+                    >
+                      {v.max}
+                    </Button>
+                    <Button type="submit" disabled={busy || !amount} data-testid="move-to-exchange">
+                      {v.moveToExchange}
+                    </Button>
+                  </form>
+                  {token?.depositCap && (
+                    <p className="text-xs text-muted" data-testid="deposit-cap">
+                      {v.depositCap
+                        .replace('{cap}', token.depositCap)
+                        .replace('{held}', token.held ?? '0')
+                        .replaceAll('{asset}', token.asset)}
+                    </p>
+                  )}
+                  {(config.selfMint || config.faucet) && (
+                    <p className="text-xs text-muted">
+                      {v.needTestTokens}{' '}
+                      <button
+                        type="button"
+                        className="underline"
+                        disabled={busy}
+                        onClick={() => void (config.faucet ? faucet() : mint())}
+                      >
+                        {config.faucet ? v.faucet : v.mint}
+                      </button>
+                      {config.selfMint &&
+                        config.network?.gasFaucetInfo &&
+                        ` ${v.gasHelp.replace('{gas}', config.network.gasFaucetInfo)}`}
+                    </p>
+                  )}
+                  <div
+                    className="rounded-md border border-negative/40 bg-negative/10 px-4 py-3 text-sm text-negative"
+                    data-testid="direct-transfer-warning"
+                  >
+                    {v.sendOnly.replace('{asset}', asset).replace('{network}', networkName)}{' '}
+                    <Link className="underline" href="/deposit-guide">
+                      {v.guideLink}
+                    </Link>
+                  </div>
+                </div>
+              )}
+
+              {sheet === 'withdraw' && (
+                <form className="space-y-3" onSubmit={(e) => (e.preventDefault(), withdraw())}>
+                  <div className="grid grid-cols-[120px_1fr] gap-2">
+                    <div>
+                      <Label htmlFor="withdraw-asset">{v.asset}</Label>
+                      <select
+                        id="withdraw-asset"
+                        value={asset}
+                        onChange={(e) => setAsset(e.target.value)}
+                        className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm"
+                      >
+                        {config.tokens.map((x) => (
+                          <option key={x.asset} value={x.asset}>
+                            {x.asset}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <Label htmlFor="withdraw-amount">{v.amount}</Label>
+                      <Input
+                        id="withdraw-amount"
+                        inputMode="decimal"
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value.trim())}
+                        dir="ltr"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted">
+                    {v.withdrawTo
+                      .replace('{address}', walletAddress)
+                      .replace('{network}', networkName)}
+                  </p>
+                  <Button type="submit" className="w-full" disabled={busy || !amount}>
+                    {v.withdraw}
+                  </Button>
+                </form>
+              )}
+
+              {msg && <Alert tone={msg.tone === 'info' ? 'warning' : msg.tone}>{msg.text}</Alert>}
+            </div>
+          </div>,
+          // Portal: an ancestor card must not become the containing block of the overlay.
+          document.body,
+        )}
       {msg && <Alert tone={msg.tone === 'info' ? 'warning' : msg.tone}>{msg.text}</Alert>}
       <ul className="list-disc space-y-1 ps-5 text-xs text-muted">
         {v.notes.map((n) => (

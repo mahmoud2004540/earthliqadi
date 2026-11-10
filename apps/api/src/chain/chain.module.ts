@@ -19,6 +19,7 @@ import {
   withdrawalRequestSchema,
   type TreasuryDto,
   type VaultConfigDto,
+  type WalletBalancesDto,
   type VaultProofDto,
   type WithdrawalDto,
 } from '@platform/shared';
@@ -76,6 +77,13 @@ export class VaultController {
   @RequirePermissions(PERMISSIONS.ACCOUNT_SELF_READ)
   proof(@CurrentAuth() auth: AuthContext): Promise<VaultProofDto> {
     return this.chain.proof(auth.user.id);
+  }
+
+  /** What the user's own wallet holds on the vault network (ADR-0036). */
+  @Get('wallet')
+  @RequirePermissions(PERMISSIONS.ACCOUNT_SELF_READ)
+  wallet(@CurrentAuth() auth: AuthContext): Promise<WalletBalancesDto> {
+    return this.chain.walletBalances(auth.user.id);
   }
 
   /** Local chain only: test gas and tokens. */

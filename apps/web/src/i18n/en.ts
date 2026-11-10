@@ -185,7 +185,7 @@ export const en = {
     depositGuide: {
       title: 'How to deposit',
       intro:
-        'Funds reach the exchange only through the Deposit button, from your own wallet, on the network shown in Dashboard → Balances. The platform is currently a testnet beta: it accepts only test tokens, which have no value. Real funds are not accepted.',
+        'Funds reach the exchange only through "Move to exchange", from your own wallet, on the network shown in Dashboard → Balances. The platform is currently a testnet beta: it accepts only test tokens, which have no value. Real funds are not accepted.',
       sections: [
         {
           heading: '1. Use your own wallet',
@@ -197,15 +197,15 @@ export const en = {
         },
         {
           heading: '3. Get the tokens into your wallet',
-          body: 'On the testnet, press "Mint test tokens" and get free test ETH for network fees from a public faucet. When real funds are supported, tokens bought elsewhere must first be withdrawn to your own wallet, on the vault network, before you deposit them.',
+          body: 'Open Dashboard → Balances → Deposit → Transfer crypto. It shows your wallet address as text and as a QR code: send tokens there on the network shown, from an exchange or another wallet. On the testnet, press "Mint test tokens" instead, and get free test ETH for network fees from a public faucet. The page shows when tokens arrive.',
         },
         {
-          heading: '4. Deposit',
-          body: 'Choose the asset and amount, then press Deposit. Your wallet asks you to sign twice: an approval, then the deposit. The balance is credited after the required block confirmations.',
+          heading: '4. Move to the exchange',
+          body: 'In the same view, enter the amount (or press Max), then press "Move to exchange". Your wallet asks you to confirm twice: an approval, then the deposit. The balance is credited after the required block confirmations.',
         },
         {
           heading: 'Never send tokens directly to the vault address',
-          body: 'A plain transfer to the vault address, from another wallet or from an exchange withdrawal, is not linked to any account. It is not credited, and the contract has no function to return it, so it is lost. Always use the Deposit button.',
+          body: 'A plain transfer to the vault address, from another wallet or from an exchange withdrawal, is not linked to any account. It is not credited, and the contract has no function to return it, so it is lost. Always use "Move to exchange".',
         },
         {
           heading: 'No card or bank deposits',
@@ -426,9 +426,43 @@ export const en = {
       'You pay network fees in {gas}, which is free from public testnet faucets. Test tokens and test ETH have no value and cannot be sent to a real exchange.',
     depositCap:
       'Launch limit: the vault accepts at most {cap} {asset} in total ({held} held now). Deposits beyond it are refused by the contract; withdrawals are never limited.',
-    directWarning:
-      'Deposit only with the Deposit button below, on {network}. Tokens sent straight to the vault address, from another wallet or an exchange, are not credited to any account and cannot be returned.',
     guideLink: 'How to deposit',
+    back: 'Back',
+    close: 'Close',
+    transferOption: 'Transfer crypto',
+    transferOptionHelp: 'Send from an exchange or another wallet to your wallet address.',
+    fiatOption: 'Buy with card',
+    fiatOptionHelp: 'Card · Apple Pay · Google Pay · Bank transfer',
+    atLaunch: 'At launch',
+    fiatTitle: 'Buy with card',
+    fiatNotYet: [
+      'Not available on the testnet: test tokens have no value and cannot be bought.',
+      'At launch, purchases will go through a licensed payment provider, named here, which verifies buyers itself. The exchange never holds your card details or your money; it only sees your wallet address.',
+      'This needs legal approval first, so there is no date yet.',
+    ],
+    transferTitle: 'Deposit {asset} on {network}',
+    youSend: 'You send',
+    on: 'on',
+    network: 'Network',
+    qrAlt: 'QR code of your wallet address',
+    yourAddress: 'Your wallet address (tap to copy)',
+    yourAddressHelp:
+      'This is your own wallet, not the vault. Tokens sent here stay in your wallet until you move them to the exchange below.',
+    inWallet: 'In your wallet',
+    gasInWallet: 'Network fee balance',
+    youReceive: 'You receive',
+    youReceiveValue: '{asset} in your exchange account',
+    processing: 'Processing',
+    processingValue: 'after {n} block confirmations',
+    arrived:
+      '{asset} arrived in your wallet: you now hold {balance} {asset}. Move it to the exchange below.',
+    moveToExchange: 'Move to exchange',
+    max: 'Max',
+    needTestTokens: 'No test tokens?',
+    sendOnly:
+      'Send only {asset} on {network}. Sending other assets, using another network, or sending to the vault address will result in a loss of funds.',
+    withdrawTo:
+      'Paid to your wallet {address} on {network}. From there you can send it wherever you like.',
     emailWalletTitle: 'Your email wallet',
     emailWalletHelp:
       'Created by Privy when you signed up with email. It can receive tokens on {network} at this address. Before you deposit, keep a little test ETH in it for network fees.',

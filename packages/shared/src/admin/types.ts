@@ -260,6 +260,20 @@ export interface VaultConfigDto {
   } | null;
   /** Public testnets: the test tokens can be minted from the user's own wallet. */
   selfMint?: boolean;
+  /** Blocks a deposit waits before it is credited. */
+  confirmations?: number;
+}
+
+/**
+ * What the signed-in wallet holds on the vault network, outside the exchange
+ * (ADR-0036). Used to offer "move to exchange" when tokens arrive.
+ */
+export interface WalletBalancesDto {
+  address: string;
+  chainId: number;
+  /** Native test ETH for network fees, as a decimal string. */
+  gas: string;
+  tokens: { asset: string; balance: string }[];
 }
 
 export interface WithdrawalDto {
