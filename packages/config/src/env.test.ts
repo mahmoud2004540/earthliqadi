@@ -147,6 +147,23 @@ describe('apiEnvSchema', () => {
     ).toBe(0);
   });
 
+  it('needs the SMTP account for real mail delivery', () => {
+    expect(() => parseEnv(apiEnvSchema, { ...localEnv, MAIL_TRANSPORT: 'smtp' })).toThrow(
+      /SMTP_HOST: required with MAIL_TRANSPORT=smtp/,
+    );
+    const smtp = {
+      ...productionEnv,
+      MAIL_TRANSPORT: 'smtp',
+      SMTP_HOST: 'smtp.invalid',
+      SMTP_USER: 'u',
+      SMTP_PASSWORD: 'p',
+    };
+    expect(() => parseEnv(apiEnvSchema, smtp)).not.toThrow(/MAIL_TRANSPORT|SMTP_/);
+    expect(() => parseEnv(apiEnvSchema, { ...smtp, MAIL_TRANSPORT: 'log' })).toThrow(
+      /MAIL_TRANSPORT: development-only/,
+    );
+  });
+
   it('allows real-value networks only in production, with 20+ confirmations (ADR-0038)', () => {
     expect(() =>
       parseEnv(apiEnvSchema, {

@@ -213,7 +213,7 @@ services:
   alertmanager:
     profiles: ['monitoring']
     image: quay.io/prometheus/alertmanager@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba # v0.28.1
-    command: ['--config.file=/etc/alertmanager/alertmanager.yml']
+    command: ['--config.file=/etc/alertmanager/${ALERTMANAGER_CONFIG:-alertmanager.yml}']
     volumes:
       - ./infrastructure/monitoring/alertmanager:/etc/alertmanager:ro
     ports:

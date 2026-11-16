@@ -14,8 +14,8 @@ not described as implemented in the docs should be treated as absent.
 
 ## Functional gaps in what was built
 
-- **Email delivery:** only `log` (prints links) and `memory` (tests) transports.
-  Staging and production refuse to boot until a real provider is integrated.
+- **Email delivery:** `smtp` (TLS required) is the production transport; `log`
+  and `memory` are for development and tests only.
 - **MFA:** TOTP only. No recovery codes, no WebAuthn, no QR code rendering (the
   setup key is shown as text and the `otpauth://` URI is returned by the API).
 - **Account deletion** is handled manually through support (data export exists: `GET /v1/me/export`); ledger, trade and audit records have legal retention periods.

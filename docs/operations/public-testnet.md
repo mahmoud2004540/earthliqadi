@@ -32,7 +32,13 @@ NODE_ENV=production
 DEPLOY_ENV=staging
 WEB_ORIGIN=https://your-domain.example
 SESSION_COOKIE_SECURE=true
-MAIL_TRANSPORT=smtp            # plus the SMTP_* settings
+MAIL_TRANSPORT=smtp
+SMTP_HOST=smtp.your-provider.example
+SMTP_PORT=587                  # 465 with SMTP_SECURE=true
+SMTP_USER=…
+SMTP_PASSWORD=…
+MAIL_FROM="Exchange <no-reply@your-domain.example>"
+ALERT_EMAIL_TO=you@…           # monitoring alerts (scripts/monitoring-up.sh)
 STAFF_MFA_REQUIRED=true
 PII_ENCRYPTION_KEY=…           # 32 bytes, base64
 MFA_ENCRYPTION_KEY=…           # 32 bytes, base64

@@ -40,7 +40,7 @@ export const DEFAULT_RESTRICTED_SUBDIVISIONS = 'CA-ON,UA-43,UA-40,UA-14,UA-09';
 export const DEPLOY_ENVIRONMENTS = ['local', 'ci', 'staging', 'production'] as const;
 export type DeployEnvironment = (typeof DEPLOY_ENVIRONMENTS)[number];
 
-export const MAIL_TRANSPORTS = ['log', 'memory'] as const;
+export const MAIL_TRANSPORTS = ['log', 'memory', 'smtp'] as const;
 
 export const apiEnvSchema = z
   .object({
@@ -108,6 +108,13 @@ export const apiEnvSchema = z
 
     MAIL_TRANSPORT: z.enum(MAIL_TRANSPORTS).default('log'),
     MAIL_FROM: z.string().min(3).default('no-reply@localhost'),
+    /** SMTP delivery (MAIL_TRANSPORT=smtp). The password is a secret: env or secret manager only. */
+    SMTP_HOST: z.string().min(1).optional(),
+    SMTP_PORT: z.coerce.number().int().min(1).max(65_535).default(587),
+    /** true = implicit TLS (usually port 465); false = STARTTLS, which is then required. */
+    SMTP_SECURE: booleanString.default(false),
+    SMTP_USER: z.string().min(1).optional(),
+    SMTP_PASSWORD: z.string().min(1).optional(),
 
     SWAGGER_ENABLED: booleanString.default(false),
 
@@ -305,6 +312,15 @@ export const apiEnvSchema = z
     METRICS_TOKEN: z.string().min(32).optional(),
   })
   .superRefine((env, ctx) => {
+    if (env.MAIL_TRANSPORT === 'smtp') {
+      for (const key of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASSWORD'] as const)
+        if (!env[key])
+          ctx.addIssue({
+            code: 'custom',
+            path: [key],
+            message: 'required with MAIL_TRANSPORT=smtp',
+          });
+    }
     if (env.CHAIN_MAINNET) {
       if (env.DEPLOY_ENV !== 'production')
         ctx.addIssue({ code: 'custom', path: ['CHAIN_MAINNET'], message: 'production only' });
@@ -415,8 +431,7 @@ export const apiEnvSchema = z
         message: 'looks degenerate (e.g. all zero bytes); generate with `openssl rand -base64 32`',
       });
     }
-    // No production-grade mail transport is implemented yet (see docs/operations/known-issues.md).
-    // Refuse to boot rather than silently dropping or logging security emails.
+    // Security emails must really be delivered: the log/memory transports are for development.
     if (env.MAIL_TRANSPORT === 'log' || env.MAIL_TRANSPORT === 'memory') {
       ctx.addIssue({
         code: 'custom',

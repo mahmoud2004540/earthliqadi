@@ -19,3 +19,5 @@ tests/e2e/test-results
 # Database backups (contain personal data)
 backups/
 infrastructure/monitoring/prometheus/metrics-token
+infrastructure/monitoring/alertmanager/smtp-password
+infrastructure/monitoring/alertmanager/alertmanager.email.yml

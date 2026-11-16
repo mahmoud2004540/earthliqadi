@@ -73,7 +73,10 @@ checklist below is done.
 4. **Hosting:** production hosting with backups and monitoring
    (`docs/operations/*`), and a paid RPC provider. Base's public RPC is
    rate-limited and not for production.
-5. **A small initial cap,** raised step by step through maker-checker.
+5. **The initial cap:** the owner chose **100 000 USDC** on 2026-11-16. The
+   development team had suggested starting lower, about 5 000, and raising it
+   step by step; the cap is the maximum loss to an unknown contract bug. Step
+   by step: `docs/operations/mainnet-launch.md`.
 6. **A redeploy** of the vault from the reviewed commit, with
    `chain custody` OK afterwards.
 
